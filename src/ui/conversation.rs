@@ -17,6 +17,14 @@ use chrono::{TimeZone, Utc};
 // G4: /me action message prefix (XEP-0245)
 const ME_PREFIX: &str = "/me ";
 
+// M3: emoji picker data — common emoji grouped by category
+const EMOJI_LIST: &[(&str, &[&str])] = &[
+    ("Faces", &["😀","😂","😍","😎","🤔","😢","😡","🥳","😴","🤯"]),
+    ("Hands", &["👍","👎","👋","🤝","👏","🙏","✌️","🤞","👌","🤙"]),
+    ("Hearts", &["❤️","🧡","💛","💚","💙","💜","🖤","🤍","💔","❣️"]),
+    ("Objects", &["🎉","🔥","⭐","💡","🎵","📱","💻","🌈","🍕","☕"]),
+];
+
 fn is_me_action(body: &str) -> bool {
     body.len() >= ME_PREFIX.len()
         && body[..ME_PREFIX.len()].eq_ignore_ascii_case(ME_PREFIX)
@@ -56,6 +64,8 @@ pub struct ConversationView {
     /// G9: search state
     search_open: bool,
     search_query: String,
+    /// M3: emoji picker state
+    emoji_picker_open: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -75,6 +85,8 @@ pub enum Message {
     ToggleMute,              // J3: toggle notification mute
     SearchToggled,           // G9: toggle search bar
     SearchQueryChanged(String), // G9: search input changed
+    EmojiPickerToggled,      // M3: toggle emoji picker
+    EmojiSelected(String),   // M3: insert emoji into composer
 }
 
 impl ConversationView {
@@ -92,6 +104,7 @@ impl ConversationView {
             last_seen_count: 0,
             search_open: false,
             search_query: String::new(),
+            emoji_picker_open: false,
         }
     }
 
@@ -166,6 +179,15 @@ impl ConversationView {
             }
             Message::SearchQueryChanged(q) => {
                 self.search_query = q;
+                Task::none()
+            }
+            Message::EmojiPickerToggled => {
+                self.emoji_picker_open = !self.emoji_picker_open;
+                Task::none()
+            }
+            Message::EmojiSelected(emoji) => {
+                self.composer.push_str(&emoji);
+                self.emoji_picker_open = false;
                 Task::none()
             }
         }
@@ -389,7 +411,41 @@ impl ConversationView {
             button("Send")
         };
 
+        // M3: emoji picker panel (rendered above composer when open)
+        let emoji_panel: Option<Element<Message>> = if self.emoji_picker_open {
+            let mut picker_col: iced::widget::Column<Message> = column![].spacing(4).padding(6);
+            for (group_name, emojis) in EMOJI_LIST {
+                picker_col = picker_col.push(text(*group_name).size(11));
+                let mut row_acc: iced::widget::Row<Message> = row![].spacing(2);
+                for (i, emoji) in emojis.iter().enumerate() {
+                    let e = emoji.to_string();
+                    row_acc = row_acc.push(
+                        button(text(e.clone()).size(18))
+                            .on_press(Message::EmojiSelected(e))
+                            .padding([2, 4]),
+                    );
+                    if (i + 1) % 8 == 0 {
+                        picker_col = picker_col.push(row_acc);
+                        row_acc = row![].spacing(2);
+                    }
+                }
+                // push any remaining emoji in the last partial row
+                picker_col = picker_col.push(row_acc);
+            }
+            let panel = container(scrollable(picker_col).height(180))
+                .width(Length::Fill)
+                .padding([4, 8]);
+            Some(panel.into())
+        } else {
+            None
+        };
+
+        let emoji_btn = button(text("😊").size(14))
+            .on_press(Message::EmojiPickerToggled)
+            .padding([6, 8]);
+
         let composer_row = row![
+            emoji_btn,
             text_input("Type a message…", &self.composer)
                 .on_input(Message::ComposerChanged)
                 .on_submit(Message::Send)
@@ -470,6 +526,9 @@ impl ConversationView {
         let mut col = column![header, scroll_area, scroll_bar];
         if let Some(strip) = reply_strip {
             col = col.push(strip);
+        }
+        if let Some(panel) = emoji_panel {
+            col = col.push(panel);
         }
         col.push(composer_row).into()
     }
