@@ -13,6 +13,7 @@ pub mod chat;
 pub mod conversation;
 mod login;
 pub mod muc_panel;
+pub mod settings;
 pub mod sidebar;
 pub mod styling;
 pub mod toast;
@@ -49,12 +50,17 @@ pub enum Message {
     // J1: toast messages
     ShowToast(String, ToastKind),
     DismissToast(u64),
+    // F3: settings panel
+    GoToSettings,
+    Settings(settings::Message),
+    GoBack,
 }
 
 enum Screen {
     Login(LoginScreen),
     Benchmark(BenchmarkScreen),
     Chat(ChatScreen),
+    Settings(settings::SettingsScreen, Box<Screen>),
 }
 
 impl App {
@@ -100,6 +106,37 @@ impl App {
 
             Message::DismissToast(id) => {
                 self.toasts.retain(|t| t.id != id);
+                Task::none()
+            }
+
+            Message::GoToSettings => {
+                let prev = std::mem::replace(&mut self.screen, Screen::Login(LoginScreen::new()));
+                self.screen = Screen::Settings(
+                    settings::SettingsScreen::new(self.settings.clone()),
+                    Box::new(prev),
+                );
+                Task::none()
+            }
+
+            Message::GoBack => {
+                if let Screen::Settings(ref ss, _) = self.screen {
+                    self.settings = ss.settings().clone();
+                }
+                if let Screen::Settings(_, prev) = std::mem::replace(&mut self.screen, Screen::Login(LoginScreen::new())) {
+                    self.screen = *prev;
+                }
+                Task::none()
+            }
+
+            Message::Settings(smsg) => {
+                let go_back = matches!(smsg, settings::Message::Back);
+                if let Screen::Settings(ref mut ss, _) = self.screen {
+                    let _ = ss.update(smsg);
+                    self.settings = ss.settings().clone();
+                }
+                if go_back {
+                    return self.update(Message::GoBack);
+                }
                 Task::none()
             }
 
@@ -160,6 +197,10 @@ impl App {
             }
 
             Message::Chat(msg) => {
+                // F3: intercept OpenSettings before delegating
+                if let chat::Message::OpenSettings = msg {
+                    return self.update(Message::GoToSettings);
+                }
                 if let Screen::Chat(ref mut chat) = self.screen {
                     let task = chat.update(msg).map(Message::Chat);
                     let cmds = chat.drain_commands();
@@ -313,6 +354,7 @@ impl App {
             Screen::Login(login) => login.view().map(Message::Login),
             Screen::Benchmark(bench) => bench.view().map(Message::Benchmark),
             Screen::Chat(chat) => chat.view().map(Message::Chat),
+            Screen::Settings(ss, _) => ss.view().map(Message::Settings),
         };
 
         if self.toasts.is_empty() {
