@@ -21,9 +21,13 @@ run-release:
 test:
 	cargo test --bin xmpp-start -- --test-threads=1
 
-# Run integration tests only
+# Run integration tests only (no Docker needed)
 test-integration:
 	cargo test --test critical_flows -- --test-threads=1
+
+# Run e2e tests — starts a real XMPP server in Docker, tears it down after
+test-e2e:
+	cargo test --test e2e -- --ignored --test-threads=1
 
 # Lint with clippy (warnings are errors)
 lint:
