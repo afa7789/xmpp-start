@@ -23,7 +23,11 @@ use tokio_xmpp::{
     AsyncClient, AsyncConfig,
 };
 
-use super::{connection::ConnectConfig, IncomingMessage, RosterContact, XmppCommand, XmppEvent};
+use super::{
+    connection::ConnectConfig,
+    modules::stream_mgmt::StreamMgmt,
+    IncomingMessage, RosterContact, XmppCommand, XmppEvent,
+};
 
 // ---------------------------------------------------------------------------
 // Connection state machine  (P1.9)
@@ -116,10 +120,17 @@ async fn run_session(
     // Outbox for stanzas that need to be sent after a select! arm.
     let mut outbox: VecDeque<Element> = VecDeque::new();
     let mut reconnect_attempt: u32 = 0;
+    // C1: XEP-0198 stream management tracker
+    let mut sm = StreamMgmt::new();
 
     loop {
         // Drain outbox before blocking on the next event.
         while let Some(stanza) = outbox.pop_front() {
+            // C1: record sent stanza and check for queue desync
+            sm.on_stanza_sent(stanza.clone());
+            if sm.has_queue_desync() {
+                tracing::warn!("stream_mgmt: unacked queue desync (>50 pending)");
+            }
             if let Err(e) = client.send_stanza(stanza).await {
                 tracing::warn!("send_stanza failed: {e}");
             }
@@ -133,7 +144,7 @@ async fn run_session(
                         break;
                     }
                     Some(ev) => {
-                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt).await;
+                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm).await;
                     }
                 }
             }
@@ -174,6 +185,7 @@ async fn handle_client_event(
     event_tx: &mpsc::Sender<XmppEvent>,
     outbox: &mut VecDeque<Element>,
     reconnect_attempt: &mut u32,
+    sm: &mut StreamMgmt,
 ) {
     match ev {
         tokio_xmpp::Event::Online { bound_jid, .. } => {
@@ -208,6 +220,11 @@ async fn handle_client_event(
         }
 
         tokio_xmpp::Event::Stanza(el) => {
+            // C1: record inbound stanza and maybe send coalesced ack
+            sm.on_stanza_received();
+            if let Some(ack) = sm.maybe_send_ack() {
+                outbox.push_back(ack);
+            }
             dispatch_stanza(el, event_tx).await;
         }
     }
