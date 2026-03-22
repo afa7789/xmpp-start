@@ -508,25 +508,463 @@ These tasks touch isolated files and carry no blocking dependencies.
 
 ---
 
+## Phase G — Conversation UX (missing vs. fluux-messenger)
+
+### G1: Close / remove a conversation
+**Goal**: User can close an active conversation (removes it from the sidebar active
+list; history remains in DB).
+**Files touched**: `src/ui/chat.rs`, `src/ui/sidebar.rs`, `src/ui/conversation.rs`
+**Depends on**: nothing
+**Parallelizable with**: G2–G9
+**Steps**:
+1. Add a ✕ button to each conversation entry in the sidebar and to the chat header.
+2. On close, remove the JID from `conversations` map and clear `active_jid` if
+   it matches.
+3. Add `XmppCommand::CloseConversation(String)` variant so the engine can send a
+   directed unavailable presence to MUC rooms (reuse D3 logic).
+**Done when**: clicking ✕ closes the conversation; re-clicking the contact in the
+sidebar reopens it empty (history loads from DB via B4).
+
+### G2: Typing indicators — send & display (XEP-0085)
+**Goal**: "Alice is typing…" appears at the bottom of the conversation view; own
+composing state is sent to the peer.
+**Files touched**: `src/ui/conversation.rs`, `src/ui/chat.rs`, `src/xmpp/engine.rs`,
+`src/xmpp/mod.rs`
+**Depends on**: B1 ✅
+**Parallelizable with**: G1, G3
+**Steps**:
+1. Add `typing_peers: HashMap<String, Instant>` to `ChatScreen` (JID → last-typing
+   received timestamp); clear after 5 s.
+2. In `ConversationView::update(ComposerChanged)`, emit `Message::ComposingStarted`
+   when text is non-empty; `Message::ComposingPaused` when empty or after 2 s idle.
+3. Add `XmppCommand::SendChatState { to: String, state: ChatState }` (Active /
+   Composing / Paused).
+4. In the engine, handle incoming `<composing>` / `<paused>` elements and emit
+   `XmppEvent::PeerTyping { jid, composing: bool }`.
+5. In `ConversationView::view()`, if `typing_peers` contains the active JID and
+   timestamp < 5 s, render a "… is typing" row below the message list.
+**Done when**: starting to type sends `<composing>`; receiving one shows the indicator.
+
+### G3: Message replies (XEP-0461)
+**Goal**: Long-press / right-click a message shows "Reply"; composer shows a quote
+preview; sent message includes the `<reply>` element.
+**Files touched**: `src/ui/conversation.rs`, `src/xmpp/engine.rs`
+**Depends on**: nothing
+**Parallelizable with**: G1, G2
+**Steps**:
+1. Add `reply_to: Option<(String, String)>` (message-id, preview body) to
+   `ConversationView`.
+2. Add a "Reply" action button per message bubble; on press set `reply_to`.
+3. Render a quoted preview strip above the composer when `reply_to` is set.
+4. On Send, wrap body in XEP-0461 `<reply>` and `<fallback>` elements.
+5. When rendering received messages, detect `<reply>` and show the quoted preview.
+**Done when**: sending a reply includes the `<reply>` element; receiving one shows
+the quoted strip.
+
+### G4: /me action messages (XEP-0245)
+**Goal**: Messages starting with `/me ` are rendered as third-person action text
+("* Alice waves hello").
+**Files touched**: `src/ui/conversation.rs`
+**Depends on**: nothing
+**Steps**:
+1. In `build_styled_text` (or `ConversationView::view`), detect body starting with
+   `/me ` (case-insensitive).
+2. Strip the `/me ` prefix, prepend sender name, wrap in `* … *` italic style.
+3. Outgoing: send as a normal message body; no special stanza wrapping needed.
+**Done when**: `/me waves` renders as "* You wave *" in italic.
+
+### G5: Message grouping + date separators
+**Goal**: Consecutive messages from the same sender within 2 minutes are grouped
+(no repeated sender label); date changes insert a separator line.
+**Files touched**: `src/ui/conversation.rs`
+**Depends on**: nothing
+**Steps**:
+1. Add `timestamp: i64` to `DisplayMessage`.
+2. In `view()`, compare each message with the previous; suppress sender label when
+   same sender within 120 s.
+3. Insert a `text("— Today —")` / `"— Mar 22 —"` row when the date changes between
+   two consecutive messages.
+**Done when**: a conversation with multiple messages from the same sender collapses
+repeated sender labels and shows date dividers.
+
+### G6: Draft auto-save per conversation
+**Goal**: Switching conversations preserves the unsent text; returning restores it.
+**Files touched**: `src/ui/chat.rs`, `src/ui/conversation.rs`
+**Depends on**: nothing
+**Steps**:
+1. When `Message::Sidebar(SelectContact(new_jid))` is processed and the active
+   conversation changes, do NOT clear the composer — leave it as-is for next open.
+2. `ConversationView` already stores `composer: String`; the map entry persists it
+   naturally. No extra storage needed.
+3. Optionally persist drafts to a `drafts` table in SQLite across restarts.
+**Done when**: typing a draft, switching to another contact, switching back restores
+the draft.
+
+### G7: Copy message to clipboard
+**Goal**: Right-click (or toolbar icon) on a message copies the plain text body.
+**Files touched**: `src/ui/conversation.rs`
+**Depends on**: nothing
+**Steps**:
+1. Add a "Copy" button to the per-message action row (shown on hover).
+2. On press, use `iced::clipboard::write(body.clone())` to write to clipboard.
+**Done when**: clicking Copy places the message text in the OS clipboard.
+
+### G8: MAM lazy-load — scroll up to fetch older history
+**Goal**: Scrolling to the top of the message list triggers a MAM query for the
+next page of older messages.
+**Files touched**: `src/ui/conversation.rs`, `src/ui/chat.rs`, `src/ui/mod.rs`
+**Depends on**: C3, B4
+**Steps**:
+1. In `ConversationView::update(Scrolled(offset))`, if `offset.y < 50.0` and
+   `!loading_history`, emit `Message::RequestOlderHistory`.
+2. Bubble this up to `App`, which fires a `XmppCommand::FetchHistory { jid, before_id }`.
+3. Engine runs a MAM `before` query; results are emitted as `XmppEvent::MessageReceived`
+   (existing path) or a new batch variant.
+4. Prepend results to the conversation view; restore scroll position.
+**Done when**: scrolling to the top loads older messages without losing position.
+
+### G9: Message search within conversation
+**Goal**: A search bar in the chat header filters the visible message list.
+**Files touched**: `src/ui/conversation.rs`
+**Depends on**: nothing
+**Steps**:
+1. Add `search_query: String` and a toggle button to `ConversationView`.
+2. When query is non-empty, filter `messages` to those whose body contains the
+   query (case-insensitive).
+3. Highlight matching substring in the rendered body.
+**Done when**: typing in the search bar narrows the visible messages in real time.
+
+---
+
+## Phase H — Avatars & Contact Management
+
+### H1: Show user avatars (XEP-0084 + XEP-0153 fallback)
+**Goal**: Contact photos appear as small circles next to messages and in the sidebar.
+This is the feature the user specifically requested first.
+**Files touched**: `src/xmpp/engine.rs`, `src/ui/sidebar.rs`, `src/ui/conversation.rs`,
+`src/store/mod.rs`
+**Depends on**: C5 (PEP events in engine)
+**Parallelizable with**: H2–H5
+**Steps**:
+1. In the engine, on `Event::Stanza` detect PEP `<items node='urn:xmpp:avatar:data'>`;
+   call `AvatarManager::on_avatar_data_result()` and persist bytes to `avatar_cache`
+   table (`store::avatar_crop`).
+2. Emit `XmppEvent::AvatarUpdated { jid: String, data: Vec<u8> }`.
+3. In `App::update`, store avatar bytes in a `HashMap<String, Vec<u8>>` (or pass to
+   `ChatScreen`).
+4. In `SidebarScreen::view`, render a 32×32 `image::Handle::from_bytes` circle avatar
+   (or colored initials fallback — see H5) before the contact name.
+5. In `ConversationView::view`, render a 24×24 avatar bubble at the left of each
+   non-own message.
+**Done when**: contact avatars appear in the sidebar and in conversation bubbles;
+no avatar shows colored initials.
+
+### H2: Own avatar upload + publish (XEP-0084)
+**Goal**: User can set their profile picture from Settings; it is published via PEP
+so other clients see it.
+**Files touched**: `src/ui/mod.rs` (new SettingsScreen), `src/xmpp/engine.rs`
+**Depends on**: H1, F3
+**Steps**:
+1. Add a file-picker button in the Settings → Profile section.
+2. On file selected, open an in-app crop modal (basic: constrain to square).
+3. JPEG-encode to ≤ 192 KB; call `AvatarManager::build_publish_iq()` and push to outbox.
+4. Update local avatar cache immediately for own JID.
+**Done when**: uploading an avatar publishes it; own avatar appears in the app.
+
+### H3: Add / remove / rename contacts
+**Goal**: Buttons to add a new JID to roster, remove a contact, and rename the display name.
+**Files touched**: `src/ui/sidebar.rs`, `src/ui/chat.rs`, `src/xmpp/engine.rs`,
+`src/xmpp/mod.rs`
+**Depends on**: nothing
+**Steps**:
+1. Add `XmppCommand::AddContact(String)`, `XmppCommand::RemoveContact(String)`,
+   `XmppCommand::RenameContact { jid: String, name: String }`.
+2. Wire engine to send `<iq type='set'><query xmlns='jabber:iq:roster'>…</query></iq>`.
+3. Add an "Add contact" button + JID input modal in the sidebar header.
+4. Add rename / remove context actions per contact in the sidebar list.
+**Done when**: adding a JID subscribes presence and shows in roster; removing deletes it.
+
+### H4: Contact profile popover (vCard)
+**Goal**: Clicking a contact name shows a popover with avatar, full name, and JID.
+**Files touched**: `src/ui/sidebar.rs`, `src/xmpp/engine.rs`
+**Depends on**: H1
+**Steps**:
+1. Add `XmppCommand::FetchVCard(String)` and `XmppEvent::VCardReceived { jid, name, email }`.
+2. Wire engine to send a `<vCard xmlns='vcard-temp'>` get IQ (XEP-0054).
+3. Show a floating popover in `SidebarScreen::view` for the selected contact.
+**Done when**: clicking a contact shows their name, avatar, and bare JID.
+
+### H5: Consistent avatar colors (XEP-0392)
+**Goal**: Contacts without an avatar get a deterministic colored background with
+initials (prevents all unknown contacts looking identical).
+**Files touched**: `src/ui/sidebar.rs`, `src/ui/conversation.rs`
+**Depends on**: nothing (can land before H1)
+**Steps**:
+1. Implement `fn jid_color(jid: &str) -> Color` using XEP-0392 HSL algorithm
+   (hash JID bytes → hue 0-360, fixed S/L).
+2. Render a colored container with the first letter of the local-part when no
+   avatar data is available.
+**Done when**: sidebar shows colored initials for contacts without avatars.
+
+---
+
+## Phase I — File & Media Input
+
+### I1: Paste image from clipboard (Ctrl+V)
+**Goal**: Pasting an image from the clipboard attaches it to the composer for upload.
+This is one of the three features explicitly requested.
+**Files touched**: `src/ui/conversation.rs`, `src/xmpp/engine.rs`
+**Depends on**: E4 (file upload slot)
+**Parallelizable with**: I2, I3
+**Steps**:
+1. Register an iced keyboard subscription for `Ctrl+V` / `Cmd+V`.
+2. Read clipboard image bytes via `arboard` crate (add dependency).
+3. If bytes are PNG/JPEG, stage as a pending attachment on the composer.
+4. Show a preview thumbnail above the input row.
+5. On Send, trigger the same upload flow as I3 (request slot → HTTP PUT → send URL).
+**Done when**: copying a screenshot and pressing Ctrl+V attaches it; Send uploads
+and sends the image URL.
+
+### I2: Drag & drop files onto composer
+**Goal**: Dragging a file from Finder/Explorer onto the chat window attaches it.
+**Files touched**: `src/ui/conversation.rs`
+**Depends on**: E4
+**Steps**:
+1. Wrap the conversation column in an iced `mouse::drop_target` area or listen for
+   the `Event::Window(window::Event::FilesDropped)` event.
+2. Stage dropped file paths as pending attachments.
+3. Reuse upload flow from I3.
+**Done when**: dragging a PNG onto the chat attaches it to the composer.
+
+### I3: File picker + multiple attachments + upload progress
+**Goal**: A paperclip button opens a native file picker; multiple files can be
+staged; each shows a progress bar during upload.
+**Files touched**: `src/ui/conversation.rs`, `src/xmpp/engine.rs`, `src/xmpp/mod.rs`
+**Depends on**: E4
+**Steps**:
+1. Add `pending_attachments: Vec<Attachment>` (path, name, size, progress) to
+   `ConversationView`.
+2. Add a paperclip icon button; on press, use `rfd` crate (Rusty File Dialog) to
+   open a native picker.
+3. For each file, request an upload slot (XEP-0363) and PUT the bytes with
+   progress tracking via `reqwest` streaming.
+4. Emit `Message::UploadProgress(filename, 0..=100)` → render progress bar per file.
+5. On all uploads complete, assemble the message body with get URLs.
+**Done when**: picking a file shows a progress bar; completing upload sends the
+shareable URL in the message.
+
+### I4: Attachment preview in received messages (image / video thumbnails)
+**Goal**: HTTP URLs ending in .jpg/.png/.gif/.mp4 in messages render as inline
+thumbnails rather than plain text links.
+**Files touched**: `src/ui/conversation.rs`
+**Depends on**: nothing (pure UI)
+**Steps**:
+1. After inserting a `DisplayMessage`, scan body for `http(s)://` URLs with image
+   extensions.
+2. Spawn a `Task::future` to fetch the image bytes via `reqwest`.
+3. Emit `Message::AttachmentLoaded(msg_id, url, bytes)`.
+4. Replace the plain URL text with an inline `image::Handle` widget (max-width: 320 px).
+**Done when**: sending an image URL renders the image inline; non-image URLs stay
+as plain links.
+
+### I5: Image lightbox (full-screen image view)
+**Goal**: Clicking an inline image opens a full-screen overlay.
+**Files touched**: `src/ui/conversation.rs`, `src/ui/chat.rs`
+**Depends on**: I4
+**Steps**:
+1. Add `lightbox: Option<(String, Vec<u8>)>` (url, bytes) to `ChatScreen`.
+2. On image click, set the lightbox; render a dark overlay with the image centered
+   and a ✕ close button.
+3. Esc key closes it.
+**Done when**: clicking an image in chat opens it fullscreen; Esc / ✕ closes it.
+
+---
+
+## Phase J — Notifications & Status Polish
+
+### J1: App-wide toast / error notification system
+**Goal**: Errors (upload failed, connection lost, DB error) and successes (message
+sent, avatar updated) show a dismissible toast at the bottom of the window.
+This also covers the "show panic/error in UI" feature requested earlier.
+**Files touched**: `src/ui/mod.rs`, new `src/ui/toast.rs`
+**Depends on**: nothing
+**Steps**:
+1. Add `toasts: Vec<Toast>` (message, kind: Error/Success/Info, created_at) to `App`.
+2. Add `Message::Toast(ToastMsg)` variant.
+3. In `App::view`, overlay a `column` of toast containers at the bottom-right.
+4. Each toast has an auto-dismiss `Task::future(sleep(3s))` that emits
+   `Message::DismissToast(id)`.
+5. Replace panic handler with a `std::panic::set_hook` that emits a toast (best-effort).
+**Done when**: triggering an upload error shows a red toast; it disappears after 3 s.
+
+### J2: Custom presence status message
+**Goal**: User can type a custom status text (e.g. "In a meeting") shown to contacts.
+**Files touched**: `src/ui/chat.rs`, `src/xmpp/engine.rs`, `src/xmpp/mod.rs`
+**Depends on**: C2 (PresenceMachine)
+**Steps**:
+1. Add a `<status>` text field to the presence picker in `ChatScreen`.
+2. Include the `<status>` child in outbound presence stanzas.
+3. Parse `<status>` from incoming presence and show in the contact popover (H4).
+**Done when**: setting "In a meeting" sends presence with that status text; peers
+see it in their roster.
+
+### J3: Per-conversation notification preferences
+**Goal**: Users can mute a specific conversation (all messages) or set "mentions only".
+**Files touched**: `src/ui/conversation.rs`, `src/ui/sidebar.rs`, `src/config/mod.rs`
+**Depends on**: A5
+**Steps**:
+1. Add `muted_conversations: HashSet<String>` and `mentions_only: HashSet<String>`
+   to `Settings`.
+2. Add a toggle in the conversation header context menu.
+3. In `App::update → XmppEvent::MessageReceived`, skip notification if muted.
+**Done when**: muting a conversation suppresses its desktop notifications.
+
+### J4: Sound notifications
+**Goal**: A short audio chime plays when a new message arrives (if enabled in settings).
+**Files touched**: `src/ui/mod.rs`, `src/notifications.rs`
+**Depends on**: A5, F3
+**Steps**:
+1. Embed a short notification sound (WAV/OGG) as a Rust `include_bytes!` asset.
+2. On `MessageReceived`, if `settings.sound_enabled` and conversation is not active,
+   play the sound via `rodio` (add dependency, ~200 KB).
+3. Add `sound_enabled: bool` to `Settings` with toggle in F3 settings panel.
+**Done when**: receiving a message while viewing another conversation plays a chime.
+
+---
+
+## Phase K — Room Features
+
+### K1: Room creation UI + configuration modal
+**Goal**: A "New room" button in the sidebar lets the user create a MUC with name,
+subject, and privacy settings.
+**Files touched**: `src/ui/sidebar.rs`, `src/ui/chat.rs`, `src/xmpp/engine.rs`
+**Depends on**: D3
+**Steps**:
+1. Add a "+" button next to "Rooms" in the sidebar.
+2. Show a modal with fields: room JID (local part), display name, subject, private toggle.
+3. On confirm, send `XmppCommand::CreateRoom { jid, config }`.
+4. Engine sends create + configure IQ sequence; on success emit `XmppEvent::RoomJoined`.
+**Done when**: filling the modal and clicking Create results in a new persistent room.
+
+### K2: Browse public rooms (XEP-0045 browse)
+**Goal**: A "Browse rooms" dialog lists public rooms on the server with occupant
+counts and lets the user join one.
+**Files touched**: `src/ui/sidebar.rs`, `src/xmpp/engine.rs`
+**Depends on**: D3
+**Steps**:
+1. Add `XmppCommand::FetchRoomList` → send disco#items to the MUC component.
+2. Emit `XmppEvent::RoomListReceived(Vec<RoomInfo>)`.
+3. Render a scrollable modal with room JID, name, occupant count; "Join" button.
+**Done when**: opening the dialog shows public rooms; clicking Join opens the room.
+
+### K3: Room invitations — send & receive (XEP-0045 mediated + XEP-0249 direct)
+**Goal**: User can invite a contact to a room; incoming invitations appear in an
+events panel.
+**Files touched**: `src/ui/chat.rs`, `src/ui/sidebar.rs`, `src/xmpp/engine.rs`
+**Depends on**: D3
+**Steps**:
+1. Add "Invite" button in the MUC chat header; show contact picker modal.
+2. Send mediated invite via `<message to='room'>` `<x xmlns='jabber:x:conference'>`.
+3. In engine, detect incoming `<x xmlns='jabber:x:conference'>` and emit
+   `XmppEvent::RoomInviteReceived { from, room_jid, reason }`.
+4. Show invitation in a sidebar "Events" badge; "Accept" calls `JoinRoom`.
+**Done when**: inviting a contact sends the invite; receiving one shows a notification
+with Accept/Decline.
+
+### K4: Occupant moderation (kick, ban, role/affiliation change)
+**Goal**: Room owners/admins can right-click an occupant to kick, ban, or change role.
+**Files touched**: `src/ui/muc_panel.rs`, `src/xmpp/engine.rs`
+**Depends on**: D1
+**Steps**:
+1. Add a context menu to occupant entries in `OccupantPanel`.
+2. Add `XmppCommand::ModerateOccupant { room, nick, action: ModerationAction }`.
+3. Engine builds and sends the appropriate MUC `<iq>` or `<presence>`.
+**Done when**: kicking a user removes them from the occupant list.
+
+---
+
+## Phase L — Missing Message Features
+
+### L1: New message / unread separator line
+**Goal**: A "New messages ↓" line divides already-seen messages from new ones when
+returning to a conversation.
+**Files touched**: `src/ui/conversation.rs`
+**Depends on**: B5
+**Steps**:
+1. When loading a conversation (B4), record the last message id seen (`last_read_id`
+   from DB).
+2. In `view()`, insert a highlighted "New messages" divider row between the last
+   read and the first unread `DisplayMessage`.
+**Done when**: reopening a conversation with unread messages shows the separator.
+
+### L2: @mention autocomplete + highlight (XEP-0372)
+**Goal**: Typing `@` in the composer shows a dropdown of room occupants; selecting
+one inserts the mention; mentions are highlighted in received messages.
+**Files touched**: `src/ui/conversation.rs`, `src/ui/chat.rs`
+**Depends on**: D3 (occupant list)
+**Steps**:
+1. In `ConversationView::update(ComposerChanged)`, detect `@` prefix; filter occupant
+   nicks.
+2. Render a small floating list above the composer; arrow keys + Enter to select.
+3. Insert `@nick ` into composer on selection.
+4. In `build_styled_text`, detect `@nick` tokens and highlight with accent color.
+**Done when**: typing `@` in a room shows nick suggestions; received `@mentions`
+are highlighted.
+
+### L3: Message moderation by room moderators (XEP-0425)
+**Goal**: Moderators can delete any message in a room; the message is replaced with
+a "moderated by X" tombstone.
+**Files touched**: `src/ui/conversation.rs`, `src/xmpp/engine.rs`
+**Depends on**: E2 (retraction infrastructure), D3
+**Steps**:
+1. Add "Moderate" to per-message actions when the user is moderator.
+2. Build `<apply-to>` + `<moderated>` stanza (XEP-0425).
+3. In engine message handler, detect incoming moderation and emit
+   `XmppEvent::MessageModerated { id, moderator, reason }`.
+4. Replace body with "(moderated by X)" in `ConversationView`.
+**Done when**: a moderator can remove any message; tombstone appears for all occupants.
+
+---
+
 ## Dependency graph summary
 
 ```
-B1 ─── A1 ─── A2 ─── B4
+B1 ─── A1 ─── A2 ─── B4 ─── G8
  │      │      │
  │      └── A3  └── B6
  │
- └── C1, C2, C3, C4, C5
+ └── C1, C2 ─── J2
+ └── C3 ─── G8
+ └── C4, C5 ─── H1, H2, E4
               │
-              ├── D3 ─── D4
-              └── E1, E2, E3, E4, E5
+              ├── D3 ─── D4, K1, K2, K3 ─── L2
+              └── E1, E2 ─── L3
+                  E3, E4 ─── I1, I2, I3
 
 B2 (independent compile fix)
-B3/A4 (independent UI fix)
-A5 (independent, just calls notifications.rs)
-D1 depends on D3
-D2 independent
+B3/A4 ✅ (done)
+A5 ✅ (done)
+B5 ─── L1
+
+G1–G7, G9: independent
+H3, H5: independent
+I4: independent (pure UI)
+I5 depends on I4
+J1: independent (toast system)
+J3 depends on A5
+J4 depends on A5, F3
+K4 depends on D1 (which depends on D3)
 F1–F5 independent of each other (depend on B1 only)
 ```
+
+**Completed:**
+- B1 ✅ rustls CryptoProvider
+- B3/A4 ✅ Presence indicators
+- A1 ✅ SQLite DB at startup
+- A2 ✅ Persist incoming messages
+- A3 ✅ Persist roster
+- A5 ✅ Desktop notifications
+- D2 ✅ XEP-0393 message styling
 
 ---
 
