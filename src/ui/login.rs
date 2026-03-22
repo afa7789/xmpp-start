@@ -27,6 +27,7 @@ pub enum Message {
     PasswordChanged(String),
     ServerChanged(String),
     Connect,
+    GoToBenchmark,
     // TODO: Connected(XmppClient) — emitted after successful auth (Task P1.2)
 }
 
@@ -48,6 +49,9 @@ impl LoginScreen {
             Message::Connect => {
                 // TODO: Task P1.1 — spawn tokio task, connect via xmpp engine
                 self.state = LoginState::Connecting;
+            }
+            Message::GoToBenchmark => {
+                // Handled by App::update; nothing to mutate here.
             }
         }
         Task::none()
@@ -76,6 +80,9 @@ impl LoginScreen {
                 .on_press(Message::Connect)
                 .padding([10, 24]),
             status,
+            button("Benchmark →")
+                .on_press(Message::GoToBenchmark)
+                .padding([6, 16]),
         ]
         .spacing(12)
         .max_width(400)

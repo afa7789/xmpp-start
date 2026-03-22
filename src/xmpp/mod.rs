@@ -5,7 +5,9 @@
 // Reference: packages/fluux-sdk/src/core/modules/ (TypeScript source)
 
 pub mod connection;
+pub mod engine;
 pub mod modules;
+pub mod subscription;
 
 /// Events emitted by the XMPP engine to the UI layer.
 /// Sent through the iced subscription channel.

@@ -12,5 +12,6 @@ fn main() -> iced::Result {
         .init();
 
     iced::application("XMPP Messenger", ui::App::update, ui::App::view)
+        .subscription(|_state| ui::App::subscription())
         .run_with(ui::App::new)
 }
