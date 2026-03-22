@@ -51,6 +51,8 @@ pub enum Message {
     DismissToast(u64),
     // B4: messages loaded from DB for a conversation
     MessagesLoaded(String, Vec<crate::store::message_repo::Message>),
+    // B6: mark a conversation as read
+    MarkRead(String, String),
 }
 
 enum Screen {
@@ -128,6 +130,15 @@ impl App {
                 Task::none()
             }
 
+            Message::MarkRead(jid, last_id) => {
+                let pool = self.db.clone();
+                return Task::future(async move {
+                    let _ = crate::store::conversation_repo::mark_read(&pool, &jid, &last_id).await;
+                    Message::GoToBenchmark
+                })
+                .discard();
+            }
+
             Message::ToggleTheme => {
                 self.settings.theme = match self.settings.theme {
                     Theme::Dark => Theme::Light,
@@ -186,10 +197,16 @@ impl App {
 
             Message::Chat(msg) => {
                 if let Screen::Chat(ref mut chat) = self.screen {
-                    // B4: if SelectContact, fire history load for that JID
-                    let history_task: Task<Message> = if let chat::Message::Sidebar(
-                        crate::ui::sidebar::Message::SelectContact(ref jid)
-                    ) = msg {
+                    // B4+B6: if SelectContact, fire history load and mark-read
+                    let selected_jid: Option<String> =
+                        if let chat::Message::Sidebar(
+                            crate::ui::sidebar::Message::SelectContact(ref jid)
+                        ) = msg {
+                            Some(jid.clone())
+                        } else {
+                            None
+                        };
+                    let history_task: Task<Message> = if let Some(ref jid) = selected_jid {
                         let jid = jid.clone();
                         let pool = self.db.clone();
                         Task::future(async move {
@@ -201,6 +218,20 @@ impl App {
                     } else {
                         Task::none()
                     };
+                    let mark_read_task: Task<Message> = if let Some(ref jid) = selected_jid {
+                        if let Some(last_id) = chat.last_message_id(jid) {
+                            let jid = jid.clone();
+                            let pool = self.db.clone();
+                            Task::future(async move {
+                                let _ = crate::store::conversation_repo::mark_read(&pool, &jid, &last_id).await;
+                                Message::GoToBenchmark
+                            }).discard()
+                        } else {
+                            Task::none()
+                        }
+                    } else {
+                        Task::none()
+                    };
                     let task = chat.update(msg).map(Message::Chat);
                     let cmds = chat.drain_commands();
                     if !cmds.is_empty() {
@@ -208,6 +239,7 @@ impl App {
                             let tx = tx.clone();
                             return Task::batch([
                                 history_task,
+                                mark_read_task,
                                 task,
                                 Task::future(async move {
                                     for cmd in cmds {
@@ -219,7 +251,7 @@ impl App {
                             ]);
                         }
                     }
-                    Task::batch([history_task, task])
+                    Task::batch([history_task, mark_read_task, task])
                 } else {
                     Task::none()
                 }
