@@ -8,6 +8,7 @@
 //   - get the pending retransmit queue on reconnect
 
 use std::collections::VecDeque;
+use std::time::{Duration, Instant};
 use tokio_xmpp::minidom::Element;
 
 const NS_SM: &str = "urn:xmpp:sm:3";
@@ -27,6 +28,10 @@ pub struct StreamMgmt {
     h: u32,
     /// Stanzas sent but not yet acknowledged — used for retransmission.
     unacked: VecDeque<Element>,
+    /// Time of the last `<a>` sent (for coalescing).
+    last_ack_sent_at: Option<Instant>,
+    /// True when an ack is due but not yet sent (coalescing pending).
+    pending_ack: bool,
 }
 
 impl StreamMgmt {
@@ -38,6 +43,8 @@ impl StreamMgmt {
             server_h: 0,
             h: 0,
             unacked: VecDeque::new(),
+            last_ack_sent_at: None,
+            pending_ack: false,
         }
     }
 
@@ -51,9 +58,11 @@ impl StreamMgmt {
 
     /// Records that a stanza was received from the server.
     ///
-    /// Increments the inbound counter `h`.
+    /// Increments the inbound counter `h` and marks an ack as pending for
+    /// coalesced delivery.
     pub fn on_stanza_received(&mut self) {
         self.h += 1;
+        self.pending_ack = true;
     }
 
     /// Processes an `<a h='...'/>` from the server.
@@ -80,6 +89,53 @@ impl StreamMgmt {
         Element::builder("r", NS_SM).build()
     }
 
+    /// Returns `Some(ack_element)` when a coalesced `<a>` should be sent.
+    ///
+    /// An ack is emitted only when `pending_ack` is true **and** at least 250ms
+    /// have elapsed since the last ack was sent (or no ack has been sent yet).
+    /// Callers should invoke this after every inbound stanza and send the
+    /// returned element when `Some`.
+    pub fn maybe_send_ack(&mut self) -> Option<Element> {
+        if !self.pending_ack {
+            return None;
+        }
+        let window_elapsed = self
+            .last_ack_sent_at
+            .map_or(true, |t| t.elapsed() >= Duration::from_millis(250));
+        if window_elapsed {
+            let ack = self.build_ack();
+            self.last_ack_sent_at = Some(Instant::now());
+            self.pending_ack = false;
+            Some(ack)
+        } else {
+            None
+        }
+    }
+
+    /// Force-flushes a pending ack immediately, bypassing the 250ms timer.
+    ///
+    /// Returns `Some(ack_element)` if an ack was pending, otherwise `None`.
+    /// Useful before sending a stanza to ensure the server has our latest `h`.
+    pub fn flush_ack(&mut self) -> Option<Element> {
+        if self.pending_ack {
+            let ack = self.build_ack();
+            self.last_ack_sent_at = Some(Instant::now());
+            self.pending_ack = false;
+            Some(ack)
+        } else {
+            None
+        }
+    }
+
+    /// Returns `true` if the unacked queue has drifted more than 50 stanzas
+    /// ahead of the server's last acknowledged position.
+    ///
+    /// When this returns `true` the engine should log a warning and consider
+    /// reconnecting to resync state.
+    pub fn has_queue_desync(&self) -> bool {
+        self.stanzas_sent.saturating_sub(self.stanzas_acked) > 50
+    }
+
     /// Returns the number of stanzas in the unacked queue.
     pub fn pending_count(&self) -> usize {
         self.unacked.len()
@@ -97,6 +153,8 @@ impl StreamMgmt {
         self.server_h = 0;
         self.h = 0;
         self.unacked.clear();
+        self.last_ack_sent_at = None;
+        self.pending_ack = false;
     }
 
     /// Returns a reference to the unacked stanza queue for retransmission.
@@ -239,5 +297,104 @@ mod tests {
 
         let queue = sm.unacked_stanzas();
         assert_eq!(queue.len(), 2);
+    }
+
+    // ------------------------------------------------------------------
+    // P1.6b — ack coalescing + queue desync tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn maybe_send_ack_returns_none_when_no_pending_ack() {
+        let mut sm = StreamMgmt::new();
+        // No stanzas received, so pending_ack is false.
+        assert!(sm.maybe_send_ack().is_none());
+    }
+
+    #[test]
+    fn maybe_send_ack_returns_ack_after_250ms() {
+        use std::thread::sleep;
+
+        let mut sm = StreamMgmt::new();
+        sm.on_stanza_received();
+
+        // Within the debounce window the first call may or may not fire
+        // depending on scheduling, but after sleeping >250ms it must fire.
+        // Force the window by setting last_ack_sent_at to a past instant.
+        sm.last_ack_sent_at = Some(Instant::now() - Duration::from_millis(300));
+
+        let ack = sm.maybe_send_ack();
+        assert!(ack.is_some());
+        let ack = ack.unwrap();
+        assert_eq!(ack.name(), "a");
+        assert_eq!(ack.ns(), NS_SM);
+        assert_eq!(ack.attr("h"), Some("1"));
+        // pending_ack should now be cleared.
+        assert!(!sm.pending_ack);
+
+        // A second call without any new inbound stanza returns None.
+        sleep(Duration::from_millis(260));
+        assert!(sm.maybe_send_ack().is_none());
+    }
+
+    #[test]
+    fn maybe_send_ack_respects_debounce_window() {
+        let mut sm = StreamMgmt::new();
+        sm.on_stanza_received();
+
+        // Record a very recent last_ack_sent_at so the window has not elapsed.
+        sm.last_ack_sent_at = Some(Instant::now());
+
+        // Should be None because the 250ms window has not elapsed.
+        assert!(sm.maybe_send_ack().is_none());
+        // pending_ack must still be true — ack was not consumed.
+        assert!(sm.pending_ack);
+    }
+
+    #[test]
+    fn flush_ack_returns_ack_immediately() {
+        let mut sm = StreamMgmt::new();
+        sm.on_stanza_received();
+        sm.on_stanza_received();
+
+        // Set last_ack_sent_at to now so maybe_send_ack would be blocked.
+        sm.last_ack_sent_at = Some(Instant::now());
+
+        let ack = sm.flush_ack();
+        assert!(ack.is_some());
+        let ack = ack.unwrap();
+        assert_eq!(ack.name(), "a");
+        assert_eq!(ack.attr("h"), Some("2"));
+        assert!(!sm.pending_ack);
+    }
+
+    #[test]
+    fn flush_ack_returns_none_when_no_pending() {
+        let mut sm = StreamMgmt::new();
+        // No stanzas received.
+        assert!(sm.flush_ack().is_none());
+    }
+
+    #[test]
+    fn has_queue_desync_triggers_above_50() {
+        let mut sm = StreamMgmt::new();
+        // Send 51 stanzas, ack none.
+        for _ in 0..51 {
+            sm.on_stanza_sent(make_element("msg"));
+        }
+        assert!(sm.has_queue_desync());
+    }
+
+    #[test]
+    fn has_queue_desync_false_within_limit() {
+        let mut sm = StreamMgmt::new();
+        // Send exactly 50 stanzas, ack none — should not trigger.
+        for _ in 0..50 {
+            sm.on_stanza_sent(make_element("msg"));
+        }
+        assert!(!sm.has_queue_desync());
+
+        // Ack all — still no desync.
+        sm.on_ack_received(50);
+        assert!(!sm.has_queue_desync());
     }
 }
