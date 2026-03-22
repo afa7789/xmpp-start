@@ -926,6 +926,85 @@ a "moderated by X" tombstone.
 
 ---
 
+## Phase M — Composer Toolbar & Message Status
+
+### M1: Message timestamps on bubbles
+**Goal**: Every message shows the time it was sent (e.g. "14:35") next to the sender name.
+For own messages, show on the right side of the bubble.
+**Files touched**: `src/ui/conversation.rs`
+**Depends on**: nothing (timestamp already stored in `DisplayMessage.timestamp`)
+**Steps**:
+1. Format `m.timestamp` (ms) → `HH:MM` string using `chrono`.
+2. Render as a small dim text next to the sender label in grouped messages.
+3. Show for own messages too (right-aligned below the body).
+**Done when**: every message shows its send time.
+
+### M2: Message delivery status (sent / delivered / read)
+**Goal**: Own messages show a status indicator: `·` sending, `✓` sent to server,
+`✓✓` delivered to device, `✓✓` (blue) read by peer. Shown only on the **last** own
+message per conversation, like WhatsApp/Signal.
+**Files touched**: `src/ui/conversation.rs`, `src/xmpp/mod.rs`, `src/xmpp/engine.rs`, `src/store/message_repo.rs`
+**Depends on**: XEP-0184 (message delivery receipts), B4
+**Steps**:
+1. Add `state: MessageState` to `DisplayMessage` (`Sending | Sent | Delivered | Read`).
+2. Engine: when server ACKs (`<sm:a h=N>`), mark stanzas ≤ N as `Sent`.
+3. Engine: detect incoming `<received xmlns='urn:xmpp:receipts'>` → mark `Delivered`.
+4. Engine: detect incoming `<displayed xmlns='urn:xmpp:chat-markers:0'>` → mark `Read`.
+5. In `view()`, find the last own message and render a small status glyph after it.
+**Done when**: last sent message shows ✓ after server ACK, ✓✓ after peer delivery, ✓✓ (tinted) after read.
+
+### M3: Emoji picker in composer
+**Goal**: A smiley-face button opens a floating emoji picker panel above the composer;
+clicking an emoji inserts it at cursor position.
+**Files touched**: `src/ui/conversation.rs`
+**Depends on**: nothing
+**Steps**:
+1. Add `emoji_picker_open: bool` to `ConversationView`.
+2. Embed a curated list of common emoji groups (faces, hands, objects, ~500 total).
+3. Render as a scrollable grid overlay above the composer when open.
+4. On click, append the emoji character to `self.composer`.
+**Done when**: clicking 😊 button opens grid; clicking 👍 inserts it into the text box.
+
+### M4: Audio recording (voice messages)
+**Goal**: Holding the microphone button records audio; releasing sends it as a voice
+message via HTTP Upload (XEP-0363) as an OGG/Opus file.
+**Files touched**: `src/ui/conversation.rs`, `src/xmpp/engine.rs`
+**Depends on**: E4 (HTTP Upload)
+**Steps**:
+1. Add `recording: bool` + `recorder: Option<AudioRecorder>` to `ConversationView`.
+2. Use `cpal` crate to capture microphone audio into a buffer.
+3. Encode to OGG/Opus with `opus` crate (or raw WAV fallback).
+4. On button release, upload via E4 flow and send the URL as a message.
+5. Show a waveform / duration preview in the composer while recording.
+**Done when**: pressing mic starts recording; releasing uploads and sends the audio.
+
+### M5: OMEMO encryption toggle (XEP-0384)
+**Goal**: A lock button in the composer enables end-to-end encryption for the conversation.
+When enabled, messages are encrypted before sending and decrypted on receive.
+Encryption status icon shown per message (open lock = plaintext, shield = encrypted).
+**Files touched**: `src/ui/conversation.rs`, `src/xmpp/engine.rs`, `src/xmpp/mod.rs`
+**Depends on**: C5 (DiscoManager for device discovery)
+**Steps**:
+1. Add `omemo_enabled: bool` to `ConversationView`; persist in `Settings`.
+2. Integrate `omemo` or `xmpp-parsers` OMEMO support; manage device bundles.
+3. On send, if enabled, encrypt payload to each of peer's devices.
+4. On receive, detect `<encrypted xmlns='eu.siacs.conversations.axolotl'>`, decrypt.
+5. Render a small lock/shield glyph next to each message indicating its encryption state.
+**Done when**: enabling OMEMO and sending a message shows the shield; peer can decrypt it.
+
+### M6: Message reaction hover bar (XEP-0444)
+**Goal**: Hovering over a message reveals a compact action bar with quick-react emoji
+(👍 ❤️ 😂 +custom) and a reply button. Reaction counts appear as pills below the bubble.
+**Files touched**: `src/ui/conversation.rs`
+**Depends on**: E3
+**Steps**:
+1. Track `hovered_msg_id: Option<String>` in `ConversationView`; update on mouse-enter/leave events.
+2. Render the hover bar as an overlay row aligned to the bubble's top-right corner.
+3. Reuse E3 reaction infrastructure to send/receive reactions.
+**Done when**: hovering a message shows the action bar; clicking 👍 adds a reaction pill below.
+
+---
+
 ## Dependency graph summary
 
 ```
