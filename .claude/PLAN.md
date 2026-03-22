@@ -219,25 +219,50 @@ the `PresenceMachine`.
 **Done when**: changing status in the UI sends the right presence stanza to
 the server.
 
-### C3: Wire `MamManager` + `CatchupManager` into engine — enable post-connect history sync
-**Goal**: On connect, engine queries MAM for each known conversation and emits
-`XmppEvent::CatchupFinished`; UI receives and stores the messages.
+### C3: XEP-0313 MAM — post-connect history sync
+**Goal**: On connect, engine queries the server archive (MAM) for messages missed
+while offline and for each known conversation. Messages are persisted to DB and
+shown in the UI as if received normally. This is the primary mechanism for
+recovering history after being disconnected.
 **Files touched**: `src/xmpp/engine.rs`, `src/xmpp/mod.rs`, `src/ui/mod.rs`
 **Depends on**: A1, A2
-**Parallelizable with**: C1, C2
+**Parallelizable with**: C1, C2, C6
 **Steps**:
-1. On `Event::Online`, load conversation list from DB (query
-   `conversation_repo::get_all()`).
-2. For each conversation, call `CatchupManager::start()` to get a `MamQuery`;
-   build the IQ via `MamManager::build_query_iq()` and push to outbox.
-3. In `handle_iq`, detect MAM `<fin>` elements and call `mam.on_fin_iq()`;
-   call `catchup.on_fin()` and emit `XmppEvent::CatchupFinished`.
-4. In `handle_message`, detect MAM `<result>` wrappers and call
-   `mam.on_mam_message()`; accumulate and persist via `message_repo::insert()`.
-5. Add `XmppCommand::RunCatchup(Vec<(String, Option<String>)>)` so UI can
-   also trigger sync.
-**Done when**: after connect, gap messages appear in the DB; `CatchupFinished`
-events are logged with correct counts.
+1. Add `MamManager` + `CatchupManager` to session state in `run_session`.
+2. On `Event::Online`, issue a server-wide MAM query (no `with` filter, last 50)
+   to catch recent messages since last session.
+3. Optionally, for each conversation in DB, issue a `with`-filtered MAM query
+   starting from its last stored `stanza_id` (cursor-based gap fill).
+4. In `dispatch_stanza`, detect `<message>` containing a MAM `<result>` wrapper:
+   call `mam_mgr.on_mam_message()`, extract `forwarded_from` + `body`, emit
+   `XmppEvent::MessageReceived` so the UI and DB handler persist it normally.
+5. In `handle_iq`, detect MAM `<fin>` IQ: call `mam_mgr.on_fin_iq()` +
+   `catchup_mgr.on_fin()`; emit `XmppEvent::CatchupFinished { conversation_jid, fetched }`.
+6. Remove `#[allow(dead_code)]` from `XmppEvent::CatchupFinished` once wired.
+**Done when**: reconnecting after an offline period shows missed messages; DB
+contains the archived messages; `CatchupFinished` is logged with correct counts.
+
+### C6: XEP-0280 Carbons — multi-device message sync
+**Goal**: When the user has multiple XMPP clients logged in simultaneously, carbons
+ensure that messages sent or received on any device appear on all others in real time.
+The `enable` IQ is already sent on connect — this task wires the **incoming** carbon
+stanzas so they are processed and shown in the UI.
+**Files touched**: `src/xmpp/engine.rs`
+**Depends on**: B1 (session online)
+**Parallelizable with**: C3
+**Steps**:
+1. In `dispatch_stanza`, before routing a `<message>` to `handle_message`, check
+   for a `<sent xmlns='urn:xmpp:carbons:2'>` child:
+   - Extract the inner `<message>` from `<forwarded>`.
+   - Emit `XmppEvent::MessageReceived` with `from = own_jid` so it appears as
+     our own sent message in the correct conversation.
+2. Check for a `<received xmlns='urn:xmpp:carbons:2'>` child:
+   - Extract the inner `<message>` from `<forwarded>`.
+   - Route it through the normal `handle_message` path (block-list check, body
+     extraction, emit `MessageReceived`).
+3. Return early after either carbon case so the outer wrapper is not double-processed.
+**Done when**: sending a message from Gajim/Conversations shows it appearing in our
+client; receiving a message on another device also appears here.
 
 ### C4: Wire `BlockingManager` into engine
 **Goal**: Engine fetches the block list on connect and filters incoming messages
@@ -1013,7 +1038,7 @@ B1 ─── A1 ─── A2 ─── B4 ─── G8
  │      └── A3  └── B6
  │
  └── C1, C2 ─── J2
- └── C3 ─── G8
+ └── C3, C6 ─── G8
  └── C4, C5 ─── H1, H2, E4
               │
               ├── D3 ─── D4, K1, K2, K3 ─── L2
