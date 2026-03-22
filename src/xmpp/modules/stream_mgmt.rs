@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Task P1.6 — XEP-0198 Stream Management stanza tracker
 // XEP reference: https://xmpp.org/extensions/xep-0198.html
 //
