@@ -47,6 +47,9 @@ pub struct ConversationView {
     scroll_offset: AbsoluteOffset,
     #[allow(dead_code)]
     own_jid: String,
+    /// G9: search state
+    search_open: bool,
+    search_query: String,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +61,8 @@ pub enum Message {
     CopyToClipboard(String), // G7: copy message body to clipboard
     Noop,                    // G7: no-op task return
     Close,                   // G1: close this conversation
+    SearchToggled,           // G9: toggle search bar
+    SearchQueryChanged(String), // G9: search input changed
 }
 
 impl ConversationView {
@@ -69,6 +74,8 @@ impl ConversationView {
             scroll_id: Id::new("conversation"),
             scroll_offset: AbsoluteOffset::default(),
             own_jid,
+            search_open: false,
+            search_query: String::new(),
         }
     }
 
@@ -106,6 +113,17 @@ impl ConversationView {
             Message::CopyToClipboard(text) => iced::clipboard::write::<Message>(text),
             Message::Noop => Task::none(),
             Message::Close => Task::none(), // handled by ChatScreen
+            Message::SearchToggled => {
+                self.search_open = !self.search_open;
+                if !self.search_open {
+                    self.search_query.clear();
+                }
+                Task::none()
+            }
+            Message::SearchQueryChanged(q) => {
+                self.search_query = q;
+                Task::none()
+            }
         }
     }
 
@@ -116,7 +134,12 @@ impl ConversationView {
         let mut prev_sender: Option<String> = None;
         let mut prev_ts: Option<i64> = None;
 
-        for m in &self.messages {
+        let query_lower = self.search_query.to_lowercase();
+        let filtered_messages: Vec<&DisplayMessage> = self.messages.iter()
+            .filter(|m| query_lower.is_empty() || m.body.to_lowercase().contains(&query_lower))
+            .collect();
+
+        for m in filtered_messages {
             let sender = if m.own {
                 "You".to_string()
             } else {
@@ -278,17 +301,43 @@ impl ConversationView {
 
         // G1: close button in header
         let close_btn = button("✕").on_press(Message::Close).padding([4, 8]);
-        let header = container(
+        let search_btn = button("🔍").on_press(Message::SearchToggled).padding([4, 8]);
+        let match_count = if !self.search_query.is_empty() {
+            self.messages.iter().filter(|m| m.body.to_lowercase().contains(&self.search_query.to_lowercase())).count()
+        } else {
+            0
+        };
+        let header_content: Element<Message> = if self.search_open {
             row![
                 text(format!("Chat with {}", self.peer_jid))
                     .size(14)
                     .width(Length::Fill),
+                text_input("Search…", &self.search_query)
+                    .on_input(Message::SearchQueryChanged)
+                    .padding(6)
+                    .width(160),
+                text(format!("{} results", match_count)).size(11),
+                search_btn,
                 close_btn,
             ]
-            .align_y(Alignment::Center),
-        )
-        .padding([8, 12])
-        .width(Length::Fill);
+            .spacing(4)
+            .align_y(Alignment::Center)
+            .into()
+        } else {
+            row![
+                text(format!("Chat with {}", self.peer_jid))
+                    .size(14)
+                    .width(Length::Fill),
+                search_btn,
+                close_btn,
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center)
+            .into()
+        };
+        let header = container(header_content)
+            .padding([8, 12])
+            .width(Length::Fill);
 
         column![header, scroll_area, scroll_bar, composer_row].into()
     }
