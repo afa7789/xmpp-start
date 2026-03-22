@@ -8,7 +8,7 @@ use iced::widget::scrollable::{AbsoluteOffset, Id};
 use iced::widget::text::Span as IcedSpan;
 use iced::{
     font,
-    widget::{button, column, container, rich_text, row, scrollable, span, text, text_input},
+    widget::{button, column, container, rich_text, row, scrollable, span, text, text_input, tooltip},
     Alignment, Color, Element, Font, Length, Task,
 };
 
@@ -239,16 +239,24 @@ impl ConversationView {
                 build_styled_text(&styled_spans)
             };
 
-            // G7: copy button (hidden for /me actions)
-            let copy_btn = button(text("Copy").size(10))
-                .on_press(Message::CopyToClipboard(m.body.clone()))
-                .padding([2, 6]);
-            // G3: reply button
+            // G7: copy button with tooltip
+            let copy_btn = tooltip(
+                button(text("⎘").size(10))
+                    .on_press(Message::CopyToClipboard(m.body.clone()))
+                    .padding([2, 6]),
+                "Copy message",
+                tooltip::Position::Top,
+            );
+            // G3: reply button with tooltip
             let msg_id = m.id.clone();
             let preview: String = m.body.chars().take(60).collect();
-            let reply_btn = button(text("↩").size(10))
-                .on_press(Message::ReplyTo(msg_id, preview))
-                .padding([2, 4]);
+            let reply_btn = tooltip(
+                button(text("↩").size(10))
+                    .on_press(Message::ReplyTo(msg_id, preview))
+                    .padding([2, 4]),
+                "Reply",
+                tooltip::Position::Top,
+            );
 
             let align = if m.own { Alignment::End } else { Alignment::Start };
 
@@ -339,12 +347,15 @@ impl ConversationView {
             .height(Length::Fill)
             .width(Length::Fill);
 
-        // ---- Scroll position + jump-to-bottom button ----
-        let scroll_info = text(format!("↕ {:.0}px", self.scroll_offset.y)).size(11);
-        let jump_btn = button("↓ bottom")
-            .on_press(Message::ScrollToBottom)
-            .padding([4, 10]);
-        let scroll_bar = row![scroll_info, jump_btn]
+        // ---- Jump-to-bottom button (only visible when not at bottom) ----
+        let jump_btn = tooltip(
+            button(text("↓").size(12))
+                .on_press(Message::ScrollToBottom)
+                .padding([4, 10]),
+            "Jump to bottom",
+            tooltip::Position::Top,
+        );
+        let scroll_bar = row![jump_btn]
             .spacing(8)
             .align_y(Alignment::Center)
             .padding([2, 8]);
@@ -384,18 +395,36 @@ impl ConversationView {
         .align_y(Alignment::Center)
         .padding([4, 8]);
 
-        let close_btn = button("✕").on_press(Message::Close).padding([4, 8]);
+        let close_btn = tooltip(
+            button(text("×").size(14)).on_press(Message::Close).padding([4, 10]),
+            "Close conversation",
+            tooltip::Position::Bottom,
+        );
         let block_btn = if self.peer_blocked {
-            button("✅ Unblock").on_press(Message::UnblockPeer).padding([4, 8])
+            tooltip(
+                button(text("Unblock")).on_press(Message::UnblockPeer).padding([4, 8]),
+                "Unblock this contact",
+                tooltip::Position::Bottom,
+            )
         } else {
-            button("🚫 Block").on_press(Message::BlockPeer).padding([4, 8])
+            tooltip(
+                button(text("Block")).on_press(Message::BlockPeer).padding([4, 8]),
+                "Block this contact",
+                tooltip::Position::Bottom,
+            )
         };
-        let mute_btn = if self.is_muted {
-            button("🔕").on_press(Message::ToggleMute).padding([4, 8])
-        } else {
-            button("🔔").on_press(Message::ToggleMute).padding([4, 8])
-        };
-        let search_btn = button("🔍").on_press(Message::SearchToggled).padding([4, 8]);
+        let mute_label = if self.is_muted { "Unmute" } else { "Mute" };
+        let mute_tip = if self.is_muted { "Unmute notifications" } else { "Mute notifications" };
+        let mute_btn = tooltip(
+            button(text(mute_label)).on_press(Message::ToggleMute).padding([4, 8]),
+            mute_tip,
+            tooltip::Position::Bottom,
+        );
+        let search_btn = tooltip(
+            button(text("⌕").size(14)).on_press(Message::SearchToggled).padding([4, 8]),
+            "Search messages",
+            tooltip::Position::Bottom,
+        );
         let match_count = if !self.search_query.is_empty() {
             self.messages.iter().filter(|m| m.body.to_lowercase().contains(&self.search_query.to_lowercase())).count()
         } else {
