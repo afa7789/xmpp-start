@@ -85,6 +85,12 @@ pub enum XmppEvent {
         jid: String,
         png_bytes: Vec<u8>,
     },
+
+    // F1: raw XML stanza for the debug console panel
+    ConsoleEntry {
+        direction: String,
+        xml: String,
+    },
 }
 
 /// Commands sent from the UI to the XMPP engine.

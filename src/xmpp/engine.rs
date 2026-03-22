@@ -171,6 +171,12 @@ async fn run_session(
             if sm.pending_count() % 5 == 0 && sm.pending_count() > 0 {
                 outbox.push_back(sm.build_request());
             }
+            // F1: emit sent stanza to debug console
+            let xml_str = String::from(&stanza);
+            let _ = event_tx.send(XmppEvent::ConsoleEntry {
+                direction: "sent".into(),
+                xml: xml_str,
+            }).await;
             if let Err(e) = client.send_stanza(stanza).await {
                 tracing::warn!("send_stanza failed: {e}");
             }
@@ -346,6 +352,13 @@ async fn dispatch_stanza(
     file_upload_mgr: &mut FileUploadManager,
     avatar_mgr: &mut AvatarManager,
 ) {
+    // F1: emit received stanza to debug console before routing
+    let xml_str = String::from(&el);
+    let _ = event_tx.send(XmppEvent::ConsoleEntry {
+        direction: "recv".into(),
+        xml: xml_str,
+    }).await;
+
     // XEP-0198: handle server <a h='...'> acks
     if el.name() == "a" && el.ns() == "urn:xmpp:sm:3" {
         if let Some(h) = el.attr("h").and_then(|v| v.parse::<u32>().ok()) {

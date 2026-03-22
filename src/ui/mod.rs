@@ -41,6 +41,9 @@ pub struct App {
     last_connect_cfg: Option<crate::xmpp::ConnectConfig>,
     // H1: avatar cache (jid → png bytes)
     avatar_cache: HashMap<String, Vec<u8>>,
+    // F1: debug console entries (direction, xml) and visibility flag
+    console_entries: Vec<(String, String)>,
+    show_console: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +65,8 @@ pub enum Message {
     GoToSettings,
     Settings(settings::Message),
     GoBack,
+    // F1: toggle the XMPP debug console panel
+    ToggleConsole,
 }
 
 enum Screen {
@@ -90,6 +95,8 @@ impl App {
                 reconnect_attempt: 0,
                 last_connect_cfg: None,
                 avatar_cache: HashMap::new(),
+                console_entries: vec![],
+                show_console: false,
             },
             Task::none(),
         )
@@ -160,6 +167,11 @@ impl App {
                 if let Screen::Settings(_, prev) = std::mem::replace(&mut self.screen, Screen::Login(LoginScreen::new())) {
                     self.screen = *prev;
                 }
+                Task::none()
+            }
+
+            Message::ToggleConsole => {
+                self.show_console = !self.show_console;
                 Task::none()
             }
 
@@ -470,6 +482,12 @@ impl App {
                     XmppEvent::UploadSlotReceived { ref put_url, ref get_url, .. } => {
                         tracing::info!("E4: upload slot received put={put_url} get={get_url}");
                     }
+                    XmppEvent::ConsoleEntry { direction, xml } => {
+                        self.console_entries.push((direction, xml));
+                        if self.console_entries.len() > 200 {
+                            self.console_entries.remove(0);
+                        }
+                    }
                 }
                 Task::none()
             }
@@ -477,7 +495,7 @@ impl App {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        use iced::widget::{column, container, row, stack, text, button};
+        use iced::widget::{column, container, row, scrollable, stack, text, button};
         use iced::{Alignment, Length, Color};
 
         let screen_view: Element<Message> = match &self.screen {
@@ -487,52 +505,117 @@ impl App {
             Screen::Settings(ss, _) => ss.view().map(Message::Settings),
         };
 
-        if self.toasts.is_empty() {
-            return screen_view;
-        }
-
-        // J1: build toast column at bottom-right
-        let toast_items: Vec<Element<Message>> = self
-            .toasts
-            .iter()
-            .map(|t| {
-                let bg = match t.kind {
-                    ToastKind::Error => Color::from_rgb(0.8, 0.2, 0.2),
-                    ToastKind::Success => Color::from_rgb(0.2, 0.7, 0.3),
-                    ToastKind::Info => Color::from_rgb(0.2, 0.4, 0.8),
-                };
-                let dismiss_btn = button(text("x").size(10))
-                    .on_press(Message::DismissToast(t.id))
-                    .padding([2, 4]);
-                let toast_row = row![
-                    text(t.body.clone()).size(12).color(Color::WHITE).width(Length::Fill),
-                    dismiss_btn,
-                ]
-                .spacing(4)
-                .align_y(Alignment::Center);
-                container(toast_row)
-                    .padding([6, 10])
-                    .width(280)
-                    .style(move |_theme: &iced::Theme| iced::widget::container::Style {
-                        background: Some(iced::Background::Color(bg)),
-                        ..Default::default()
-                    })
-                    .into()
-            })
-            .collect();
-
-        let toast_col = toast_items
-            .into_iter()
-            .fold(column![].spacing(4), iced::widget::Column::push);
-
-        let toast_overlay = container(toast_col)
-            .align_x(Alignment::End)
+        // F1: build the XML toggle button (always visible, bottom-left corner)
+        let console_btn_label = if self.show_console { "XML [on]" } else { "XML" };
+        let console_toggle = button(text(console_btn_label).size(11))
+            .on_press(Message::ToggleConsole)
+            .padding([3, 6]);
+        let console_btn_overlay = container(console_toggle)
+            .align_x(Alignment::Start)
             .align_y(Alignment::End)
             .width(Length::Fill)
             .height(Length::Fill)
-            .padding(12);
+            .padding(4);
 
-        stack![screen_view, toast_overlay].into()
+        // F1: build the console panel when visible
+        let console_panel: Option<Element<Message>> = if self.show_console {
+            let entry_rows: Vec<Element<Message>> = self
+                .console_entries
+                .iter()
+                .map(|(dir, xml)| {
+                    let prefix = if dir == "sent" { "[sent]" } else { "[recv]" };
+                    let snippet: String = xml.chars().take(120).collect();
+                    let line = format!("{prefix} {snippet}");
+                    text(line).size(10).font(iced::Font::MONOSPACE).into()
+                })
+                .collect();
+
+            let entries_col = entry_rows
+                .into_iter()
+                .fold(column![].spacing(1), iced::widget::Column::push);
+
+            let scroll = scrollable(entries_col)
+                .height(Length::Fill)
+                .width(Length::Fill);
+
+            let panel = container(scroll)
+                .height(300)
+                .width(Length::Fill)
+                .style(|_theme: &iced::Theme| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.85))),
+                    ..Default::default()
+                })
+                .padding([4, 8]);
+
+            let panel_overlay = container(panel)
+                .align_x(Alignment::Start)
+                .align_y(Alignment::End)
+                .width(Length::Fill)
+                .height(Length::Fill);
+
+            Some(panel_overlay.into())
+        } else {
+            None
+        };
+
+        // J1: build toast column at bottom-right
+        let toast_overlay_opt: Option<Element<Message>> = if !self.toasts.is_empty() {
+            let toast_items: Vec<Element<Message>> = self
+                .toasts
+                .iter()
+                .map(|t| {
+                    let bg = match t.kind {
+                        ToastKind::Error => Color::from_rgb(0.8, 0.2, 0.2),
+                        ToastKind::Success => Color::from_rgb(0.2, 0.7, 0.3),
+                        ToastKind::Info => Color::from_rgb(0.2, 0.4, 0.8),
+                    };
+                    let dismiss_btn = button(text("x").size(10))
+                        .on_press(Message::DismissToast(t.id))
+                        .padding([2, 4]);
+                    let toast_row = row![
+                        text(t.body.clone()).size(12).color(Color::WHITE).width(Length::Fill),
+                        dismiss_btn,
+                    ]
+                    .spacing(4)
+                    .align_y(Alignment::Center);
+                    container(toast_row)
+                        .padding([6, 10])
+                        .width(280)
+                        .style(move |_theme: &iced::Theme| iced::widget::container::Style {
+                            background: Some(iced::Background::Color(bg)),
+                            ..Default::default()
+                        })
+                        .into()
+                })
+                .collect();
+
+            let toast_col = toast_items
+                .into_iter()
+                .fold(column![].spacing(4), iced::widget::Column::push);
+
+            let toast_overlay = container(toast_col)
+                .align_x(Alignment::End)
+                .align_y(Alignment::End)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .padding(12);
+
+            Some(toast_overlay.into())
+        } else {
+            None
+        };
+
+        // Build the stack: screen + optional console panel + optional toasts + toggle button
+        let mut layers: Vec<Element<Message>> = vec![screen_view];
+        if let Some(panel) = console_panel {
+            layers.push(panel);
+        }
+        if let Some(toasts) = toast_overlay_opt {
+            layers.push(toasts);
+        }
+        layers.push(console_btn_overlay.into());
+
+        stack(layers).into()
     }
 
     pub fn subscription() -> Subscription<Message> {
