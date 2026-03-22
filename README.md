@@ -2,7 +2,7 @@
 
 Native XMPP desktop messenger — pure Rust rewrite using [iced](https://github.com/iced-rs/iced).
 
-> Replaces the Tauri + React/TypeScript stack of fluux-messenger with a fully native Rust application.
+> Built with vibecoding, using other XMPP clients as reference (Halloy, Dino, Gajim).
 
 ## Stack
 
