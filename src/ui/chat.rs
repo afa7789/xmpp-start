@@ -81,6 +81,16 @@ impl ChatScreen {
         std::mem::take(&mut self.pending_commands)
     }
 
+    /// B4: mutable access to a conversation for injecting loaded history.
+    pub fn get_conversation_mut(&mut self, jid: &str) -> Option<&mut ConversationView> {
+        self.conversations.get_mut(jid)
+    }
+
+    /// B4: get the bound JID for this session.
+    pub fn own_jid(&self) -> &str {
+        &self.own_jid
+    }
+
     pub fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
             Message::Sidebar(smsg) => {

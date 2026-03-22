@@ -49,6 +49,8 @@ pub enum Message {
     // J1: toast messages
     ShowToast(String, ToastKind),
     DismissToast(u64),
+    // B4: messages loaded from DB for a conversation
+    MessagesLoaded(String, Vec<crate::store::message_repo::Message>),
 }
 
 enum Screen {
@@ -100,6 +102,29 @@ impl App {
 
             Message::DismissToast(id) => {
                 self.toasts.retain(|t| t.id != id);
+                Task::none()
+            }
+
+            Message::MessagesLoaded(jid, rows) => {
+                if let Screen::Chat(ref mut chat) = self.screen {
+                    let own_jid = chat.own_jid().to_string();
+                    if let Some(convo) = chat.get_conversation_mut(&jid) {
+                        let display: Vec<crate::ui::conversation::DisplayMessage> = rows
+                            .into_iter()
+                            .map(|r| crate::ui::conversation::DisplayMessage {
+                                id: r.id,
+                                from: r.from_jid.clone(),
+                                body: r.body.unwrap_or_default(),
+                                own: r.from_jid == own_jid,
+                                timestamp: r.timestamp,
+                            })
+                            .collect();
+                        convo.load_history(display);
+                        return convo
+                            .update(crate::ui::conversation::Message::ScrollToBottom)
+                            .map(move |m| Message::Chat(chat::Message::Conversation(jid.clone(), m)));
+                    }
+                }
                 Task::none()
             }
 
@@ -161,12 +186,28 @@ impl App {
 
             Message::Chat(msg) => {
                 if let Screen::Chat(ref mut chat) = self.screen {
+                    // B4: if SelectContact, fire history load for that JID
+                    let history_task: Task<Message> = if let chat::Message::Sidebar(
+                        crate::ui::sidebar::Message::SelectContact(ref jid)
+                    ) = msg {
+                        let jid = jid.clone();
+                        let pool = self.db.clone();
+                        Task::future(async move {
+                            let rows = crate::store::message_repo::find_by_conversation(&pool, &jid, 50)
+                                .await
+                                .unwrap_or_default();
+                            Message::MessagesLoaded(jid, rows)
+                        })
+                    } else {
+                        Task::none()
+                    };
                     let task = chat.update(msg).map(Message::Chat);
                     let cmds = chat.drain_commands();
                     if !cmds.is_empty() {
                         if let Some(ref tx) = self.xmpp_tx {
                             let tx = tx.clone();
                             return Task::batch([
+                                history_task,
                                 task,
                                 Task::future(async move {
                                     for cmd in cmds {
@@ -178,7 +219,7 @@ impl App {
                             ]);
                         }
                     }
-                    task
+                    Task::batch([history_task, task])
                 } else {
                     Task::none()
                 }

@@ -76,6 +76,11 @@ impl ConversationView {
         self.messages.push(msg);
     }
 
+    /// B4: Replace all messages with history loaded from DB.
+    pub fn load_history(&mut self, msgs: Vec<DisplayMessage>) {
+        self.messages = msgs;
+    }
+
     pub fn take_draft(&mut self) -> String {
         std::mem::take(&mut self.composer)
     }
