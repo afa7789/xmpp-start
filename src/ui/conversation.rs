@@ -314,17 +314,26 @@ impl ConversationView {
                     .into()
             } else {
                 // Own message: right-aligned, no avatar
+                let own_ts_label = if m.timestamp > 0 {
+                    Utc.timestamp_millis_opt(m.timestamp)
+                        .single()
+                        .map(|dt| dt.format("%H:%M").to_string())
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
                 let text_col = if show_sender {
                     column![
                         row![text(sender.clone()).size(11), copy_btn, reply_btn]
                             .spacing(8)
                             .align_y(Alignment::Center),
-                        body_widget
+                        body_widget,
+                        text(own_ts_label).size(10),
                     ]
                     .spacing(2)
                     .padding([6, 10])
                 } else {
-                    column![body_widget].spacing(2).padding([2, 10])
+                    column![body_widget, text(own_ts_label).size(10)].spacing(2).padding([2, 10])
                 };
                 container(text_col)
                     .width(Length::Fill)
