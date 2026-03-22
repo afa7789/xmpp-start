@@ -28,7 +28,6 @@ use crate::ui::styling::{self, SpanStyle};
 /// A single message shown in the conversation view.
 #[derive(Debug, Clone)]
 pub struct DisplayMessage {
-    #[allow(dead_code)]
     pub id: String,
     pub from: String,
     pub body: String,
@@ -45,7 +44,6 @@ pub struct ConversationView {
     pub(crate) composer: String,
     scroll_id: Id,
     scroll_offset: AbsoluteOffset,
-    #[allow(dead_code)]
     own_jid: String,
     /// C4: whether the peer is currently blocked (shown in header)
     pub peer_blocked: bool,
@@ -115,7 +113,6 @@ impl ConversationView {
         std::mem::take(&mut self.composer)
     }
 
-    #[allow(dead_code)]
     pub fn messages(&self) -> &[DisplayMessage] {
         &self.messages
     }
