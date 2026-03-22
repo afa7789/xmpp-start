@@ -40,7 +40,7 @@ panics with "no CryptoProvider". This must be fixed in `main.rs`.
 
 ## Immediate bugs (must fix first)
 
-- [ ] **B1: rustls CryptoProvider panic on connect** — `main.rs`
+- [x] ✅ **B1: rustls CryptoProvider panic on connect** — `main.rs`
   Call `rustls::crypto::ring::default_provider().install_default().ok()` near
   the top of `fn main()`, before `iced::application(...)` runs. Without this
   the first connection attempt panics. The `.ok()` silences "already installed"
@@ -48,7 +48,7 @@ panics with "no CryptoProvider". This must be fixed in `main.rs`.
   **Done when**: connecting to a real XMPP server no longer panics on the first
   attempt; `cargo test` continues to pass.
 
-- [ ] **B2: `i18n` module declared but does not exist** — `main.rs`, `lib.rs`
+- [x] ✅ **B2: `i18n` module declared but does not exist** — `main.rs`, `lib.rs`
   `pub mod i18n;` is declared in both files but no `src/i18n.rs` or
   `src/i18n/mod.rs` exists. This will panic with a compile error the moment
   anyone tries to `use crate::i18n`. Either create a minimal stub
@@ -57,7 +57,7 @@ panics with "no CryptoProvider". This must be fixed in `main.rs`.
   **Done when**: `cargo build` succeeds with no "file not found for module i18n"
   error.
 
-- [ ] **B3: Presence-availability changes are silently dropped** — `src/ui/mod.rs:204`
+- [x] ✅ **B3: Presence-availability changes are silently dropped** — `src/ui/mod.rs:204`
   `XmppEvent::PresenceUpdated` is matched and logged, but `chat.on_presence()`
   is never called, so the sidebar never shows online/offline status.
   **Done when**: `SidebarScreen` shows a visual indicator when a contact's
@@ -67,7 +67,7 @@ panics with "no CryptoProvider". This must be fixed in `main.rs`.
 
 ## Phase A — Foundation wiring (≤ 1 day each)
 
-### A1: Open the SQLite database at startup and pass it to the engine
+### ✅ A1: Open the SQLite database at startup and pass it to the engine (COMPLETED 2026-03-22)
 **Goal**: App opens `~/.local/share/xmpp-start/messages.db` on launch and
 holds a `Database` handle that can be passed to store calls.
 **Files touched**: `src/main.rs`, `src/ui/mod.rs` (`App` struct), `src/store/mod.rs`
@@ -111,7 +111,7 @@ restartng the app and re-connecting shows the count preserved in DB.
 **Done when**: roster persists across restarts; sidebar shows contacts immediately
 on launch.
 
-### A4: Wire `PresenceUpdated` to the sidebar — close B3
+### ✅ A4: Wire `PresenceUpdated` to the sidebar — close B3 (COMPLETED 2026-03-22)
 **Goal**: Sidebar shows a visual available/away indicator next to each contact.
 **Files touched**: `src/ui/mod.rs`, `src/ui/sidebar.rs`, `src/ui/chat.rs`
 **Depends on**: B3 fix context; no code dependency
@@ -126,7 +126,7 @@ on launch.
    or `○` (away/offline).
 **Done when**: when a test contact goes away, the indicator updates in the sidebar.
 
-### A5: Wire desktop notifications on new message
+### ✅ A5: Wire desktop notifications on new message (COMPLETED 2026-03-22)
 **Goal**: When a chat message arrives while the window is not focused, fire an
 OS notification.
 **Files touched**: `src/ui/mod.rs`, `src/notifications.rs`

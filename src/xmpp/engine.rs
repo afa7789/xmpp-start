@@ -983,6 +983,59 @@ mod tests {
         run_engine(event_tx, cmd_rx).await;
     }
 
+    // --- Carbon detection (XEP-0280) ---
+
+    fn make_carbon_wrapper(direction: &str, inner_xml: &str) -> Element {
+        let inner_msg: Element = inner_xml.parse().unwrap();
+        let mut forwarded = Element::builder("forwarded", NS_FORWARD).build();
+        forwarded.append_child(inner_msg);
+        let mut carbon = Element::builder(direction, NS_CARBONS).build();
+        carbon.append_child(forwarded);
+        let mut wrapper = Element::builder("message", "jabber:client")
+            .attr("from", "user@example.com")
+            .attr("to", "user@example.com/res2")
+            .build();
+        wrapper.append_child(carbon);
+        wrapper
+    }
+
+    #[test]
+    fn extract_carbon_sent_returns_inner_message() {
+        let inner = r#"<message xmlns="jabber:client" from="user@example.com/res1" to="alice@example.com" type="chat"><body>hello</body></message>"#;
+        let wrapper = make_carbon_wrapper("sent", inner);
+        let result = extract_carbon(&wrapper, "sent");
+        assert!(result.is_some());
+        let msg = result.unwrap();
+        assert_eq!(msg.name(), "message");
+        assert_eq!(msg.attr("to"), Some("alice@example.com"));
+    }
+
+    #[test]
+    fn extract_carbon_received_returns_inner_message() {
+        let inner = r#"<message xmlns="jabber:client" from="alice@example.com" to="user@example.com/res1" type="chat"><body>hi</body></message>"#;
+        let wrapper = make_carbon_wrapper("received", inner);
+        let result = extract_carbon(&wrapper, "received");
+        assert!(result.is_some());
+        let msg = result.unwrap();
+        assert_eq!(msg.name(), "message");
+        assert_eq!(msg.attr("from"), Some("alice@example.com"));
+    }
+
+    #[test]
+    fn extract_carbon_wrong_direction_returns_none() {
+        let inner = r#"<message xmlns="jabber:client" from="alice@example.com" to="user@example.com/res1" type="chat"><body>hi</body></message>"#;
+        let wrapper = make_carbon_wrapper("received", inner);
+        // Looking for "sent" in a "received" wrapper should return None.
+        assert!(extract_carbon(&wrapper, "sent").is_none());
+    }
+
+    #[test]
+    fn extract_carbon_plain_message_returns_none() {
+        let plain: Element = r#"<message xmlns="jabber:client" from="alice@example.com" to="user@example.com" type="chat"><body>hello</body></message>"#.parse().unwrap();
+        assert!(extract_carbon(&plain, "sent").is_none());
+        assert!(extract_carbon(&plain, "received").is_none());
+    }
+
     #[test]
     fn connect_config_fields() {
         let cfg = ConnectConfig {
