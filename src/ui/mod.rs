@@ -27,6 +27,14 @@ use crate::config::{self, Settings, Theme};
 use crate::xmpp::{self, XmppCommand, XmppEvent};
 use toast::{Toast, ToastKind};
 
+// F2: hardcoded command palette entries
+const PALETTE_COMMANDS: &[&str] = &[
+    "Open Settings",
+    "Toggle Console",
+    "Add Contact",
+    "Disconnect",
+];
+
 /// Top-level application state.
 pub struct App {
     screen: Screen,
@@ -41,6 +49,9 @@ pub struct App {
     last_connect_cfg: Option<crate::xmpp::ConnectConfig>,
     // H1: avatar cache (jid → png bytes)
     avatar_cache: HashMap<String, Vec<u8>>,
+    // F2: command palette
+    show_palette: bool,
+    palette_query: String,
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +73,10 @@ pub enum Message {
     GoToSettings,
     Settings(settings::Message),
     GoBack,
+    // F2: command palette
+    TogglePalette,
+    PaletteQuery(String),
+    PaletteExecute(usize),
 }
 
 enum Screen {
@@ -90,6 +105,8 @@ impl App {
                 reconnect_attempt: 0,
                 last_connect_cfg: None,
                 avatar_cache: HashMap::new(),
+                show_palette: false,
+                palette_query: String::new(),
             },
             Task::none(),
         )
@@ -104,6 +121,47 @@ impl App {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            // F2: command palette
+            Message::TogglePalette => {
+                self.show_palette = !self.show_palette;
+                self.palette_query.clear();
+                Task::none()
+            }
+
+            Message::PaletteQuery(q) => {
+                self.palette_query = q;
+                Task::none()
+            }
+
+            Message::PaletteExecute(i) => {
+                self.show_palette = false;
+                let filtered: Vec<&str> = PALETTE_COMMANDS
+                    .iter()
+                    .copied()
+                    .filter(|cmd| {
+                        cmd.to_lowercase().contains(&self.palette_query.to_lowercase())
+                    })
+                    .collect();
+                if let Some(&label) = filtered.get(i) {
+                    match label {
+                        "Open Settings" => return self.update(Message::GoToSettings),
+                        "Disconnect" => {
+                            if let Some(ref tx) = self.xmpp_tx {
+                                let tx = tx.clone();
+                                return Task::future(async move {
+                                    let _ = tx.send(crate::xmpp::XmppCommand::Disconnect).await;
+                                    Message::GoToBenchmark
+                                })
+                                .discard();
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                self.palette_query.clear();
+                Task::none()
+            }
+
             Message::ShowToast(body, kind) => {
                 let id = self.next_toast_id;
                 self.next_toast_id += 1;
@@ -477,7 +535,7 @@ impl App {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        use iced::widget::{column, container, row, stack, text, button};
+        use iced::widget::{column, container, row, stack, text, button, text_input, scrollable, Space};
         use iced::{Alignment, Length, Color};
 
         let screen_view: Element<Message> = match &self.screen {
@@ -487,8 +545,111 @@ impl App {
             Screen::Settings(ss, _) => ss.view().map(Message::Settings),
         };
 
+        // F2: build layers list; palette overlay added when visible
+        let mut layers: Vec<Element<Message>> = vec![screen_view];
+
+        // F2: palette overlay
+        if self.show_palette {
+            let filtered: Vec<(usize, &str)> = PALETTE_COMMANDS
+                .iter()
+                .copied()
+                .enumerate()
+                .filter(|(_, cmd)| {
+                    cmd.to_lowercase().contains(&self.palette_query.to_lowercase())
+                })
+                .collect();
+
+            let input = text_input("Search commands...", &self.palette_query)
+                .id(iced::widget::text_input::Id::new("palette_input"))
+                .on_input(Message::PaletteQuery)
+                .on_submit(if filtered.is_empty() {
+                    Message::TogglePalette
+                } else {
+                    Message::PaletteExecute(0)
+                })
+                .padding(10)
+                .size(16);
+
+            let cmd_buttons: Vec<Element<Message>> = filtered
+                .iter()
+                .map(|(i, label)| {
+                    button(text(*label).size(14))
+                        .on_press(Message::PaletteExecute(*i))
+                        .width(Length::Fill)
+                        .padding([8, 12])
+                        .into()
+                })
+                .collect();
+
+            let cmd_list = cmd_buttons
+                .into_iter()
+                .fold(column![].spacing(2), iced::widget::Column::push);
+
+            let palette_box = container(
+                column![input, scrollable(cmd_list).height(300)].spacing(8),
+            )
+            .width(480)
+            .padding(16)
+            .style(|theme: &iced::Theme| {
+                let palette = theme.extended_palette();
+                iced::widget::container::Style {
+                    background: Some(iced::Background::Color(
+                        palette.background.base.color,
+                    )),
+                    border: iced::Border {
+                        color: palette.primary.base.color,
+                        width: 1.0,
+                        radius: 8.0.into(),
+                    },
+                    shadow: iced::Shadow {
+                        color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
+                        offset: iced::Vector::new(0.0, 4.0),
+                        blur_radius: 16.0,
+                    },
+                    ..Default::default()
+                }
+            });
+
+            // Dark semi-transparent backdrop + centered palette
+            let backdrop = container(Space::new(Length::Fill, Length::Fill))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(|_theme: &iced::Theme| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(Color::from_rgba(
+                        0.0, 0.0, 0.0, 0.5,
+                    ))),
+                    ..Default::default()
+                });
+
+            let overlay = container(
+                column![
+                    Space::new(Length::Fill, Length::Fixed(80.0)),
+                    row![
+                        Space::new(Length::Fill, Length::Shrink),
+                        palette_box,
+                        Space::new(Length::Fill, Length::Shrink),
+                    ]
+                    .width(Length::Fill),
+                ]
+                .width(Length::Fill),
+            )
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+            let palette_layer: Element<Message> = stack![backdrop, overlay].into();
+            layers.push(palette_layer);
+        }
+
+        // J1: build toast overlay
         if self.toasts.is_empty() {
-            return screen_view;
+            // Re-stack layers built so far
+            return if layers.len() == 1 {
+                layers.remove(0)
+            } else {
+                let base = layers.remove(0);
+                let top = layers.remove(0);
+                stack![base, top].into()
+            };
         }
 
         // J1: build toast column at bottom-right
@@ -532,10 +693,32 @@ impl App {
             .height(Length::Fill)
             .padding(12);
 
-        stack![screen_view, toast_overlay].into()
+        // Build final stack: screen (+ optional palette) + toast
+        let base: Element<Message> = if layers.len() == 1 {
+            layers.remove(0)
+        } else {
+            let b = layers.remove(0);
+            let t = layers.remove(0);
+            stack![b, t].into()
+        };
+        stack![base, toast_overlay].into()
     }
 
     pub fn subscription() -> Subscription<Message> {
-        xmpp::subscription::xmpp_subscription()
+        let xmpp_sub = xmpp::subscription::xmpp_subscription();
+        // F2: keyboard shortcut — Cmd+K / Ctrl+K to toggle palette, Escape to close
+        let kb_sub = iced::keyboard::on_key_press(|key, modifiers| {
+            use iced::keyboard::Key;
+            if modifiers.command() {
+                if key == Key::Character("k".into()) {
+                    return Some(Message::TogglePalette);
+                }
+            }
+            if key == Key::Named(iced::keyboard::key::Named::Escape) {
+                return Some(Message::TogglePalette);
+            }
+            None
+        });
+        Subscription::batch([xmpp_sub, kb_sub])
     }
 }
