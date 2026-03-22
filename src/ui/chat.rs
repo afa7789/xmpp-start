@@ -84,16 +84,27 @@ impl ChatScreen {
     pub fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
             Message::Sidebar(smsg) => {
+                // H3: intercept SubmitAddContact before routing
+                if let sidebar::Message::SubmitAddContact = smsg {
+                    let jid = self.sidebar.add_contact_jid().to_owned();
+                    if !jid.trim().is_empty() {
+                        self.pending_commands.push(crate::xmpp::XmppCommand::AddContact(jid));
+                    }
+                    let _ = self.sidebar.update(smsg);
+                    return Task::none();
+                }
+
                 // When user selects a contact, open (or switch to) that conversation.
-                let sidebar::Message::SelectContact(ref jid) = smsg;
-                let jid = jid.clone();
-                let own_jid = self.own_jid.clone();
-                self.conversations
-                    .entry(jid.clone())
-                    .or_insert_with(|| ConversationView::new(jid.clone(), own_jid));
-                self.active_jid = Some(jid.clone());
-                // B5: clear unread count when conversation is opened
-                self.sidebar.clear_unread(&jid);
+                if let sidebar::Message::SelectContact(ref jid) = smsg {
+                    let jid = jid.clone();
+                    let own_jid = self.own_jid.clone();
+                    self.conversations
+                        .entry(jid.clone())
+                        .or_insert_with(|| ConversationView::new(jid.clone(), own_jid));
+                    self.active_jid = Some(jid.clone());
+                    // B5: clear unread count when conversation is opened
+                    self.sidebar.clear_unread(&jid);
+                }
                 self.sidebar.update(smsg).map(Message::Sidebar)
             }
 

@@ -76,6 +76,8 @@ pub enum XmppCommand {
     Connect(ConnectConfig),
     /// Send a chat message to a JID.
     SendMessage { to: String, body: String },
+    /// H3: Add a contact to the roster.
+    AddContact(String),
     /// Gracefully close the current session.
     #[allow(dead_code)]
     Disconnect,

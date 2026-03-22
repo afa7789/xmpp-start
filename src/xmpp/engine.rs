@@ -170,6 +170,10 @@ async fn run_session(
                             outbox.push_back(make_message(to_jid, &body));
                         }
                     }
+                    Some(XmppCommand::AddContact(jid)) => {
+                        outbox.push_back(make_roster_set(&jid));
+                        tracing::info!("roster: sent add-contact IQ for {jid}");
+                    }
                 }
             }
         }
@@ -402,6 +406,22 @@ fn make_message(to: Jid, body: &str) -> Element {
     msg.id = Some(uuid::Uuid::new_v4().to_string());
     msg.bodies.insert(String::new(), Body(body.to_owned()));
     msg.into()
+}
+
+/// H3: Build a roster-set IQ to add a contact.
+fn make_roster_set(jid: &str) -> Element {
+    let item = Element::builder("item", "jabber:iq:roster")
+        .attr("jid", jid)
+        .build();
+    let query = Element::builder("query", "jabber:iq:roster")
+        .append(item)
+        .build();
+    let mut iq = Element::builder("iq", "jabber:client")
+        .attr("type", "set")
+        .attr("id", &uuid::Uuid::new_v4().to_string())
+        .build();
+    iq.append_child(query);
+    iq
 }
 
 // ---------------------------------------------------------------------------

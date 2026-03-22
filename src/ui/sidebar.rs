@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use iced::{
-    widget::{button, column, container, row, scrollable, text},
+    widget::{button, column, container, row, scrollable, text, text_input},
     Alignment, Element, Length, Task,
 };
 
@@ -19,11 +19,17 @@ pub struct SidebarScreen {
     selected_jid: Option<String>,
     presence: HashMap<String, bool>,
     unread_counts: HashMap<String, u32>, // B5: unread message counts per JID
+    // H3: add contact UI state
+    show_add_contact: bool,
+    add_contact_input: String,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     SelectContact(String),
+    ToggleAddContact,                 // H3: show/hide add-contact input
+    AddContactInputChanged(String),   // H3: input field changed
+    SubmitAddContact,                 // H3: submit add contact
 }
 
 impl Default for SidebarScreen {
@@ -39,6 +45,8 @@ impl SidebarScreen {
             selected_jid: None,
             presence: HashMap::new(),
             unread_counts: HashMap::new(),
+            show_add_contact: false,
+            add_contact_input: String::new(),
         }
     }
 
@@ -65,10 +73,27 @@ impl SidebarScreen {
         self.selected_jid.as_deref()
     }
 
+    /// H3: Get the current add-contact input value.
+    pub fn add_contact_jid(&self) -> &str {
+        &self.add_contact_input
+    }
+
     pub fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
             Message::SelectContact(jid) => {
                 self.selected_jid = Some(jid);
+            }
+            Message::ToggleAddContact => {
+                self.show_add_contact = !self.show_add_contact;
+                self.add_contact_input.clear();
+            }
+            Message::AddContactInputChanged(v) => {
+                self.add_contact_input = v;
+            }
+            Message::SubmitAddContact => {
+                // ChatScreen will intercept this
+                self.show_add_contact = false;
+                self.add_contact_input.clear();
             }
         }
         Task::none()
@@ -81,7 +106,26 @@ impl SidebarScreen {
     /// G6: render sidebar with optional draft indicators.
     /// `drafts` is a list of JIDs that currently have a non-empty draft.
     pub fn view_with_drafts(&self, drafts: &[String]) -> Element<'_, Message> {
-        let header = text("Contacts").size(16);
+        let add_btn = button("+").on_press(Message::ToggleAddContact).padding([2, 6]);
+        let header_row = row![
+            text("Contacts").size(16).width(Length::Fill),
+            add_btn,
+        ]
+        .spacing(4)
+        .align_y(Alignment::Center);
+
+        let add_contact_row: Option<Element<Message>> = if self.show_add_contact {
+            let input = text_input("JID to add…", &self.add_contact_input)
+                .on_input(Message::AddContactInputChanged)
+                .on_submit(Message::SubmitAddContact)
+                .padding(6);
+            let submit_btn = button("Add")
+                .on_press(Message::SubmitAddContact)
+                .padding([4, 8]);
+            Some(row![input, submit_btn].spacing(4).into())
+        } else {
+            None
+        };
 
         let contact_rows: Vec<Element<Message>> = self
             .contacts
@@ -144,7 +188,10 @@ impl SidebarScreen {
             None
         };
 
-        let mut col = column![header].spacing(4).padding(8).width(Length::Fill);
+        let mut col = column![header_row].spacing(4).padding(8).width(Length::Fill);
+        if let Some(add_row) = add_contact_row {
+            col = col.push(add_row);
+        }
 
         for row in contact_rows {
             col = col.push(row);
