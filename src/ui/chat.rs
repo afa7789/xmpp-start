@@ -31,6 +31,7 @@ pub struct ChatScreen {
 pub enum Message {
     Sidebar(sidebar::Message),
     Conversation(String, super::conversation::Message),
+    CloseConversation(String), // G1: close a conversation by JID
 }
 
 impl ChatScreen {
@@ -88,7 +89,20 @@ impl ChatScreen {
                 self.sidebar.update(smsg).map(Message::Sidebar)
             }
 
+            Message::CloseConversation(jid) => {
+                self.conversations.remove(&jid);
+                if self.active_jid.as_deref() == Some(jid.as_str()) {
+                    self.active_jid = None;
+                }
+                Task::none()
+            }
+
             Message::Conversation(jid, cmsg) => {
+                // G1: intercept Close to remove the conversation
+                if let super::conversation::Message::Close = cmsg {
+                    return self.update(Message::CloseConversation(jid));
+                }
+
                 // Intercept Send to queue a command for the engine.
                 if let super::conversation::Message::Send = cmsg {
                     if let Some(convo) = self.conversations.get_mut(&jid) {

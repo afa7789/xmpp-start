@@ -41,6 +41,7 @@ pub enum Message {
     Send,
     Scrolled(AbsoluteOffset),
     ScrollToBottom,
+    Close, // G1: request to close this conversation
 }
 
 impl ConversationView {
@@ -90,6 +91,7 @@ impl ConversationView {
                 };
                 scrollable::scroll_to::<Message>(self.scroll_id.clone(), bottom)
             }
+            Message::Close => Task::none(), // handled by ChatScreen
         }
     }
 
@@ -161,11 +163,22 @@ impl ConversationView {
         .align_y(Alignment::Center)
         .padding([4, 8]);
 
-        column![
-            // Header
+        // G1: close button in header
+        let close_btn = button("x")
+            .on_press(Message::Close)
+            .padding([4, 8]);
+        let header = row![
             container(text(format!("Chat with {}", self.peer_jid)).size(14))
                 .padding([8, 12])
                 .width(Length::Fill),
+            close_btn,
+        ]
+        .align_y(Alignment::Center)
+        .width(Length::Fill);
+
+        column![
+            // Header
+            header,
             // Message list
             scroll_area,
             // Scroll position bar
