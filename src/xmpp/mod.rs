@@ -48,6 +48,11 @@ pub enum XmppEvent {
 
     // Presence — P1.4b
     PresenceUpdated { jid: String, available: bool },
+
+    // MAM catchup — P4.3
+    /// Emitted when the <fin> for a per-conversation MAM catchup query arrives.
+    /// `fetched` is the number of archived messages received in this round.
+    CatchupFinished { conversation_jid: String, fetched: usize },
 }
 
 /// Commands sent from the UI to the XMPP engine.

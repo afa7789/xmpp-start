@@ -201,6 +201,11 @@ impl App {
                     XmppEvent::PresenceUpdated { ref jid, available } => {
                         tracing::debug!("XMPP: presence {jid} available={available}");
                     }
+                    XmppEvent::CatchupFinished { ref conversation_jid, fetched } => {
+                        tracing::info!(
+                            "XMPP: MAM catchup complete for {conversation_jid} ({fetched} messages)"
+                        );
+                    }
                 }
                 Task::none()
             }
