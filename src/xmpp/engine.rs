@@ -31,6 +31,7 @@ use super::{
     modules::mam::{MamFilter, MamManager, MamQuery, RsmQuery},
     modules::catchup::CatchupManager,
     modules::presence_machine::PresenceMachine,
+    modules::disco::{DiscoIdentity, DiscoManager},
     IncomingMessage, RosterContact, XmppCommand, XmppEvent,
 };
 
@@ -141,6 +142,12 @@ async fn run_session(
     let mut catchup_mgr = CatchupManager::new();
     // C2: XEP-0153/presence state machine
     let mut presence_machine = PresenceMachine::new();
+    // C5: XEP-0115/XEP-0030 service discovery + caps
+    let mut disco_mgr = DiscoManager::new(
+        "https://github.com/xmpp-start",
+        &[DiscoIdentity { category: "client".to_string(), kind: "pc".to_string(), name: "xmpp-start".to_string() }],
+        &["urn:xmpp:mam:2", "urn:xmpp:carbons:2"],
+    );
 
     loop {
         // Drain outbox before blocking on the next event.
@@ -172,7 +179,7 @@ async fn run_session(
                     }
                     Some(ev) => {
 
-                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut own_jid_str, &mut mam_mgr, &mut catchup_mgr, &mut presence_machine).await;
+                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut own_jid_str, &mut mam_mgr, &mut catchup_mgr, &mut presence_machine, &mut disco_mgr).await;
                     }
                 }
             }
@@ -236,6 +243,7 @@ async fn handle_client_event(
     mam_mgr: &mut MamManager,
     catchup_mgr: &mut CatchupManager,
     presence_machine: &mut PresenceMachine,
+    disco_mgr: &mut DiscoManager,
 ) {
     match ev {
         tokio_xmpp::Event::Online { bound_jid, .. } => {
@@ -249,11 +257,9 @@ async fn handle_client_event(
             // Enable message carbons (P1.5 / XEP-0280).
             outbox.push_back(make_carbons_enable());
 
-            // Announce presence (C2: via PresenceMachine).
+            // Announce presence (C2: track state, C5: with XEP-0115 caps).
             presence_machine.on_connected();
-            if let Some(p) = presence_machine.build_presence_stanza() {
-                outbox.push_back(p);
-            }
+            outbox.push_back(make_presence_with_caps(disco_mgr));
 
             // C4: fetch blocklist (XEP-0191)
             outbox.push_back(blocking_mgr.build_fetch_iq());
@@ -299,7 +305,7 @@ async fn handle_client_event(
             if let Some(ack) = sm.maybe_send_ack() {
                 outbox.push_back(ack);
             }
-            dispatch_stanza(el, event_tx, blocking_mgr, sm, outbox, own_jid_str, mam_mgr, catchup_mgr).await;
+            dispatch_stanza(el, event_tx, blocking_mgr, sm, outbox, own_jid_str, mam_mgr, catchup_mgr, disco_mgr).await;
         }
     }
 }
@@ -313,6 +319,7 @@ async fn dispatch_stanza(
     own_jid_str: &str,
     mam_mgr: &mut MamManager,
     catchup_mgr: &mut CatchupManager,
+    disco_mgr: &mut DiscoManager,
 ) {
     // XEP-0198: handle server <a h='...'> acks
     if el.name() == "a" && el.ns() == "urn:xmpp:sm:3" {
@@ -329,7 +336,7 @@ async fn dispatch_stanza(
         return;
     }
     match el.name() {
-        "iq" => handle_iq(el, event_tx, blocking_mgr, mam_mgr, catchup_mgr).await,
+        "iq" => handle_iq(el, event_tx, blocking_mgr, mam_mgr, catchup_mgr, disco_mgr).await,
         "message" => {
             // C3: XEP-0313 MAM result wrapper — extract forwarded message
             if let Some(mam_msg) = mam_mgr.on_mam_message(&el) {
@@ -382,6 +389,7 @@ async fn handle_iq(
     blocking_mgr: &mut BlockingManager,
     mam_mgr: &mut MamManager,
     catchup_mgr: &mut CatchupManager,
+    disco_mgr: &mut DiscoManager,
 ) {
     // C3: detect MAM <fin> stanza
     if el.attr("type") == Some("result") {
@@ -401,6 +409,10 @@ async fn handle_iq(
             }
             return;
         }
+    }
+    // C5: parse disco#info results into cache
+    if disco_mgr.on_info_result(&el).is_some() {
+        return;
     }
     // C4: blocklist result (initial fetch)
     if el.attr("type") == Some("result") {
@@ -582,6 +594,17 @@ fn make_carbons_enable() -> Element {
         xmpp_parsers::carbons::Enable,
     )
     .into()
+}
+
+fn make_presence_with_caps(disco_mgr: &DiscoManager) -> Element {
+    let mut presence = Presence::new(PresenceType::None);
+    // Append XEP-0115 <c> caps element
+    let caps_el = disco_mgr.build_caps_element();
+    let el: Element = presence.into();
+    // Rebuild with caps appended
+    let mut raw = Element::builder("presence", "jabber:client").build();
+    raw.append_child(caps_el);
+    raw
 }
 
 fn make_presence() -> Element {

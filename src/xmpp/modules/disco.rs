@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Task P6.1 — XEP-0115 Entity Capabilities + XEP-0030 Service Discovery
 // XEP references:
 //   https://xmpp.org/extensions/xep-0115.html
