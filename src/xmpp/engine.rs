@@ -23,7 +23,11 @@ use tokio_xmpp::{
     AsyncClient, AsyncConfig,
 };
 
-use super::{connection::ConnectConfig, IncomingMessage, RosterContact, XmppCommand, XmppEvent};
+use super::{
+    connection::ConnectConfig,
+    modules::blocking::BlockingManager,
+    IncomingMessage, RosterContact, XmppCommand, XmppEvent,
+};
 
 // ---------------------------------------------------------------------------
 // Connection state machine  (P1.9)
@@ -116,6 +120,8 @@ async fn run_session(
     // Outbox for stanzas that need to be sent after a select! arm.
     let mut outbox: VecDeque<Element> = VecDeque::new();
     let mut reconnect_attempt: u32 = 0;
+    // C4: XEP-0191 blocking command manager
+    let mut blocking_mgr = BlockingManager::new();
 
     loop {
         // Drain outbox before blocking on the next event.
@@ -133,7 +139,7 @@ async fn run_session(
                         break;
                     }
                     Some(ev) => {
-                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt).await;
+                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut blocking_mgr).await;
                     }
                 }
             }
@@ -174,6 +180,7 @@ async fn handle_client_event(
     event_tx: &mpsc::Sender<XmppEvent>,
     outbox: &mut VecDeque<Element>,
     reconnect_attempt: &mut u32,
+    blocking_mgr: &mut BlockingManager,
 ) {
     match ev {
         tokio_xmpp::Event::Online { bound_jid, .. } => {
@@ -188,6 +195,9 @@ async fn handle_client_event(
 
             // Announce presence.
             outbox.push_back(make_presence());
+
+            // C4: fetch blocklist (XEP-0191)
+            outbox.push_back(blocking_mgr.build_fetch_iq());
 
             let _ = event_tx
                 .send(XmppEvent::Connected {
@@ -208,15 +218,19 @@ async fn handle_client_event(
         }
 
         tokio_xmpp::Event::Stanza(el) => {
-            dispatch_stanza(el, event_tx).await;
+            dispatch_stanza(el, event_tx, blocking_mgr).await;
         }
     }
 }
 
-async fn dispatch_stanza(el: Element, event_tx: &mpsc::Sender<XmppEvent>) {
+async fn dispatch_stanza(
+    el: Element,
+    event_tx: &mpsc::Sender<XmppEvent>,
+    blocking_mgr: &mut BlockingManager,
+) {
     match el.name() {
-        "iq" => handle_iq(el, event_tx).await,
-        "message" => handle_message(el, event_tx).await,
+        "iq" => handle_iq(el, event_tx, blocking_mgr).await,
+        "message" => handle_message(el, event_tx, blocking_mgr).await,
         "presence" => handle_presence(el, event_tx).await,
         _ => {}
     }
@@ -226,7 +240,23 @@ async fn dispatch_stanza(el: Element, event_tx: &mpsc::Sender<XmppEvent>) {
 // IQ handler — roster result (P1.4)
 // ---------------------------------------------------------------------------
 
-async fn handle_iq(el: Element, event_tx: &mpsc::Sender<XmppEvent>) {
+async fn handle_iq(
+    el: Element,
+    event_tx: &mpsc::Sender<XmppEvent>,
+    blocking_mgr: &mut BlockingManager,
+) {
+    // C4: check if this is a blocklist result before parsing as generic IQ
+    if el.attr("type") == Some("result") {
+        let has_blocklist = el
+            .children()
+            .any(|c| c.name() == "blocklist" && c.ns() == "urn:xmpp:blocking");
+        if has_blocklist {
+            blocking_mgr.on_blocklist_result(&el);
+            tracing::debug!("blocking: loaded {} blocked JIDs", blocking_mgr.blocked_list().len());
+            return;
+        }
+    }
+
     let iq = match Iq::try_from(el) {
         Ok(i) => i,
         Err(_) => return,
@@ -252,7 +282,11 @@ async fn handle_iq(el: Element, event_tx: &mpsc::Sender<XmppEvent>) {
 // Message handler (P1.5)
 // ---------------------------------------------------------------------------
 
-async fn handle_message(el: Element, event_tx: &mpsc::Sender<XmppEvent>) {
+async fn handle_message(
+    el: Element,
+    event_tx: &mpsc::Sender<XmppEvent>,
+    blocking_mgr: &BlockingManager,
+) {
     let msg = match XmppMessage::try_from(el) {
         Ok(m) => m,
         Err(_) => return,
@@ -272,6 +306,13 @@ async fn handle_message(el: Element, event_tx: &mpsc::Sender<XmppEvent>) {
         Some(ref f) => f.to_string(),
         None => return,
     };
+
+    // C4: skip messages from blocked JIDs
+    let bare_from = from.split('/').next().unwrap_or(&from);
+    if blocking_mgr.is_blocked(bare_from) {
+        tracing::debug!("blocking: dropped message from {bare_from}");
+        return;
+    }
 
     let id = msg.id.unwrap_or_default();
 

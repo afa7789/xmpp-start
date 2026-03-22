@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Task P6.2 — XEP-0191 Blocking Command
 // XEP reference: https://xmpp.org/extensions/xep-0191.html
 //
