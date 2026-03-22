@@ -170,6 +170,11 @@ async fn run_session(
                             outbox.push_back(make_message(to_jid, &body));
                         }
                     }
+                    Some(XmppCommand::SendChatState { to, composing }) => {
+                        if let Ok(to_jid) = to.parse::<Jid>() {
+                            outbox.push_back(make_chat_state_message(to_jid, composing));
+                        }
+                    }
                 }
             }
         }
@@ -305,6 +310,12 @@ async fn handle_message(
     event_tx: &mpsc::Sender<XmppEvent>,
     blocking_mgr: &BlockingManager,
 ) {
+    // G2: detect XEP-0085 chat state notifications from the raw element
+    // before consuming el into XmppMessage (which may drop unknown children)
+    let has_composing = el.children().any(|c| c.name() == "composing" && c.ns() == "jabber:x:chatstates");
+    let has_paused = el.children().any(|c| (c.name() == "paused" || c.name() == "inactive") && c.ns() == "jabber:x:chatstates");
+    let chat_state_from = el.attr("from").map(str::to_string);
+
     let msg = match XmppMessage::try_from(el) {
         Ok(m) => m,
         Err(_) => return,
@@ -313,6 +324,19 @@ async fn handle_message(
     // Only handle chat/normal messages with a body.
     if msg.type_ == MessageType::Error {
         return;
+    }
+
+    // G2: emit PeerTyping if we found a chat state
+    if (has_composing || has_paused) {
+        if let Some(from_str) = chat_state_from.as_deref() {
+            let bare_jid = from_str.split('/').next().unwrap_or(from_str).to_string();
+            let _ = event_tx
+                .send(XmppEvent::PeerTyping {
+                    jid: bare_jid,
+                    composing: has_composing,
+                })
+                .await;
+        }
     }
 
     let body = match msg.bodies.get("") {
@@ -402,6 +426,39 @@ fn make_message(to: Jid, body: &str) -> Element {
     msg.id = Some(uuid::Uuid::new_v4().to_string());
     msg.bodies.insert(String::new(), Body(body.to_owned()));
     msg.into()
+}
+
+/// G2: Build a XEP-0085 chat state stanza.
+fn make_chat_state_message(to: Jid, composing: bool) -> Element {
+    // Build raw minidom element: <message type="chat" to="..."><composing|paused xmlns="jabber:x:chatstates"/></message>
+    let state_name = if composing { "composing" } else { "paused" };
+    let state_el = Element::builder(state_name, "jabber:x:chatstates").build();
+    let mut msg = XmppMessage::new(Some(to));
+    msg.type_ = MessageType::Chat;
+    let el: Element = msg.into();
+    // Reconstruct with the child since XmppMessage doesn't support arbitrary payloads cleanly
+    let mut raw = Element::builder("message", "jabber:client")
+        .attr("type", "chat")
+        .attr("to", el.attr("to").unwrap_or(""))
+        .build();
+    raw.append_child(state_el);
+    raw
+}
+
+/// H3: Build a roster-set IQ to add a contact.
+fn make_roster_set(jid: &str) -> Element {
+    let item = Element::builder("item", "jabber:iq:roster")
+        .attr("jid", jid)
+        .build();
+    let query = Element::builder("query", "jabber:iq:roster")
+        .append(item)
+        .build();
+    let mut iq = Element::builder("iq", "jabber:client")
+        .attr("type", "set")
+        .attr("id", &uuid::Uuid::new_v4().to_string())
+        .build();
+    iq.append_child(query);
+    iq
 }
 
 // ---------------------------------------------------------------------------

@@ -25,6 +25,8 @@ pub struct ChatScreen {
     active_jid: Option<String>,
     /// Pending commands queued for the engine (drained by App).
     pending_commands: Vec<XmppCommand>,
+    /// G2: peers currently typing: JID → instant they last sent composing
+    typing_peers: HashMap<String, std::time::Instant>,
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +34,7 @@ pub enum Message {
     Sidebar(sidebar::Message),
     Conversation(String, super::conversation::Message),
     CloseConversation(String), // G1: close a conversation by JID
+    PeerTyping(String, bool),  // G2: (jid, composing)
 }
 
 impl ChatScreen {
@@ -42,6 +45,7 @@ impl ChatScreen {
             conversations: HashMap::new(),
             active_jid: None,
             pending_commands: vec![],
+            typing_peers: HashMap::new(),
         }
     }
 
@@ -81,6 +85,19 @@ impl ChatScreen {
         std::mem::take(&mut self.pending_commands)
     }
 
+    pub fn own_jid(&self) -> &str {
+        &self.own_jid
+    }
+
+    /// G2: update typing state from an engine event.
+    pub fn on_peer_typing(&mut self, jid: &str, composing: bool) {
+        if composing {
+            self.typing_peers.insert(jid.to_owned(), std::time::Instant::now());
+        } else {
+            self.typing_peers.remove(jid);
+        }
+    }
+
     pub fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
             Message::Sidebar(smsg) => {
@@ -101,6 +118,15 @@ impl ChatScreen {
                 self.conversations.remove(&jid);
                 if self.active_jid.as_deref() == Some(jid.as_str()) {
                     self.active_jid = None;
+                }
+                Task::none()
+            }
+
+            Message::PeerTyping(jid, composing) => {
+                if composing {
+                    self.typing_peers.insert(jid, std::time::Instant::now());
+                } else {
+                    self.typing_peers.remove(&jid);
                 }
                 Task::none()
             }
@@ -174,9 +200,20 @@ impl ChatScreen {
             Some(jid) => {
                 if let Some(convo) = self.conversations.get(jid) {
                     let jid2 = jid.clone();
-                    convo
-                        .view()
-                        .map(move |m| Message::Conversation(jid2.clone(), m))
+                    // G2: show "is typing" if peer typed in the last 5 seconds
+                    let is_typing = self.typing_peers.get(jid)
+                        .map(|t| t.elapsed().as_secs() < 5)
+                        .unwrap_or(false);
+                    let conv_view = convo.view().map(move |m| Message::Conversation(jid2.clone(), m));
+                    if is_typing {
+                        let indicator = container(
+                            text(format!("{} is typing…", jid)).size(11)
+                        )
+                        .padding([2, 8]);
+                        column![conv_view, indicator].into()
+                    } else {
+                        conv_view
+                    }
                 } else {
                     container(text("Loading…")).center(Length::Fill).into()
                 }

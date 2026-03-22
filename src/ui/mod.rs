@@ -291,6 +291,11 @@ impl App {
                             chat.on_presence(jid, available);
                         }
                     }
+                    XmppEvent::PeerTyping { ref jid, composing } => {
+                        if let Screen::Chat(ref mut chat) = self.screen {
+                            chat.on_peer_typing(jid, composing);
+                        }
+                    }
                     XmppEvent::CatchupFinished {
                         ref conversation_jid,
                         fetched,

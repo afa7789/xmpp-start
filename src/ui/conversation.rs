@@ -58,6 +58,8 @@ pub enum Message {
     CopyToClipboard(String), // G7: copy message body to clipboard
     Noop,                    // G7: no-op task return
     Close,                   // G1: close this conversation
+    ComposingStarted,        // G2: user started typing
+    ComposingPaused,         // G2: user stopped typing
 }
 
 impl ConversationView {
@@ -88,7 +90,13 @@ impl ConversationView {
     pub fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
             Message::ComposerChanged(v) => {
+                let was_empty = self.composer.is_empty();
                 self.composer = v;
+                if !self.composer.is_empty() && was_empty {
+                    return Task::done(Message::ComposingStarted);
+                } else if self.composer.is_empty() && !was_empty {
+                    return Task::done(Message::ComposingPaused);
+                }
                 Task::none()
             }
             Message::Send => {
@@ -105,7 +113,9 @@ impl ConversationView {
             }
             Message::CopyToClipboard(text) => iced::clipboard::write::<Message>(text),
             Message::Noop => Task::none(),
-            Message::Close => Task::none(), // handled by ChatScreen
+            Message::Close => Task::none(),             // handled by ChatScreen
+            Message::ComposingStarted => Task::none(),  // bubbled to ChatScreen
+            Message::ComposingPaused => Task::none(),   // bubbled to ChatScreen
         }
     }
 

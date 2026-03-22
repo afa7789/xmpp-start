@@ -67,6 +67,12 @@ pub enum XmppEvent {
         conversation_jid: String,
         fetched: usize,
     },
+
+    // G2: typing indicator (XEP-0085)
+    PeerTyping {
+        jid: String,
+        composing: bool,
+    },
 }
 
 /// Commands sent from the UI to the XMPP engine.
@@ -76,6 +82,8 @@ pub enum XmppCommand {
     Connect(ConnectConfig),
     /// Send a chat message to a JID.
     SendMessage { to: String, body: String },
+    /// G2: Send a chat state notification (XEP-0085).
+    SendChatState { to: String, composing: bool },
     /// Gracefully close the current session.
     #[allow(dead_code)]
     Disconnect,
