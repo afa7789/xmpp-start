@@ -12,6 +12,8 @@ use iced::{
     Alignment, Color, Element, Font, Length, Task,
 };
 
+use chrono::{TimeZone, Utc};
+
 // G4: /me action message prefix (XEP-0245)
 const ME_PREFIX: &str = "/me ";
 
@@ -30,6 +32,7 @@ pub struct DisplayMessage {
     pub from: String,
     pub body: String,
     pub own: bool, // true if sent by this account
+    pub timestamp: i64, // unix milliseconds (G5)
 }
 
 #[derive(Debug, Clone)]
@@ -108,59 +111,90 @@ impl ConversationView {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        // ---- Message list ----
-        let messages: Vec<Element<Message>> = self
-            .messages
-            .iter()
-            .map(|m| {
-                let sender = if m.own {
-                    "You".to_string()
-                } else {
-                    m.from.split('/').next().unwrap_or(&m.from).to_string()
-                };
+        // ---- Message list (G5: grouping + date separators) ----
+        let mut rows: Vec<Element<Message>> = Vec::new();
+        let mut prev_date: Option<chrono::NaiveDate> = None;
+        let mut prev_sender: Option<String> = None;
+        let mut prev_ts: Option<i64> = None;
 
-                // G4: render /me actions as "* Sender rest *" in italic
-                let body_widget = if is_me_action(&m.body) {
-                    let action_text = &m.body[ME_PREFIX.len()..];
-                    let action_str = format!("* {} {} *", sender, action_text);
-                    let italic_span: IcedSpan<'static, Message> = span(action_str).font(Font {
-                        style: font::Style::Italic,
-                        ..Font::DEFAULT
-                    });
-                    rich_text([italic_span]).size(14).into()
-                } else {
-                    let styled_spans = styling::parse(&m.body);
-                    build_styled_text(&styled_spans)
-                };
+        for m in &self.messages {
+            let sender = if m.own {
+                "You".to_string()
+            } else {
+                m.from.split('/').next().unwrap_or(&m.from).to_string()
+            };
 
-                // G7: copy button per message
-                let copy_btn = button(text("Copy").size(10))
-                    .on_press(Message::CopyToClipboard(m.body.clone()))
-                    .padding([2, 6]);
+            // G5: date separator when the calendar date changes
+            let msg_date = Utc
+                .timestamp_millis_opt(m.timestamp)
+                .single()
+                .map(|dt| dt.date_naive());
 
-                // For /me messages the sender label is embedded in the action text
-                let bubble = if is_me_action(&m.body) {
-                    column![body_widget].spacing(2).padding([6, 10])
-                } else {
-                    column![
-                        row![text(sender).size(11), copy_btn].spacing(8).align_y(Alignment::Center),
-                        body_widget
-                    ]
-                    .spacing(2)
-                    .padding([6, 10])
-                };
+            if let Some(date) = msg_date {
+                let show_sep = prev_date.map_or(true, |pd| pd != date);
+                if show_sep {
+                    let label = date.format("%b %-d").to_string();
+                    let sep = container(text(format!("── {} ──", label)).size(11))
+                        .width(Length::Fill)
+                        .align_x(Alignment::Center)
+                        .padding([4, 0]);
+                    rows.push(sep.into());
+                    prev_date = Some(date);
+                }
+            }
 
-                let align = if m.own {
-                    Alignment::End
-                } else {
-                    Alignment::Start
-                };
+            // G5: suppress sender label for consecutive same-sender within 120s
+            let same_sender = prev_sender.as_deref() == Some(sender.as_str());
+            let within_120s = prev_ts.map_or(false, |pt| (m.timestamp - pt).abs() < 120_000);
+            let show_sender = !(same_sender && within_120s);
 
-                container(bubble).width(Length::Fill).align_x(align).into()
-            })
-            .collect();
+            // G4: /me action rendering
+            let body_widget = if is_me_action(&m.body) {
+                let action_text = &m.body[ME_PREFIX.len()..];
+                let action_str = format!("* {} {} *", sender, action_text);
+                let italic_span: IcedSpan<'static, Message> = span(action_str).font(Font {
+                    style: font::Style::Italic,
+                    ..Font::DEFAULT
+                });
+                rich_text([italic_span]).size(14).into()
+            } else {
+                let styled_spans = styling::parse(&m.body);
+                build_styled_text(&styled_spans)
+            };
 
-        let list_col = messages
+            // G7: copy button
+            let copy_btn = button(text("Copy").size(10))
+                .on_press(Message::CopyToClipboard(m.body.clone()))
+                .padding([2, 6]);
+
+            let bubble = if is_me_action(&m.body) {
+                // /me: no sender label, no copy button (action is self-describing)
+                column![body_widget].spacing(2).padding([6, 10])
+            } else if show_sender {
+                column![
+                    row![text(sender.clone()).size(11), copy_btn]
+                        .spacing(8)
+                        .align_y(Alignment::Center),
+                    body_widget
+                ]
+                .spacing(2)
+                .padding([6, 10])
+            } else {
+                column![body_widget].spacing(2).padding([2, 10])
+            };
+
+            let align = if m.own {
+                Alignment::End
+            } else {
+                Alignment::Start
+            };
+
+            rows.push(container(bubble).width(Length::Fill).align_x(align).into());
+            prev_sender = Some(sender);
+            prev_ts = Some(m.timestamp);
+        }
+
+        let list_col = rows
             .into_iter()
             .fold(column![].spacing(4).padding(8), iced::widget::Column::push);
 
@@ -265,6 +299,7 @@ mod tests {
             from: "alice@example.com".into(),
             body: "Hello".into(),
             own: false,
+            timestamp: 0,
         });
         assert_eq!(cv.messages().len(), 1);
     }

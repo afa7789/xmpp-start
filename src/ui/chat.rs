@@ -62,6 +62,7 @@ impl ChatScreen {
             from: msg.from,
             body: msg.body,
             own: false,
+            timestamp: chrono::Utc::now().timestamp_millis(),
         });
     }
 
@@ -101,6 +102,7 @@ impl ChatScreen {
                                 from: own_jid.clone(),
                                 body: body.clone(),
                                 own: true,
+                                timestamp: chrono::Utc::now().timestamp_millis(),
                             });
                             self.pending_commands.push(XmppCommand::SendMessage {
                                 to: jid.clone(),
@@ -179,6 +181,7 @@ mod tests {
             from: "alice@example.com/res".into(),
             body: "Hello!".into(),
         });
+
         assert!(s.conversations.contains_key("alice@example.com"));
         assert_eq!(s.conversations["alice@example.com"].messages().len(), 1);
     }
