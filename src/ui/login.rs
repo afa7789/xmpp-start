@@ -45,6 +45,16 @@ impl LoginScreen {
         }
     }
 
+    /// Pre-fill fields from saved settings + keychain.
+    pub fn with_saved(jid: String, password: String, server: String) -> Self {
+        Self {
+            jid,
+            password,
+            server,
+            state: LoginState::Idle,
+        }
+    }
+
     /// Build a ConnectConfig from the current field values.
     pub fn connect_config(&self) -> ConnectConfig {
         ConnectConfig {

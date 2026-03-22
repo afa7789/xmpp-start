@@ -11,7 +11,11 @@ fn main() -> iced::Result {
         )
         .init();
 
+    // Load settings synchronously at startup (no async needed — it's just fs::read).
+    let settings = config::load();
+
     iced::application("XMPP Messenger", ui::App::update, ui::App::view)
         .subscription(|_state| ui::App::subscription())
-        .run_with(ui::App::new)
+        .theme(|app| app.iced_theme())
+        .run_with(move || ui::App::new_with_settings(settings))
 }
