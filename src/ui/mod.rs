@@ -55,8 +55,6 @@ pub enum Message {
     DismissToast(u64),
     // B4: messages loaded from DB for a conversation
     MessagesLoaded(String, Vec<crate::store::message_repo::Message>),
-    // B6: mark a conversation as read
-    MarkRead(String, String),
     // F3: settings panel
     GoToSettings,
     Settings(settings::Message),
@@ -159,15 +157,6 @@ impl App {
                     self.screen = *prev;
                 }
                 Task::none()
-            }
-
-            Message::MarkRead(jid, last_id) => {
-                let pool = self.db.clone();
-                return Task::future(async move {
-                    let _ = crate::store::conversation_repo::mark_read(&pool, &jid, &last_id).await;
-                    Message::GoToBenchmark
-                })
-                .discard();
             }
 
             Message::Settings(smsg) => {
@@ -442,7 +431,7 @@ impl App {
                     }
                     XmppEvent::PeerTyping { ref jid, composing } => {
                         if let Screen::Chat(ref mut chat) = self.screen {
-                            chat.on_peer_typing(jid, composing);
+                            let _ = chat.update(chat::Message::PeerTyping(jid.clone(), composing));
                         }
                     }
                     XmppEvent::CatchupFinished {

@@ -386,7 +386,7 @@ async fn handle_message(
     }
 
     // G2: emit PeerTyping if we found a chat state
-    if (has_composing || has_paused) {
+    if has_composing || has_paused {
         if let Some(from_str) = chat_state_from.as_deref() {
             let bare_jid = from_str.split('/').next().unwrap_or(from_str).to_string();
             let _ = event_tx

@@ -106,15 +106,6 @@ impl ChatScreen {
             .map(|m| m.id.clone())
     }
 
-    /// G2: update typing state from an engine event.
-    pub fn on_peer_typing(&mut self, jid: &str, composing: bool) {
-        if composing {
-            self.typing_peers.insert(jid.to_owned(), std::time::Instant::now());
-        } else {
-            self.typing_peers.remove(jid);
-        }
-    }
-
     pub fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
             Message::Sidebar(smsg) => {
@@ -138,6 +129,10 @@ impl ChatScreen {
                     self.active_jid = Some(jid.clone());
                     // B5: clear unread count when conversation is opened
                     self.sidebar.clear_unread(&jid);
+                    // L1: record seen count so new messages can be highlighted
+                    if let Some(convo) = self.conversations.get_mut(&jid) {
+                        convo.mark_seen();
+                    }
                 }
                 self.sidebar.update(smsg).map(Message::Sidebar)
             }
@@ -195,6 +190,22 @@ impl ChatScreen {
                     if let Some(convo) = self.conversations.get_mut(&jid) {
                         convo.peer_blocked = false;
                     }
+                    return Task::none();
+                }
+
+                // G2: intercept ComposingStarted/Paused to send chat state to server
+                if let super::conversation::Message::ComposingStarted = cmsg {
+                    self.pending_commands.push(XmppCommand::SendChatState {
+                        to: jid.clone(),
+                        composing: true,
+                    });
+                    return Task::none();
+                }
+                if let super::conversation::Message::ComposingPaused = cmsg {
+                    self.pending_commands.push(XmppCommand::SendChatState {
+                        to: jid.clone(),
+                        composing: false,
+                    });
                     return Task::none();
                 }
 
