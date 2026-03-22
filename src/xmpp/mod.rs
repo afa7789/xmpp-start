@@ -62,7 +62,6 @@ pub enum XmppEvent {
     // MAM catchup — P4.3
     /// Emitted when the <fin> for a per-conversation MAM catchup query arrives.
     /// `fetched` is the number of archived messages received in this round.
-    #[allow(dead_code)]
     CatchupFinished {
         conversation_jid: String,
         fetched: usize,

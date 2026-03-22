@@ -28,8 +28,12 @@ use super::{
 
     modules::stream_mgmt::StreamMgmt,
     modules::blocking::BlockingManager,
+    modules::mam::{MamFilter, MamManager, MamQuery, RsmQuery},
+    modules::catchup::CatchupManager,
     IncomingMessage, RosterContact, XmppCommand, XmppEvent,
 };
+
+const NS_MAM: &str = "urn:xmpp:mam:2";
 
 // ---------------------------------------------------------------------------
 // Connection state machine  (P1.9)
@@ -127,6 +131,9 @@ async fn run_session(
     let mut sm = StreamMgmt::new();
     // C4: XEP-0191 blocking command manager
     let mut blocking_mgr = BlockingManager::new();
+    // C3: XEP-0313 MAM + catchup state
+    let mut mam_mgr = MamManager::new();
+    let mut catchup_mgr = CatchupManager::new();
 
     loop {
         // Drain outbox before blocking on the next event.
@@ -158,7 +165,7 @@ async fn run_session(
                     }
                     Some(ev) => {
 
-                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr).await;
+                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut mam_mgr, &mut catchup_mgr).await;
                     }
                 }
             }
@@ -218,6 +225,8 @@ async fn handle_client_event(
     reconnect_attempt: &mut u32,
     sm: &mut StreamMgmt,
     blocking_mgr: &mut BlockingManager,
+    mam_mgr: &mut MamManager,
+    catchup_mgr: &mut CatchupManager,
 ) {
     match ev {
         tokio_xmpp::Event::Online { bound_jid, .. } => {
@@ -235,6 +244,16 @@ async fn handle_client_event(
 
             // C4: fetch blocklist (XEP-0191)
             outbox.push_back(blocking_mgr.build_fetch_iq());
+
+            // C3: MAM catchup — query archive for the last 50 messages overall
+            let (server_query_id, mam_query) = catchup_mgr.start("__server__", None);
+            let catchup_query = MamQuery {
+                query_id: mam_query.query_id.clone(),
+                filter: MamFilter { with: None, start: None, end: None },
+                rsm: RsmQuery { max: 50, after: None, before: None },
+            };
+            outbox.push_back(mam_mgr.build_query_iq(catchup_query));
+            tracing::info!("mam: triggered post-connect catchup (query_id={server_query_id})");
 
             let _ = event_tx
                 .send(XmppEvent::Connected {
@@ -266,7 +285,7 @@ async fn handle_client_event(
             if let Some(ack) = sm.maybe_send_ack() {
                 outbox.push_back(ack);
             }
-            dispatch_stanza(el, event_tx, blocking_mgr, sm, outbox).await;
+            dispatch_stanza(el, event_tx, blocking_mgr, sm, outbox, mam_mgr, catchup_mgr).await;
         }
     }
 }
@@ -277,6 +296,8 @@ async fn dispatch_stanza(
     blocking_mgr: &mut BlockingManager,
     sm: &mut StreamMgmt,
     outbox: &mut VecDeque<Element>,
+    mam_mgr: &mut MamManager,
+    catchup_mgr: &mut CatchupManager,
 ) {
     // XEP-0198: handle server <a h='...'> acks
     if el.name() == "a" && el.ns() == "urn:xmpp:sm:3" {
@@ -293,8 +314,25 @@ async fn dispatch_stanza(
         return;
     }
     match el.name() {
-        "iq" => handle_iq(el, event_tx, blocking_mgr).await,
-        "message" => handle_message(el, event_tx, blocking_mgr).await,
+        "iq" => handle_iq(el, event_tx, blocking_mgr, mam_mgr, catchup_mgr).await,
+        "message" => {
+            // C3: XEP-0313 MAM result wrapper — extract forwarded message
+            if let Some(mam_msg) = mam_mgr.on_mam_message(&el) {
+                if !mam_msg.body.is_empty() {
+                    let bare_from = mam_msg.forwarded_from.split('/').next()
+                        .unwrap_or(&mam_msg.forwarded_from).to_string();
+                    if !blocking_mgr.is_blocked(&bare_from) {
+                        let _ = event_tx.send(XmppEvent::MessageReceived(IncomingMessage {
+                            id: mam_msg.archive_id,
+                            from: mam_msg.forwarded_from,
+                            body: mam_msg.body,
+                        })).await;
+                    }
+                }
+                return;
+            }
+            handle_message(el, event_tx, blocking_mgr).await;
+        }
         "presence" => handle_presence(el, event_tx).await,
         _ => {}
     }
@@ -308,7 +346,28 @@ async fn handle_iq(
     el: Element,
     event_tx: &mpsc::Sender<XmppEvent>,
     blocking_mgr: &mut BlockingManager,
+    mam_mgr: &mut MamManager,
+    catchup_mgr: &mut CatchupManager,
 ) {
+    // C3: detect MAM <fin> stanza
+    if el.attr("type") == Some("result") {
+        let has_fin = el.children().any(|c| c.name() == "fin" && c.ns() == NS_MAM);
+        if has_fin {
+            if let Some((query_id, mam_result)) = mam_mgr.on_fin_iq(&el) {
+                let fetched = mam_result.rsm.count.unwrap_or(0) as usize;
+                // Use on_result to peek at conversation jid, then call on_fin
+                let conv_jid = catchup_mgr.on_result(&query_id, "__server__")
+                    .unwrap_or("__server__")
+                    .to_string();
+                catchup_mgr.on_fin(&query_id);
+                let _ = event_tx.send(XmppEvent::CatchupFinished {
+                    conversation_jid: conv_jid,
+                    fetched,
+                }).await;
+            }
+            return;
+        }
+    }
     // C4: blocklist result (initial fetch)
     if el.attr("type") == Some("result") {
         let has_blocklist = el
