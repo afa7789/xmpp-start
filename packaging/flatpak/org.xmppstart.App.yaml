@@ -1,0 +1,33 @@
+app-id: org.xmppstart.App
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: xmpp-start
+
+finish-args:
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.secrets
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/xmpp-start/cargo
+    RUST_BACKTRACE: '1'
+
+modules:
+  - name: xmpp-start
+    buildsystem: simple
+    build-commands:
+      - cargo --offline fetch --manifest-path Cargo.toml --verbose
+      - cargo --offline build --release --bin xmpp-start
+      - install -Dm755 target/release/xmpp-start /app/bin/xmpp-start
+    sources:
+      - type: dir
+        path: ../..
+      - cargo-sources.json
