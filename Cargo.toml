@@ -62,7 +62,7 @@ base64 = "0.22"
 sha1 = { version = "0.10", features = ["oid"] }
 
 # Desktop notifications
-notify-rust = { version = "4", default-features = false, features = ["d"] }
+notify-rust = { version = "4" }
 
 # Utilities
 uuid = { version = "1", features = ["v4"] }

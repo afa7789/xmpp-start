@@ -260,7 +260,7 @@ impl ConversationView {
 
             // G7: copy button with tooltip
             let copy_btn = tooltip(
-                button(text("⎘").size(10))
+                button(text("cp").size(10))
                     .on_press(Message::CopyToClipboard(m.body.clone()))
                     .padding([2, 6]),
                 "Copy message",
@@ -270,7 +270,7 @@ impl ConversationView {
             let msg_id = m.id.clone();
             let preview: String = m.body.chars().take(60).collect();
             let reply_btn = tooltip(
-                button(text("↩").size(10))
+                button(text("re").size(10))
                     .on_press(Message::ReplyTo(msg_id, preview))
                     .padding([2, 4]),
                 "Reply",
