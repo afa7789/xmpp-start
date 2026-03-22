@@ -111,6 +111,23 @@ impl ChatScreen {
                     return self.update(Message::CloseConversation(jid));
                 }
 
+                // C4: intercept BlockPeer to queue a block command for the engine
+                if let super::conversation::Message::BlockPeer = cmsg {
+                    self.pending_commands
+                        .push(crate::xmpp::XmppCommand::BlockJid(jid.clone()));
+                    return self.update(Message::CloseConversation(jid));
+                }
+
+                // C4: intercept UnblockPeer to queue an unblock command
+                if let super::conversation::Message::UnblockPeer = cmsg {
+                    self.pending_commands
+                        .push(crate::xmpp::XmppCommand::UnblockJid(jid.clone()));
+                    if let Some(convo) = self.conversations.get_mut(&jid) {
+                        convo.peer_blocked = false;
+                    }
+                    return Task::none();
+                }
+
                 // Intercept Send to queue a command for the engine.
                 if let super::conversation::Message::Send = cmsg {
                     if let Some(convo) = self.conversations.get_mut(&jid) {
@@ -146,7 +163,7 @@ impl ChatScreen {
         }
     }
 
-    /// G6: Return the non-empty draft for a JID, or empty string.
+    #[allow(dead_code)]
     pub fn draft_for(&self, jid: &str) -> &str {
         self.conversations
             .get(jid)

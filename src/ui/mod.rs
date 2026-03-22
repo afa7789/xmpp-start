@@ -201,6 +201,10 @@ impl App {
                             }
                         }
                         self.screen = Screen::Chat(ChatScreen::new(bound_jid.clone()));
+                        return self.update(Message::ShowToast(
+                            format!("Connected as {}", bound_jid),
+                            ToastKind::Success,
+                        ));
                     }
                     XmppEvent::Disconnected { ref reason } => {
                         tracing::warn!("XMPP: disconnected — {reason}");
@@ -225,10 +229,14 @@ impl App {
                         if let Screen::Chat(ref mut chat) = self.screen {
                             chat.set_roster(contacts.clone());
                         }
+                        let toast = self.update(Message::ShowToast(
+                            format!("{} contacts loaded", contacts.len()),
+                            ToastKind::Info,
+                        ));
                         // A3: persist roster to DB
                         let pool = self.db.clone();
                         let contacts = contacts.clone();
-                        return Task::future(async move {
+                        return Task::batch([toast, Task::future(async move {
                             for c in &contacts {
                                 let _ = crate::store::roster_repo::upsert(
                                     &pool,
@@ -243,7 +251,7 @@ impl App {
                             }
                             Message::GoToBenchmark
                         })
-                        .discard();
+                        .discard()]);
                     }
                     XmppEvent::MessageReceived(ref msg) => {
                         tracing::info!("XMPP: message from {}", msg.from);

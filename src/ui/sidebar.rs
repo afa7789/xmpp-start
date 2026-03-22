@@ -74,10 +74,6 @@ impl SidebarScreen {
         Task::none()
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
-        self.view_with_drafts(&[])
-    }
-
     /// G6: render sidebar with optional draft indicators.
     /// `drafts` is a list of JIDs that currently have a non-empty draft.
     pub fn view_with_drafts(&self, drafts: &[String]) -> Element<'_, Message> {

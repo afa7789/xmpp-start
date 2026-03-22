@@ -40,13 +40,13 @@ pub struct DisplayMessage {
 pub struct ConversationView {
     pub peer_jid: String,
     messages: Vec<DisplayMessage>,
-
     pub(crate) composer: String,
-
     scroll_id: Id,
     scroll_offset: AbsoluteOffset,
     #[allow(dead_code)]
     own_jid: String,
+    /// C4: whether the peer is currently blocked (shown in header)
+    pub peer_blocked: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -56,8 +56,9 @@ pub enum Message {
     Scrolled(AbsoluteOffset),
     ScrollToBottom,
     CopyToClipboard(String), // G7: copy message body to clipboard
-    Noop,                    // G7: no-op task return
     Close,                   // G1: close this conversation
+    BlockPeer,               // C4: block the peer JID
+    UnblockPeer,             // C4: unblock the peer JID
 }
 
 impl ConversationView {
@@ -69,6 +70,7 @@ impl ConversationView {
             scroll_id: Id::new("conversation"),
             scroll_offset: AbsoluteOffset::default(),
             own_jid,
+            peer_blocked: false,
         }
     }
 
@@ -104,8 +106,9 @@ impl ConversationView {
                 scrollable::scroll_to::<Message>(self.scroll_id.clone(), bottom)
             }
             Message::CopyToClipboard(text) => iced::clipboard::write::<Message>(text),
-            Message::Noop => Task::none(),
-            Message::Close => Task::none(), // handled by ChatScreen
+            Message::Close => Task::none(),      // handled by ChatScreen
+            Message::BlockPeer => Task::none(),   // handled by ChatScreen → engine
+            Message::UnblockPeer => Task::none(), // handled by ChatScreen → engine
         }
     }
 
@@ -276,15 +279,21 @@ impl ConversationView {
         .align_y(Alignment::Center)
         .padding([4, 8]);
 
-        // G1: close button in header
         let close_btn = button("✕").on_press(Message::Close).padding([4, 8]);
+        let block_btn = if self.peer_blocked {
+            button("✅ Unblock").on_press(Message::UnblockPeer).padding([4, 8])
+        } else {
+            button("🚫 Block").on_press(Message::BlockPeer).padding([4, 8])
+        };
         let header = container(
             row![
                 text(format!("Chat with {}", self.peer_jid))
                     .size(14)
                     .width(Length::Fill),
+                block_btn,
                 close_btn,
             ]
+            .spacing(4)
             .align_y(Alignment::Center),
         )
         .padding([8, 12])

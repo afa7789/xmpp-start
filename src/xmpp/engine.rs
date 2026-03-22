@@ -134,7 +134,15 @@ async fn run_session(
             // C1: record sent stanza and check for queue desync
             sm.on_stanza_sent(stanza.clone());
             if sm.has_queue_desync() {
-                tracing::warn!("stream_mgmt: unacked queue desync (>50 pending)");
+                tracing::warn!(
+                    "stream_mgmt: unacked queue desync — {} pending, h={}",
+                    sm.pending_count(),
+                    sm.h()
+                );
+            }
+            // C1: every 5 stanzas sent, proactively request an ack from server
+            if sm.pending_count() % 5 == 0 && sm.pending_count() > 0 {
+                outbox.push_back(sm.build_request());
             }
             if let Err(e) = client.send_stanza(stanza).await {
                 tracing::warn!("send_stanza failed: {e}");
@@ -169,6 +177,14 @@ async fn run_session(
                         if let Ok(to_jid) = to.parse::<Jid>() {
                             outbox.push_back(make_message(to_jid, &body));
                         }
+                    }
+                    Some(XmppCommand::BlockJid(jid)) => {
+                        outbox.push_back(blocking_mgr.build_block_iq(&[jid.as_str()]));
+                        tracing::info!("blocking: sent block IQ for {jid}");
+                    }
+                    Some(XmppCommand::UnblockJid(jid)) => {
+                        outbox.push_back(blocking_mgr.build_unblock_iq(&[jid.as_str()]));
+                        tracing::info!("blocking: sent unblock IQ for {jid}");
                     }
                 }
             }
@@ -220,13 +236,18 @@ async fn handle_client_event(
 
         tokio_xmpp::Event::Disconnected(err) => {
             *reconnect_attempt += 1;
-            tracing::warn!("engine: disconnected — {err}");
+            let unacked = sm.unacked_stanzas().len();
+            tracing::warn!(
+                "engine: disconnected — {err} ({unacked} unacked stanzas, h={})",
+                sm.h()
+            );
+            // C1: reset stream management counters for the next session
+            sm.reset();
             let _ = event_tx
                 .send(XmppEvent::Reconnecting {
                     attempt: *reconnect_attempt,
                 })
                 .await;
-            // The session loop will exit; App can re-send Connect to retry.
         }
 
         tokio_xmpp::Event::Stanza(el) => {
@@ -236,7 +257,7 @@ async fn handle_client_event(
             if let Some(ack) = sm.maybe_send_ack() {
                 outbox.push_back(ack);
             }
-            dispatch_stanza(el, event_tx, blocking_mgr).await;
+            dispatch_stanza(el, event_tx, blocking_mgr, sm, outbox).await;
         }
     }
 }
@@ -245,7 +266,23 @@ async fn dispatch_stanza(
     el: Element,
     event_tx: &mpsc::Sender<XmppEvent>,
     blocking_mgr: &mut BlockingManager,
+    sm: &mut StreamMgmt,
+    outbox: &mut VecDeque<Element>,
 ) {
+    // XEP-0198: handle server <a h='...'> acks
+    if el.name() == "a" && el.ns() == "urn:xmpp:sm:3" {
+        if let Some(h) = el.attr("h").and_then(|v| v.parse::<u32>().ok()) {
+            sm.on_ack_received(h);
+        }
+        return;
+    }
+    // XEP-0198: handle server <r/> ack requests
+    if el.name() == "r" && el.ns() == "urn:xmpp:sm:3" {
+        if let Some(ack) = sm.flush_ack() {
+            outbox.push_back(ack);
+        }
+        return;
+    }
     match el.name() {
         "iq" => handle_iq(el, event_tx, blocking_mgr).await,
         "message" => handle_message(el, event_tx, blocking_mgr).await,
@@ -263,7 +300,7 @@ async fn handle_iq(
     event_tx: &mpsc::Sender<XmppEvent>,
     blocking_mgr: &mut BlockingManager,
 ) {
-    // C4: check if this is a blocklist result before parsing as generic IQ
+    // C4: blocklist result (initial fetch)
     if el.attr("type") == Some("result") {
         let has_blocklist = el
             .children()
@@ -272,6 +309,24 @@ async fn handle_iq(
             blocking_mgr.on_blocklist_result(&el);
             tracing::debug!("blocking: loaded {} blocked JIDs", blocking_mgr.blocked_list().len());
             return;
+        }
+    }
+
+    // C4: block/unblock push IQs from the server (type="set")
+    if el.attr("type") == Some("set") {
+        let first_child_name = el.children().next().map(|c| c.name());
+        match first_child_name {
+            Some("block") => {
+                blocking_mgr.on_block_push(&el);
+                tracing::debug!("blocking: block push received");
+                return;
+            }
+            Some("unblock") => {
+                blocking_mgr.on_unblock_push(&el);
+                tracing::debug!("blocking: unblock push received");
+                return;
+            }
+            _ => {}
         }
     }
 

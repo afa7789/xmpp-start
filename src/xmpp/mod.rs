@@ -79,4 +79,8 @@ pub enum XmppCommand {
     /// Gracefully close the current session.
     #[allow(dead_code)]
     Disconnect,
+    /// Block one or more JIDs (XEP-0191).
+    BlockJid(String),
+    /// Unblock a previously blocked JID (XEP-0191).
+    UnblockJid(String),
 }
