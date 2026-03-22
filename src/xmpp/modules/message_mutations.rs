@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P5.3 — XEP-0444 Reactions, XEP-0308 Last Message Correction, XEP-0424 Retraction
 //
 // References:
@@ -56,6 +57,12 @@ pub struct Retraction {
 /// All methods are pure: no I/O, no async, no persistent state beyond
 /// construction.
 pub struct MutationManager;
+
+impl Default for MutationManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl MutationManager {
     /// Creates a new manager.
@@ -118,7 +125,7 @@ impl MutationManager {
         let emojis: Vec<String> = reactions_el
             .children()
             .filter(|c| c.name() == "reaction")
-            .map(|c| c.text())
+            .map(tokio_xmpp::minidom::Element::text)
             .collect();
 
         Some(ReactionUpdate {
@@ -141,9 +148,7 @@ impl MutationManager {
     pub fn build_correction(&self, to_jid: &str, original_id: &str, new_body: &str) -> Element {
         let new_id = Uuid::new_v4().to_string();
 
-        let body_el = Element::builder("body", NS_CLIENT)
-            .append(new_body)
-            .build();
+        let body_el = Element::builder("body", NS_CLIENT).append(new_body).build();
 
         let replace_el = Element::builder("replace", NS_CORRECTION)
             .attr("id", original_id)
@@ -366,7 +371,11 @@ mod tests {
         let plain = Element::builder("message", NS_CLIENT)
             .attr("to", "alice@example.com")
             .attr("type", "chat")
-            .append(Element::builder("body", NS_CLIENT).append("just a message").build())
+            .append(
+                Element::builder("body", NS_CLIENT)
+                    .append("just a message")
+                    .build(),
+            )
             .build();
 
         let result = mgr.parse_correction("bob@example.com", &plain);

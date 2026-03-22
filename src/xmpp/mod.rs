@@ -20,6 +20,7 @@ pub use connection::ConnectConfig;
 pub struct RosterContact {
     pub jid: String,
     pub name: Option<String>,
+    #[allow(dead_code)]
     pub subscription: String,
 }
 
@@ -36,9 +37,15 @@ pub struct IncomingMessage {
 #[derive(Debug, Clone)]
 pub enum XmppEvent {
     // Connection lifecycle
-    Connected { bound_jid: String },
-    Disconnected { reason: String },
-    Reconnecting { attempt: u32 },
+    Connected {
+        bound_jid: String,
+    },
+    Disconnected {
+        reason: String,
+    },
+    Reconnecting {
+        attempt: u32,
+    },
 
     // Roster — P1.4
     RosterReceived(Vec<RosterContact>),
@@ -47,12 +54,19 @@ pub enum XmppEvent {
     MessageReceived(IncomingMessage),
 
     // Presence — P1.4b
-    PresenceUpdated { jid: String, available: bool },
+    PresenceUpdated {
+        jid: String,
+        available: bool,
+    },
 
     // MAM catchup — P4.3
     /// Emitted when the <fin> for a per-conversation MAM catchup query arrives.
     /// `fetched` is the number of archived messages received in this round.
-    CatchupFinished { conversation_jid: String, fetched: usize },
+    #[allow(dead_code)]
+    CatchupFinished {
+        conversation_jid: String,
+        fetched: usize,
+    },
 }
 
 /// Commands sent from the UI to the XMPP engine.
@@ -63,5 +77,6 @@ pub enum XmppCommand {
     /// Send a chat message to a JID.
     SendMessage { to: String, body: String },
     /// Gracefully close the current session.
+    #[allow(dead_code)]
     Disconnect,
 }

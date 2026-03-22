@@ -2,6 +2,8 @@
 // Source reference: apps/fluux/src/components/Sidebar.tsx
 //                   apps/fluux/src/components/sidebar-components/ContactList.tsx
 
+use std::collections::HashMap;
+
 use iced::{
     widget::{button, column, container, scrollable, text},
     Element, Length, Task,
@@ -13,6 +15,7 @@ use crate::xmpp::RosterContact;
 pub struct SidebarScreen {
     contacts: Vec<RosterContact>,
     selected_jid: Option<String>,
+    presence: HashMap<String, bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -20,18 +23,30 @@ pub enum Message {
     SelectContact(String),
 }
 
+impl Default for SidebarScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SidebarScreen {
     pub fn new() -> Self {
         Self {
             contacts: vec![],
             selected_jid: None,
+            presence: HashMap::new(),
         }
+    }
+
+    pub fn on_presence(&mut self, jid: &str, available: bool) {
+        self.presence.insert(jid.to_owned(), available);
     }
 
     pub fn set_contacts(&mut self, contacts: Vec<RosterContact>) {
         self.contacts = contacts;
     }
 
+    #[allow(dead_code)]
     pub fn selected_jid(&self) -> Option<&str> {
         self.selected_jid.as_deref()
     }
@@ -45,30 +60,20 @@ impl SidebarScreen {
         Task::none()
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let header = text("Contacts").size(16);
 
         let contact_rows: Vec<Element<Message>> = self
             .contacts
             .iter()
             .map(|c| {
-                let label = c
-                    .name
-                    .as_deref()
-                    .unwrap_or(&c.jid)
-                    .to_string();
+                let available = self.presence.get(c.jid.as_str()).copied().unwrap_or(false);
+                let indicator = if available { "● " } else { "○ " };
+                let label = format!("{}{}", indicator, c.name.as_deref().unwrap_or(&c.jid));
 
-                let is_selected = self.selected_jid.as_deref() == Some(c.jid.as_str());
+                let btn = button(text(label)).width(Length::Fill).padding([6, 10]);
 
-                let btn = button(text(label))
-                    .width(Length::Fill)
-                    .padding([6, 10]);
-
-                let btn = if is_selected {
-                    btn.on_press(Message::SelectContact(c.jid.clone()))
-                } else {
-                    btn.on_press(Message::SelectContact(c.jid.clone()))
-                };
+                let btn = btn.on_press(Message::SelectContact(c.jid.clone()));
 
                 btn.into()
             })
@@ -116,7 +121,7 @@ mod tests {
             name: Some("Alice".into()),
             subscription: "Both".into(),
         }]);
-        s.update(Message::SelectContact("alice@example.com".into()));
+        let _ = s.update(Message::SelectContact("alice@example.com".into()));
         assert_eq!(s.selected_jid(), Some("alice@example.com"));
     }
 }

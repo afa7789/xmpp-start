@@ -1,6 +1,7 @@
+#![allow(dead_code)]
 use std::io::Cursor;
 
-use image::{DynamicImage, ImageFormat, imageops::FilterType};
+use image::{imageops::FilterType, DynamicImage, ImageFormat};
 
 // ---------------------------------------------------------------------------
 // State machine
@@ -178,7 +179,10 @@ mod tests {
         let (x, y, size) = state.crop_rect();
 
         assert!(x + size <= state.original_width, "crop exceeds image width");
-        assert!(y + size <= state.original_height, "crop exceeds image height");
+        assert!(
+            y + size <= state.original_height,
+            "crop exceeds image height"
+        );
         assert!(size > 0, "crop size must be positive");
     }
 

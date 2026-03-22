@@ -41,7 +41,10 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{conversation_repo, message_repo::{self, Message}};
+    use crate::store::{
+        conversation_repo,
+        message_repo::{self, Message},
+    };
 
     #[tokio::test]
     async fn test_insert_and_query_message() {

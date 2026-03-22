@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 /// Parsed Open Graph / HTML meta-tag preview for a URL.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct LinkPreview {
@@ -39,9 +40,7 @@ pub fn parse_preview(url: &str, html: &str) -> LinkPreview {
         // ---- <meta …> tags ------------------------------------------------
         if lower.contains("<meta") {
             // og:title
-            if lower.contains(r#"property="og:title""#)
-                || lower.contains("property='og:title'")
-            {
+            if lower.contains(r#"property="og:title""#) || lower.contains("property='og:title'") {
                 if let Some(v) = extract_content(line) {
                     og_title.get_or_insert(v);
                 }
@@ -75,17 +74,13 @@ pub fn parse_preview(url: &str, html: &str) -> LinkPreview {
                 }
             }
             // meta name=description
-            if lower.contains(r#"name="description""#)
-                || lower.contains("name='description'")
-            {
+            if lower.contains(r#"name="description""#) || lower.contains("name='description'") {
                 if let Some(v) = extract_content(line) {
                     meta_description.get_or_insert(v);
                 }
             }
             // og:image
-            if lower.contains(r#"property="og:image""#)
-                || lower.contains("property='og:image'")
-            {
+            if lower.contains(r#"property="og:image""#) || lower.contains("property='og:image'") {
                 if let Some(v) = extract_content(line) {
                     og_image.get_or_insert(v);
                 }
@@ -188,9 +183,8 @@ mod tests {
 
     #[test]
     fn parse_og_description() {
-        let h = html(&[
-            r#"<meta property="og:description" content="Great article about Rust." />"#,
-        ]);
+        let h =
+            html(&[r#"<meta property="og:description" content="Great article about Rust." />"#]);
         let preview = parse_preview(TEST_URL, &h);
         assert_eq!(
             preview.description,
@@ -200,9 +194,7 @@ mod tests {
 
     #[test]
     fn parse_og_image() {
-        let h = html(&[
-            r#"<meta property="og:image" content="https://example.com/img.png" />"#,
-        ]);
+        let h = html(&[r#"<meta property="og:image" content="https://example.com/img.png" />"#]);
         let preview = parse_preview(TEST_URL, &h);
         assert_eq!(
             preview.image_url,
@@ -254,9 +246,7 @@ mod tests {
 
     #[test]
     fn twitter_image_fallback() {
-        let h = html(&[
-            r#"<meta name="twitter:image" content="https://example.com/tw.jpg" />"#,
-        ]);
+        let h = html(&[r#"<meta name="twitter:image" content="https://example.com/tw.jpg" />"#]);
         let preview = parse_preview(TEST_URL, &h);
         assert_eq!(
             preview.image_url,

@@ -55,10 +55,22 @@ impl Default for Settings {
 // ---------------------------------------------------------------------------
 
 fn config_path() -> PathBuf {
-    let base = std::env::var("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("."));
+    let base = std::env::var("HOME").map_or_else(|_| PathBuf::from("."), PathBuf::from);
     base.join(".config").join("xmpp-start")
+}
+
+/// Returns the path to the SQLite database, creating the directory if needed.
+pub fn db_path() -> String {
+    let base = std::env::var("HOME").map_or_else(|_| PathBuf::from("."), PathBuf::from);
+    let dir = if cfg!(target_os = "macos") {
+        base.join("Library")
+            .join("Application Support")
+            .join("xmpp-start")
+    } else {
+        base.join(".local").join("share").join("xmpp-start")
+    };
+    std::fs::create_dir_all(&dir).ok();
+    dir.join("messages.db").to_string_lossy().into_owned()
 }
 
 fn settings_file() -> PathBuf {
@@ -109,6 +121,7 @@ pub fn load_password(jid: &str) -> Option<String> {
 }
 
 /// Delete the stored password (e.g. on logout).
+#[allow(dead_code)]
 pub fn delete_password(jid: &str) {
     if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, jid) {
         let _ = entry.delete_credential();

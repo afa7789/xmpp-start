@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P6.1 — XEP-0115 Entity Capabilities + XEP-0030 Service Discovery
 // XEP references:
 //   https://xmpp.org/extensions/xep-0115.html
@@ -183,7 +184,11 @@ impl DiscoManager {
                     let category = child.attr("category").unwrap_or("").to_string();
                     let kind = child.attr("type").unwrap_or("").to_string();
                     let name = child.attr("name").unwrap_or("").to_string();
-                    identities.push(DiscoIdentity { category, kind, name });
+                    identities.push(DiscoIdentity {
+                        category,
+                        kind,
+                        name,
+                    });
                 }
                 "feature" => {
                     if let Some(var) = child.attr("var") {
@@ -194,7 +199,10 @@ impl DiscoManager {
             }
         }
 
-        let info = DiscoInfo { identities, features };
+        let info = DiscoInfo {
+            identities,
+            features,
+        };
         self.cache.insert(jid.clone(), info.clone());
         Some((jid, info))
     }
@@ -252,8 +260,7 @@ impl DiscoManager {
     pub fn supports(&self, jid: &str, feature: &str) -> bool {
         self.cache
             .get(jid)
-            .map(|info| info.features.iter().any(|f| f == feature))
-            .unwrap_or(false)
+            .is_some_and(|info| info.features.iter().any(|f| f == feature))
     }
 
     /// Return a reference to the cached `DiscoInfo` for `jid`, if any.
@@ -280,7 +287,10 @@ fn compute_ver_hash(identities: &[DiscoIdentity], features: &[&str]) -> String {
         .collect();
     id_strs.sort();
 
-    let mut feat_strs: Vec<String> = features.iter().map(|f| f.to_string()).collect();
+    let mut feat_strs: Vec<String> = features
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect();
     feat_strs.sort();
 
     let mut s = String::new();
@@ -324,7 +334,11 @@ mod tests {
         // ver must be a non-empty base64 string
         assert!(!mgr.own_caps.ver.is_empty());
         // base64 alphabet: A-Z, a-z, 0-9, +, /, =
-        assert!(mgr.own_caps.ver.chars().all(|c| c.is_alphanumeric() || c == '+' || c == '/' || c == '='));
+        assert!(mgr
+            .own_caps
+            .ver
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '+' || c == '/' || c == '='));
         // SHA-1 produces 20 bytes → base64 is 28 characters
         assert_eq!(mgr.own_caps.ver.len(), 28);
     }
@@ -427,7 +441,9 @@ mod tests {
         let feat = Element::builder("feature", NS_DISCO_INFO)
             .attr("var", "urn:xmpp:ping")
             .build();
-        let query = Element::builder("query", NS_DISCO_INFO).append(feat).build();
+        let query = Element::builder("query", NS_DISCO_INFO)
+            .append(feat)
+            .build();
         let iq = Element::builder("iq", NS_CLIENT)
             .attr("type", "result")
             .attr("id", &id)

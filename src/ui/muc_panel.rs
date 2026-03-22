@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P3.2 — MUC occupant panel with role/affiliation display
 // XEP reference: https://xmpp.org/extensions/xep-0045.html
 
@@ -76,7 +77,7 @@ impl OccupantPanel {
     /// - Each row: `"● nick"` (available) or `"○ nick"` (unavailable),
     ///   plus `"[Mod]"` or `"[Admin]"` badge if applicable.
     /// - Fixed width 180 px, scrollable.
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let header = text(format!("Occupants ({})", self.occupants.len())).size(15);
 
         let groups: [(&str, &str); 3] = [

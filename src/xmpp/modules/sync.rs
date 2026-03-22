@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P4.4 — Background sync orchestrator
 //
 // Post-connect MAM catchup pipeline.
@@ -277,7 +278,10 @@ mod tests {
 
         let drained = orch.drain_messages();
         assert_eq!(drained.len(), 2);
-        assert!(orch.received.is_empty(), "buffer should be empty after drain");
+        assert!(
+            orch.received.is_empty(),
+            "buffer should be empty after drain"
+        );
     }
 
     // 9. Each IQ produced by start_sync carries a unique query_id.

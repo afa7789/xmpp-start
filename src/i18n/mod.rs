@@ -119,8 +119,7 @@ mod tests {
     #[test]
     fn login_connected_substitutes_jid() {
         let i18n = en_bundle();
-        let result =
-            i18n.get_with_args("login-connected", &[("jid", "alice@example.com")]);
+        let result = i18n.get_with_args("login-connected", &[("jid", "alice@example.com")]);
         assert!(
             result.contains("alice@example.com"),
             "expected JID in result, got: {:?}",
@@ -147,9 +146,8 @@ mod tests {
         let i18n = en_bundle();
         assert_eq!(i18n.locale(), "en-US");
 
-        let pt =
-            I18n::from_ftl("pt-BR", include_str!("../../locales/pt-BR.ftl"))
-                .expect("pt-BR.ftl must be valid");
+        let pt = I18n::from_ftl("pt-BR", include_str!("../../locales/pt-BR.ftl"))
+            .expect("pt-BR.ftl must be valid");
         assert_eq!(pt.locale(), "pt-BR");
     }
 }

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P6.3 — XEP-0077 In-Band Registration: account management IQs
 // XEP reference: https://xmpp.org/extensions/xep-0077.html
 //
@@ -34,11 +35,7 @@ impl AccountManager {
     ///   </query>
     /// </iq>
     /// ```
-    pub fn build_change_password_iq(
-        &self,
-        username: &str,
-        new_password: &str,
-    ) -> Element {
+    pub fn build_change_password_iq(&self, username: &str, new_password: &str) -> Element {
         let id = Uuid::new_v4().to_string();
 
         let username_el = Element::builder("username", NS_REGISTER)

@@ -22,11 +22,17 @@ pub struct Span {
 
 impl Span {
     fn plain(text: impl Into<String>) -> Self {
-        Span { text: text.into(), style: SpanStyle::Plain }
+        Span {
+            text: text.into(),
+            style: SpanStyle::Plain,
+        }
     }
 
     fn styled(text: impl Into<String>, style: SpanStyle) -> Self {
-        Span { text: text.into(), style }
+        Span {
+            text: text.into(),
+            style,
+        }
     }
 }
 
@@ -78,7 +84,10 @@ pub fn parse(input: &str) -> Vec<Span> {
 
         // Blockquote: line starts with "> "
         if line.starts_with("> ") {
-            result.push(Span::styled(&line[2..], SpanStyle::Quote));
+            result.push(Span::styled(
+                line.strip_prefix("> ").unwrap_or(line),
+                SpanStyle::Quote,
+            ));
             continue;
         }
 
@@ -103,18 +112,22 @@ fn parse_inline(line: &str, out: &mut Vec<Span>) {
         if let Some(style) = style_for_delimiter(ch) {
             // Check opening boundary: preceded by whitespace / start-of-string.
             let prev = if i == 0 { None } else { Some(chars[i - 1]) };
-            let preceded_by_boundary = prev.map_or(true, |p| is_boundary(p));
+            let preceded_by_boundary = prev.map_or(true, is_boundary);
 
             // Must be followed by a non-whitespace character.
-            let next = if i + 1 < len { Some(chars[i + 1]) } else { None };
-            let followed_by_nonws = next.map_or(false, |n| !n.is_whitespace());
+            let next = if i + 1 < len {
+                Some(chars[i + 1])
+            } else {
+                None
+            };
+            let followed_by_nonws = next.is_some_and(|n| !n.is_whitespace());
 
             if preceded_by_boundary && followed_by_nonws {
                 // Attempt to find a matching closing delimiter.
                 if let Some(close_pos) = find_close(&chars, i + 1, ch) {
                     // Flush any buffered plain text first.
                     if !plain_buf.is_empty() {
-                        out.push(Span::plain(plain_buf.drain(..).collect::<String>()));
+                        out.push(Span::plain(std::mem::take(&mut plain_buf)));
                     }
                     let inner: String = chars[i + 1..close_pos].iter().collect();
                     out.push(Span::styled(inner, style));
@@ -160,8 +173,12 @@ fn find_close(chars: &[char], start: usize, delim: char) -> Option<usize> {
             continue;
         }
         // Must be followed by whitespace, punctuation, or end.
-        let after = if pos + 1 < chars.len() { Some(chars[pos + 1]) } else { None };
-        if after.map_or(true, |a| is_after_close(a)) {
+        let after = if pos + 1 < chars.len() {
+            Some(chars[pos + 1])
+        } else {
+            None
+        };
+        if after.map_or(true, is_after_close) {
             return Some(pos);
         }
     }
@@ -177,7 +194,10 @@ mod tests {
     use super::*;
 
     fn s(text: &str, style: SpanStyle) -> Span {
-        Span { text: text.to_string(), style }
+        Span {
+            text: text.to_string(),
+            style,
+        }
     }
 
     fn plain(text: &str) -> Span {
@@ -218,11 +238,7 @@ mod tests {
     fn mixed_plain_and_bold() {
         assert_eq!(
             parse("hello *world* foo"),
-            vec![
-                plain("hello "),
-                s("world", SpanStyle::Bold),
-                plain(" foo"),
-            ]
+            vec![plain("hello "), s("world", SpanStyle::Bold), plain(" foo"),]
         );
     }
 
@@ -249,11 +265,7 @@ mod tests {
         // Closing delimiter followed by punctuation is valid.
         assert_eq!(
             parse("say *hello*."),
-            vec![
-                plain("say "),
-                s("hello", SpanStyle::Bold),
-                plain("."),
-            ]
+            vec![plain("say "), s("hello", SpanStyle::Bold), plain("."),]
         );
     }
 
@@ -278,7 +290,9 @@ mod tests {
         // The newline separator is appended to the preceding quote span.
         assert_eq!(spans[0], s("quoted line\n", SpanStyle::Quote));
         // The plain line follows.
-        assert!(spans.iter().any(|sp| sp.text.contains("normal line") && sp.style == SpanStyle::Plain));
+        assert!(spans
+            .iter()
+            .any(|sp| sp.text.contains("normal line") && sp.style == SpanStyle::Plain));
     }
 
     #[test]

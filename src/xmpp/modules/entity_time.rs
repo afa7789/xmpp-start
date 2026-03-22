@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P6.4 — XEP-0202 Entity Time
 // XEP reference: https://xmpp.org/extensions/xep-0202.html
 //
@@ -77,7 +78,7 @@ impl EntityTimeManager {
         let tzo_text = time_el.get_child("tzo", NS_TIME)?.text();
         let tz_name = time_el
             .get_child("tz", NS_TIME)
-            .map(|e| e.text())
+            .map(tokio_xmpp::minidom::Element::text)
             .filter(|s| !s.is_empty());
 
         let utc_offset_seconds = parse_tzo(&tzo_text)?;

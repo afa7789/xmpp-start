@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P1.1b — Proxy lifecycle state machine
 //
 // Pure state machine — no async, no I/O, no networking.

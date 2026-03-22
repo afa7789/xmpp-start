@@ -55,7 +55,10 @@ fn mam_sync_orchestrator_start_and_complete() {
 
     let conversations = vec![
         ("alice@example.com".to_string(), None),
-        ("bob@example.com".to_string(), Some("stanza-id-42".to_string())),
+        (
+            "bob@example.com".to_string(),
+            Some("stanza-id-42".to_string()),
+        ),
     ];
 
     let mut orchestrator = SyncOrchestrator::new();
@@ -93,8 +96,7 @@ fn stream_mgmt_ack_and_desync_flow() {
     assert!(sm.flush_ack().is_none());
 
     // 51 unacked outbound stanzas → desync
-    let dummy: tokio_xmpp::minidom::Element =
-        "<message xmlns='jabber:client'/>".parse().unwrap();
+    let dummy: tokio_xmpp::minidom::Element = "<message xmlns='jabber:client'/>".parse().unwrap();
     for _ in 0..51 {
         sm.on_stanza_sent(dummy.clone());
     }

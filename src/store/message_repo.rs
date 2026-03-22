@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
@@ -79,10 +80,7 @@ pub async fn find_by_conversation(
     Ok(rows.iter().map(row_to_message).collect())
 }
 
-pub async fn find_by_origin_id(
-    pool: &SqlitePool,
-    origin_id: &str,
-) -> Result<Option<Message>> {
+pub async fn find_by_origin_id(pool: &SqlitePool, origin_id: &str) -> Result<Option<Message>> {
     let row = sqlx::query(
         r#"
         SELECT id, conversation_jid, from_jid, body, timestamp,
@@ -160,11 +158,7 @@ pub async fn mark_retracted(pool: &SqlitePool, message_id: &str) -> Result<()> {
 }
 
 /// Overwrite the body of a message via its origin_id (XEP-0308 correction).
-pub async fn update_body(
-    pool: &SqlitePool,
-    origin_id: &str,
-    new_body: &str,
-) -> Result<()> {
+pub async fn update_body(pool: &SqlitePool, origin_id: &str, new_body: &str) -> Result<()> {
     sqlx::query("UPDATE messages SET edited_body = ? WHERE origin_id = ?")
         .bind(new_body)
         .bind(origin_id)

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P5.2 — XEP-0084 User Avatar + vCard-temp (XEP-0054) avatar support
 // XEP references:
 //   https://xmpp.org/extensions/xep-0084.html
@@ -56,6 +57,12 @@ pub struct AvatarManager {
     pending_vcards: HashMap<String, String>,
 }
 
+impl Default for AvatarManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AvatarManager {
     /// Creates an empty manager.
     pub fn new() -> Self {
@@ -90,20 +97,16 @@ impl AvatarManager {
     /// `build_avatar_data_request` to fetch the actual bytes).
     ///
     /// Returns `None` if the stanza is not a valid avatar metadata event.
-    pub fn on_avatar_metadata_event(
-        &mut self,
-        from_jid: &str,
-        el: &Element,
-    ) -> Option<AvatarInfo> {
+    pub fn on_avatar_metadata_event(&mut self, from_jid: &str, el: &Element) -> Option<AvatarInfo> {
         // Find <event xmlns="...pubsub#event">
         let event = el
             .children()
             .find(|c| c.name() == "event" && c.ns() == NS_PUBSUB_EVENT)?;
 
         // Find <items node="urn:xmpp:avatar:metadata">
-        let items = event.children().find(|c| {
-            c.name() == "items" && c.attr("node") == Some(NS_AVATAR_META)
-        })?;
+        let items = event
+            .children()
+            .find(|c| c.name() == "items" && c.attr("node") == Some(NS_AVATAR_META))?;
 
         // First <item id="{sha1}">
         let item = items.children().find(|c| c.name() == "item")?;
@@ -115,10 +118,7 @@ impl AvatarManager {
             .find(|c| c.name() == "metadata" && c.ns() == NS_AVATAR_META)?;
 
         let info_el = metadata.children().find(|c| c.name() == "info")?;
-        let mime_type = info_el
-            .attr("type")
-            .unwrap_or("image/png")
-            .to_string();
+        let mime_type = info_el.attr("type").unwrap_or("image/png").to_string();
 
         let avatar = AvatarInfo {
             jid: from_jid.to_string(),
@@ -145,18 +145,14 @@ impl AvatarManager {
     /// </iq>
     /// ```
     pub fn build_avatar_data_request(&self, to_jid: &str, sha1: &str) -> Element {
-        let item = Element::builder("item", NS_PUBSUB)
-            .attr("id", sha1)
-            .build();
+        let item = Element::builder("item", NS_PUBSUB).attr("id", sha1).build();
 
         let items = Element::builder("items", NS_PUBSUB)
             .attr("node", NS_AVATAR_DATA)
             .append(item)
             .build();
 
-        let pubsub = Element::builder("pubsub", NS_PUBSUB)
-            .append(items)
-            .build();
+        let pubsub = Element::builder("pubsub", NS_PUBSUB).append(items).build();
 
         Element::builder("iq", NS_CLIENT)
             .attr("type", "get")
@@ -182,18 +178,14 @@ impl AvatarManager {
     ///
     /// Decodes the base64 payload and updates the cache entry for `from_jid`.
     /// Returns `None` if parsing or base64 decoding fails.
-    pub fn on_avatar_data_result(
-        &mut self,
-        from_jid: &str,
-        el: &Element,
-    ) -> Option<AvatarInfo> {
+    pub fn on_avatar_data_result(&mut self, from_jid: &str, el: &Element) -> Option<AvatarInfo> {
         let pubsub = el
             .children()
             .find(|c| c.name() == "pubsub" && c.ns() == NS_PUBSUB)?;
 
-        let items = pubsub.children().find(|c| {
-            c.name() == "items" && c.attr("node") == Some(NS_AVATAR_DATA)
-        })?;
+        let items = pubsub
+            .children()
+            .find(|c| c.name() == "items" && c.attr("node") == Some(NS_AVATAR_DATA))?;
 
         let item = items.children().find(|c| c.name() == "item")?;
         let sha1 = item.attr("id").unwrap_or("").to_string();
@@ -211,8 +203,7 @@ impl AvatarManager {
         let mime_type = self
             .cache
             .get(from_jid)
-            .map(|a| a.mime_type.clone())
-            .unwrap_or_else(|| "image/png".to_string());
+            .map_or_else(|| "image/png".to_string(), |a| a.mime_type.clone());
 
         let avatar = AvatarInfo {
             jid: from_jid.to_string(),
@@ -301,7 +292,7 @@ impl AvatarManager {
         let mime_type = photo
             .children()
             .find(|c| c.name() == "TYPE")
-            .map(|t| t.text())
+            .map(tokio_xmpp::minidom::Element::text)
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "image/png".to_string());
 
@@ -397,9 +388,7 @@ mod tests {
             .append(item)
             .build();
 
-        let pubsub = Element::builder("pubsub", NS_PUBSUB)
-            .append(items)
-            .build();
+        let pubsub = Element::builder("pubsub", NS_PUBSUB).append(items).build();
 
         Element::builder("iq", NS_CLIENT)
             .attr("type", "result")
@@ -411,9 +400,7 @@ mod tests {
     fn vcard_result(iq_id: &str, mime: &str, raw: &[u8]) -> Element {
         let encoded = BASE64.encode(raw);
 
-        let type_el = Element::builder("TYPE", NS_VCARD)
-            .append(mime)
-            .build();
+        let type_el = Element::builder("TYPE", NS_VCARD).append(mime).build();
 
         let binval = Element::builder("BINVAL", NS_VCARD)
             .append(encoded.as_str())
@@ -424,9 +411,7 @@ mod tests {
             .append(binval)
             .build();
 
-        let vcard = Element::builder("vCard", NS_VCARD)
-            .append(photo)
-            .build();
+        let vcard = Element::builder("vCard", NS_VCARD).append(photo).build();
 
         Element::builder("iq", NS_CLIENT)
             .attr("type", "result")

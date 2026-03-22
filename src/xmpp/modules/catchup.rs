@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P4.3 — MAM catchup state machine
 //
 // Tracks per-conversation MAM catchup progress.  No I/O, no async — purely
@@ -86,12 +87,12 @@ impl CatchupManager {
             },
             rsm: RsmQuery {
                 max: 50,
-                after: last_stanza_id.map(|s| s.to_string()),
+                after: last_stanza_id.map(std::string::ToString::to_string),
                 before: None,
             },
         };
 
-        let after = last_stanza_id.map(|s| s.to_string());
+        let after = last_stanza_id.map(std::string::ToString::to_string);
 
         self.states.insert(
             conversation_jid.to_string(),
@@ -110,11 +111,7 @@ impl CatchupManager {
     ///
     /// Returns the conversation JID if `query_id` belongs to an active
     /// `Fetching` query; `None` otherwise (unknown / already completed).
-    pub fn on_result<'a>(
-        &'a self,
-        query_id: &str,
-        _conversation_jid: &str,
-    ) -> Option<&'a str> {
+    pub fn on_result<'a>(&'a self, query_id: &str, _conversation_jid: &str) -> Option<&'a str> {
         let jid = self.query_to_jid.get(query_id)?;
         match self.states.get(jid.as_str()) {
             Some(CatchupState::Fetching { .. }) => Some(jid.as_str()),
@@ -184,7 +181,10 @@ mod tests {
             "filter.with must be set to the conversation JID"
         );
         assert_eq!(query.rsm.max, 50, "default page size is 50");
-        assert!(query.rsm.after.is_none(), "no after cursor when last_stanza_id is None");
+        assert!(
+            query.rsm.after.is_none(),
+            "no after cursor when last_stanza_id is None"
+        );
     }
 
     // 2. start() passes last_stanza_id as the RSM <after> cursor.
@@ -227,10 +227,7 @@ mod tests {
 
         mgr.on_fin(&query_id);
 
-        assert_eq!(
-            mgr.state_for("dave@example.com"),
-            &CatchupState::Complete
-        );
+        assert_eq!(mgr.state_for("dave@example.com"), &CatchupState::Complete);
     }
 
     // 6. is_idle() returns true when all conversations are Complete (none Fetching).
@@ -307,6 +304,9 @@ mod tests {
         mgr.on_fin(&query_id);
 
         let result = mgr.on_result(&query_id, "ivy@example.com");
-        assert!(result.is_none(), "on_result must return None once fin has been received");
+        assert!(
+            result.is_none(),
+            "on_result must return None once fin has been received"
+        );
     }
 }

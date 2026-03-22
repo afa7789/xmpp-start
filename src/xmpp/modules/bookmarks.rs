@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P3.4 — XEP-0048 Room Bookmarks
 // XEP reference: https://xmpp.org/extensions/xep-0048.html
 //
@@ -150,14 +151,14 @@ impl BookmarkManager {
             .filter(|child| child.name() == "conference")
             .map(|conf| {
                 let jid = conf.attr("jid").unwrap_or("").to_string();
-                let name = conf.attr("name").map(|s| s.to_string());
+                let name = conf.attr("name").map(std::string::ToString::to_string);
                 let autojoin = matches!(conf.attr("autojoin"), Some("true") | Some("1"));
                 let nick = conf
                     .get_child("nick", NS_BOOKMARKS)
-                    .map(|n| n.text());
+                    .map(tokio_xmpp::minidom::Element::text);
                 let password = conf
                     .get_child("password", NS_BOOKMARKS)
-                    .map(|p| p.text());
+                    .map(tokio_xmpp::minidom::Element::text);
 
                 Bookmark {
                     jid,

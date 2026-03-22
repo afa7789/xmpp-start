@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 /// A single command exposed in the command palette.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Command {
@@ -106,11 +107,31 @@ mod tests {
 
     fn sample_commands() -> Vec<Command> {
         vec![
-            cmd("open", "Open File", "Open a file from disk", &["file", "load"]),
-            cmd("save", "Save File", "Save the current file", &["file", "write"]),
+            cmd(
+                "open",
+                "Open File",
+                "Open a file from disk",
+                &["file", "load"],
+            ),
+            cmd(
+                "save",
+                "Save File",
+                "Save the current file",
+                &["file", "write"],
+            ),
             cmd("quit", "Quit", "Exit the application", &["exit", "close"]),
-            cmd("settings", "Settings", "Open application settings", &["preferences", "config"]),
-            cmd("muc-join", "Join Room", "Join a MUC room", &["muc", "group", "channel"]),
+            cmd(
+                "settings",
+                "Settings",
+                "Open application settings",
+                &["preferences", "config"],
+            ),
+            cmd(
+                "muc-join",
+                "Join Room",
+                "Join a MUC room",
+                &["muc", "group", "channel"],
+            ),
         ]
     }
 

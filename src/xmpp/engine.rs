@@ -23,14 +23,13 @@ use tokio_xmpp::{
     AsyncClient, AsyncConfig,
 };
 
-use super::{
-    connection::ConnectConfig, IncomingMessage, RosterContact, XmppCommand, XmppEvent,
-};
+use super::{connection::ConnectConfig, IncomingMessage, RosterContact, XmppCommand, XmppEvent};
 
 // ---------------------------------------------------------------------------
 // Connection state machine  (P1.9)
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 enum EngineState {
     Idle,
     Running,
@@ -277,7 +276,11 @@ async fn handle_message(el: Element, event_tx: &mpsc::Sender<XmppEvent>) {
     let id = msg.id.unwrap_or_default();
 
     let _ = event_tx
-        .send(XmppEvent::MessageReceived(IncomingMessage { id, from, body }))
+        .send(XmppEvent::MessageReceived(IncomingMessage {
+            id,
+            from,
+            body,
+        }))
         .await;
 }
 
@@ -446,10 +449,7 @@ mod tests {
     #[test]
     fn sasl_select_falls_back_to_plain() {
         let offered = vec!["PLAIN".to_string()];
-        assert_eq!(
-            SaslMechanism::select(&offered),
-            Some(SaslMechanism::Plain)
-        );
+        assert_eq!(SaslMechanism::select(&offered), Some(SaslMechanism::Plain));
     }
 
     #[test]

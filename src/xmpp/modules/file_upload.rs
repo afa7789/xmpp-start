@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P5.1 — XEP-0363 HTTP File Upload
 // XEP reference: https://xmpp.org/extensions/xep-0363.html
 //
@@ -52,6 +53,12 @@ pub struct SlotRequest {
 pub struct FileUploadManager {
     /// Pending slot requests keyed by IQ id.
     pending: HashMap<String, SlotRequest>,
+}
+
+impl Default for FileUploadManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FileUploadManager {
@@ -148,9 +155,7 @@ impl FileUploadManager {
             .find(|c| c.name() == "slot" && c.ns() == NS_UPLOAD)?;
 
         // Find <put url="...">
-        let put_el = slot_el
-            .children()
-            .find(|c| c.name() == "put")?;
+        let put_el = slot_el.children().find(|c| c.name() == "put")?;
 
         let put_url = put_el.attr("url")?.to_string();
 
@@ -166,9 +171,7 @@ impl FileUploadManager {
             .collect();
 
         // Find <get url="...">
-        let get_el = slot_el
-            .children()
-            .find(|c| c.name() == "get")?;
+        let get_el = slot_el.children().find(|c| c.name() == "get")?;
 
         let get_url = get_el.attr("url")?.to_string();
 
@@ -217,7 +220,12 @@ mod tests {
     use super::*;
 
     // Helper: build a minimal slot result IQ XML string and parse it.
-    fn make_slot_result_iq(iq_id: &str, put_url: &str, get_url: &str, headers: &[(&str, &str)]) -> Element {
+    fn make_slot_result_iq(
+        iq_id: &str,
+        put_url: &str,
+        get_url: &str,
+        headers: &[(&str, &str)],
+    ) -> Element {
         let mut put_builder = Element::builder("put", NS_UPLOAD).attr("url", put_url);
         for (name, value) in headers {
             let header_el = Element::builder("header", NS_UPLOAD)
@@ -277,7 +285,8 @@ mod tests {
     #[test]
     fn request_slot_iq_has_filename_size_content_type() {
         let mut mgr = FileUploadManager::new();
-        let (_id, el) = mgr.request_slot("report.pdf", 20480, "application/pdf", "upload.example.com");
+        let (_id, el) =
+            mgr.request_slot("report.pdf", 20480, "application/pdf", "upload.example.com");
 
         let req = el
             .children()
@@ -325,8 +334,17 @@ mod tests {
 
         let slot = mgr.on_slot_result(&result_iq).expect("must parse slot");
         assert_eq!(slot.put_headers.len(), 2);
-        assert_eq!(slot.put_headers[0], ("Authorization".to_string(), "Basic dXNlcjpwYXNz".to_string()));
-        assert_eq!(slot.put_headers[1], ("Cookie".to_string(), "session=abc123".to_string()));
+        assert_eq!(
+            slot.put_headers[0],
+            (
+                "Authorization".to_string(),
+                "Basic dXNlcjpwYXNz".to_string()
+            )
+        );
+        assert_eq!(
+            slot.put_headers[1],
+            ("Cookie".to_string(), "session=abc123".to_string())
+        );
     }
 
     // 6. on_slot_result removes the request from pending.
@@ -353,7 +371,9 @@ mod tests {
         let (id, _el) = mgr.request_slot("photo.jpg", 1024, "image/jpeg", "upload.example.com");
 
         let error_iq = make_error_iq(&id);
-        let returned_id = mgr.on_slot_error(&error_iq).expect("must return id on error");
+        let returned_id = mgr
+            .on_slot_error(&error_iq)
+            .expect("must return id on error");
 
         assert_eq!(returned_id, id);
         assert!(!mgr.is_pending(&id), "pending must be cleared after error");

@@ -7,14 +7,13 @@
 ///
 /// The `Server` fixture starts the container before the test and tears it down
 /// automatically when the test ends — even on panic.
-
 use std::process::Command;
 use std::time::Duration;
 
 use futures::StreamExt;
-use tokio_xmpp::{AsyncClient, AsyncConfig, Event};
-use tokio_xmpp::starttls::ServerConfig;
 use tokio_xmpp::jid::Jid;
+use tokio_xmpp::starttls::ServerConfig;
+use tokio_xmpp::{AsyncClient, AsyncConfig, Event};
 
 /// Port exposed by docker-compose.test.yml.
 const TEST_PORT: u16 = 15222;
@@ -29,7 +28,14 @@ impl Server {
         let root = env!("CARGO_MANIFEST_DIR");
 
         let status = Command::new("docker")
-            .args(["compose", "-f", "docker-compose.test.yml", "up", "-d", "--build"])
+            .args([
+                "compose",
+                "-f",
+                "docker-compose.test.yml",
+                "up",
+                "-d",
+                "--build",
+            ])
             .current_dir(root)
             .status()
             .expect("failed to run docker compose — is Docker running?");
@@ -167,7 +173,10 @@ async fn e2e_alice_sends_message_to_bob() {
             .parse()
             .unwrap();
 
-    alice.send_stanza(stanza).await.expect("alice failed to send");
+    alice
+        .send_stanza(stanza)
+        .await
+        .expect("alice failed to send");
 
     // Bob waits for the message stanza.
     let timeout = tokio::time::Duration::from_secs(10);

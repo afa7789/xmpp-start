@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P3.1 — XEP-0045 Multi-User Chat core module
 // XEP reference: https://xmpp.org/extensions/xep-0045.html
 //
@@ -234,19 +235,16 @@ impl MucManager {
         let from = el.attr("from")?;
         let (room_jid, from_nick) = from.split_once('/')?;
 
-        let body = el
-            .children()
-            .find(|c| c.name() == "body")?
-            .text();
+        let body = el.children().find(|c| c.name() == "body")?.text();
 
         if body.is_empty() {
             return None;
         }
 
-        let id = el
-            .attr("id")
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let id = el.attr("id").map_or_else(
+            || Uuid::new_v4().to_string(),
+            std::string::ToString::to_string,
+        );
 
         Some(MucMessage {
             room_jid: room_jid.to_string(),
@@ -265,11 +263,7 @@ impl MucManager {
             .attr("to", room_jid)
             .attr("type", "groupchat")
             .attr("id", id)
-            .append(
-                Element::builder("body", NS_CLIENT)
-                    .append(body)
-                    .build(),
-            )
+            .append(Element::builder("body", NS_CLIENT).append(body).build())
             .build()
     }
 
@@ -309,11 +303,7 @@ impl ModerationManager {
             .attr("role", role);
 
         if let Some(r) = reason {
-            item = item.append(
-                Element::builder("reason", NS_MUC_ADMIN)
-                    .append(r)
-                    .build(),
-            );
+            item = item.append(Element::builder("reason", NS_MUC_ADMIN).append(r).build());
         }
 
         let query = Element::builder("query", NS_MUC_ADMIN)
@@ -329,17 +319,18 @@ impl ModerationManager {
     }
 
     /// Build an IQ stanza that sets `affiliation` on an `<item jid='…'>`.
-    fn affiliation_iq(room_jid: &str, jid: &str, affiliation: &str, reason: Option<&str>) -> Element {
+    fn affiliation_iq(
+        room_jid: &str,
+        jid: &str,
+        affiliation: &str,
+        reason: Option<&str>,
+    ) -> Element {
         let mut item = Element::builder("item", NS_MUC_ADMIN)
             .attr("jid", jid)
             .attr("affiliation", affiliation);
 
         if let Some(r) = reason {
-            item = item.append(
-                Element::builder("reason", NS_MUC_ADMIN)
-                    .append(r)
-                    .build(),
-            );
+            item = item.append(Element::builder("reason", NS_MUC_ADMIN).append(r).build());
         }
 
         let query = Element::builder("query", NS_MUC_ADMIN)
@@ -397,7 +388,12 @@ mod tests {
     const NICK: &str = "alice";
     const NS_MUC_USER: &str = "http://jabber.org/protocol/muc#user";
 
-    fn make_available_presence(room_jid: &str, nick: &str, role: &str, affiliation: &str) -> Element {
+    fn make_available_presence(
+        room_jid: &str,
+        nick: &str,
+        role: &str,
+        affiliation: &str,
+    ) -> Element {
         let item = Element::builder("item", NS_MUC_USER)
             .attr("role", role)
             .attr("affiliation", affiliation)
@@ -523,12 +519,25 @@ mod tests {
         mgr.join_room(ROOM_JID, NICK);
 
         // Add bob first
-        mgr.on_presence(&make_available_presence(ROOM_JID, "bob", "participant", "member"));
-        assert!(mgr.get_room(ROOM_JID).unwrap().occupants.contains_key("bob"));
+        mgr.on_presence(&make_available_presence(
+            ROOM_JID,
+            "bob",
+            "participant",
+            "member",
+        ));
+        assert!(mgr
+            .get_room(ROOM_JID)
+            .unwrap()
+            .occupants
+            .contains_key("bob"));
 
         // Now bob leaves
         mgr.on_presence(&make_unavailable_presence(ROOM_JID, "bob"));
-        assert!(!mgr.get_room(ROOM_JID).unwrap().occupants.contains_key("bob"));
+        assert!(!mgr
+            .get_room(ROOM_JID)
+            .unwrap()
+            .occupants
+            .contains_key("bob"));
     }
 
     // 9. get_room returns the correct room

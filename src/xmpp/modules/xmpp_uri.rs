@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P6.3 — XEP-0147 XMPP URI parser
 // XEP reference: https://xmpp.org/extensions/xep-0147.html
 //
@@ -89,7 +90,11 @@ pub fn parse(uri: &str) -> Option<XmppUri> {
         }
     };
 
-    Some(XmppUri { jid, action, params })
+    Some(XmppUri {
+        jid,
+        action,
+        params,
+    })
 }
 
 /// Build an `xmpp:` URI string from its components.

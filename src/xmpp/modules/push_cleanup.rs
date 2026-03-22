@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P6.5 — WebPush VAPID unsubscribe stanza builder
 // XEP reference: https://xmpp.org/extensions/xep-0357.html
 //
@@ -21,6 +22,12 @@ const NS_CLIENT: &str = "jabber:client";
 /// notifications for a specific subscription or for all subscriptions.
 pub struct PushCleanup;
 
+impl Default for PushCleanup {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PushCleanup {
     /// Create a new `PushCleanup` builder.
     pub fn new() -> Self {
@@ -35,11 +42,7 @@ impl PushCleanup {
     ///   <disable xmlns="urn:xmpp:push:0" jid="{push_service_jid}" node="{node}"/>
     /// </iq>
     /// ```
-    pub fn build_disable_iq(
-        &self,
-        push_service_jid: &str,
-        node: &str,
-    ) -> Element {
+    pub fn build_disable_iq(&self, push_service_jid: &str, node: &str) -> Element {
         let iq_id = Uuid::new_v4().to_string();
 
         let disable_el = Element::builder("disable", NS_PUSH)

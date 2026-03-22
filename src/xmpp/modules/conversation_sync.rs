@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P6.4 — XEP-0223 Conversation Sync (PubSub private storage)
 // XEP reference: https://xmpp.org/extensions/xep-0223.html
 //
@@ -45,7 +46,8 @@ impl ConversationSyncManager {
     /// </iq>
     /// ```
     pub fn build_publish_iq(&self, conversations: &[SyncedConversation]) -> Element {
-        let mut conversations_el = Element::builder("conversations", "xmpp-start:conversations").build();
+        let mut conversations_el =
+            Element::builder("conversations", "xmpp-start:conversations").build();
 
         for conv in conversations {
             let conv_el = Element::builder("conversation", "xmpp-start:conversations")
@@ -173,7 +175,9 @@ mod tests {
         assert!(item.is_some(), "<item> missing");
         assert_eq!(item.unwrap().attr("id"), Some("current"));
 
-        let conversations = item.unwrap().get_child("conversations", "xmpp-start:conversations");
+        let conversations = item
+            .unwrap()
+            .get_child("conversations", "xmpp-start:conversations");
         assert!(conversations.is_some(), "<conversations> missing");
 
         let children: Vec<_> = conversations.unwrap().children().collect();

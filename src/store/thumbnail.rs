@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use image::ImageFormat;
 use std::io::Cursor;
 
@@ -71,8 +72,7 @@ pub fn generate(input: &[u8]) -> Result<Thumbnail, ThumbnailError> {
 
 /// Generate a thumbnail from a file path (reads the file, calls `generate`).
 pub fn generate_from_path(path: &std::path::Path) -> Result<Thumbnail, ThumbnailError> {
-    let bytes =
-        std::fs::read(path).map_err(|e| ThumbnailError::DecodeError(e.to_string()))?;
+    let bytes = std::fs::read(path).map_err(|e| ThumbnailError::DecodeError(e.to_string()))?;
     generate(&bytes)
 }
 

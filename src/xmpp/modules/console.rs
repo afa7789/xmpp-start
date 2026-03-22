@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P6.3 — XMPP Console stanza log
 //
 // Circular buffer of raw XML stanzas for debugging.

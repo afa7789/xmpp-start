@@ -4,17 +4,20 @@
 //                   apps/fluux/src/components/MessageComposer.tsx
 // Scroll strategy: docs/SCROLL_STRATEGY.md
 
-use iced::{
-    widget::{
-        button, column, container, row, scrollable, text, text_input,
-    },
-    Alignment, Element, Length, Task,
-};
 use iced::widget::scrollable::{AbsoluteOffset, Id};
+use iced::widget::text::Span as IcedSpan;
+use iced::{
+    font,
+    widget::{button, column, container, rich_text, row, scrollable, span, text, text_input},
+    Alignment, Color, Element, Font, Length, Task,
+};
+
+use crate::ui::styling::{self, SpanStyle};
 
 /// A single message shown in the conversation view.
 #[derive(Debug, Clone)]
 pub struct DisplayMessage {
+    #[allow(dead_code)]
     pub id: String,
     pub from: String,
     pub body: String,
@@ -28,6 +31,7 @@ pub struct ConversationView {
     composer: String,
     scroll_id: Id,
     scroll_offset: AbsoluteOffset,
+    #[allow(dead_code)]
     own_jid: String,
 }
 
@@ -59,6 +63,7 @@ impl ConversationView {
         std::mem::take(&mut self.composer)
     }
 
+    #[allow(dead_code)]
     pub fn messages(&self) -> &[DisplayMessage] {
         &self.messages
     }
@@ -79,13 +84,16 @@ impl ConversationView {
                 Task::none()
             }
             Message::ScrollToBottom => {
-                let bottom = AbsoluteOffset { x: 0.0, y: f32::MAX };
+                let bottom = AbsoluteOffset {
+                    x: 0.0,
+                    y: f32::MAX,
+                };
                 scrollable::scroll_to::<Message>(self.scroll_id.clone(), bottom)
             }
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         // ---- Message list ----
         let messages: Vec<Element<Message>> = self
             .messages
@@ -94,19 +102,14 @@ impl ConversationView {
                 let sender = if m.own {
                     "You".to_string()
                 } else {
-                    m.from
-                        .split('/')
-                        .next()
-                        .unwrap_or(&m.from)
-                        .to_string()
+                    m.from.split('/').next().unwrap_or(&m.from).to_string()
                 };
 
-                let bubble = column![
-                    text(sender).size(11),
-                    text(m.body.clone()).size(14),
-                ]
-                .spacing(2)
-                .padding([6, 10]);
+                let styled_spans = styling::parse(&m.body);
+                let body_widget = build_styled_text(&styled_spans);
+                let bubble = column![text(sender).size(11), body_widget]
+                    .spacing(2)
+                    .padding([6, 10]);
 
                 let align = if m.own {
                     Alignment::End
@@ -114,16 +117,13 @@ impl ConversationView {
                     Alignment::Start
                 };
 
-                container(bubble)
-                    .width(Length::Fill)
-                    .align_x(align)
-                    .into()
+                container(bubble).width(Length::Fill).align_x(align).into()
             })
             .collect();
 
         let list_col = messages
             .into_iter()
-            .fold(column![].spacing(4).padding(8), |col, el| col.push(el));
+            .fold(column![].spacing(4).padding(8), iced::widget::Column::push);
 
         let scroll_area = scrollable(list_col)
             .id(self.scroll_id.clone())
@@ -133,7 +133,9 @@ impl ConversationView {
 
         // ---- Scroll position + jump-to-bottom button ----
         let scroll_info = text(format!("↕ {:.0}px", self.scroll_offset.y)).size(11);
-        let jump_btn = button("↓ bottom").on_press(Message::ScrollToBottom).padding([4, 10]);
+        let jump_btn = button("↓ bottom")
+            .on_press(Message::ScrollToBottom)
+            .padding([4, 10]);
         let scroll_bar = row![scroll_info, jump_btn]
             .spacing(8)
             .align_y(Alignment::Center)
@@ -161,11 +163,9 @@ impl ConversationView {
 
         column![
             // Header
-            container(
-                text(format!("Chat with {}", self.peer_jid)).size(14)
-            )
-            .padding([8, 12])
-            .width(Length::Fill),
+            container(text(format!("Chat with {}", self.peer_jid)).size(14))
+                .padding([8, 12])
+                .width(Length::Fill),
             // Message list
             scroll_area,
             // Scroll position bar
@@ -175,6 +175,37 @@ impl ConversationView {
         ]
         .into()
     }
+}
+
+/// Map parsed `Span`s to an iced `rich_text` widget.
+fn build_styled_text(spans: &[styling::Span]) -> Element<'static, Message> {
+    // IcedSpan<'a, Link> — Link must match the Element's message type.
+    let iced_spans: Vec<IcedSpan<'static, Message>> = spans
+        .iter()
+        .map(|s| {
+            let t: IcedSpan<'static, Message> = span(s.text.clone());
+            match s.style {
+                SpanStyle::Plain => t,
+                SpanStyle::Bold => t.font(Font {
+                    weight: font::Weight::Bold,
+                    ..Font::DEFAULT
+                }),
+                SpanStyle::Italic => t.font(Font {
+                    style: font::Style::Italic,
+                    ..Font::DEFAULT
+                }),
+                SpanStyle::Code => t
+                    .font(Font::MONOSPACE)
+                    .color(Color::from_rgb(0.2, 0.8, 0.4)),
+                SpanStyle::Strike => t.strikethrough(true),
+                SpanStyle::Quote => t.color(Color::from_rgb(0.6, 0.6, 0.6)).font(Font {
+                    style: font::Style::Italic,
+                    ..Font::DEFAULT
+                }),
+            }
+        })
+        .collect();
+    rich_text(iced_spans).size(14).into()
 }
 
 #[cfg(test)]
@@ -212,7 +243,7 @@ mod tests {
     fn send_clears_composer() {
         let mut cv = ConversationView::new("alice@example.com".into(), "me@example.com".into());
         cv.composer = "test message".into();
-        cv.update(Message::Send);
+        let _ = cv.update(Message::Send);
         assert!(cv.composer.is_empty());
     }
 }

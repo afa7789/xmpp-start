@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P1.1 — TCP connection + STARTTLS + Direct TLS
 // Task P1.2 — SASL authentication (delegated to tokio-xmpp)
 // Task P1.7 — DNS SRV + XEP-0156 discovery (delegated to tokio-xmpp ServerConfig::UseSrv)

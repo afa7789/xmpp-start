@@ -20,6 +20,7 @@ pub struct LoginScreen {
 enum LoginState {
     Idle,
     Connecting,
+    #[allow(dead_code)]
     Connected(String), // bound JID
     Error(String),
 }
@@ -33,6 +34,12 @@ pub enum Message {
     /// Sent by App::update after dispatching the Connect command.
     Connecting,
     GoToBenchmark,
+}
+
+impl Default for LoginScreen {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LoginScreen {
@@ -65,6 +72,7 @@ impl LoginScreen {
     }
 
     /// Called by App when XmppEvent::Connected arrives.
+    #[allow(dead_code)]
     pub fn on_connected(&mut self, bound_jid: String) {
         self.state = LoginState::Connected(bound_jid);
     }
@@ -93,7 +101,7 @@ impl LoginScreen {
         Task::none()
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let status = match &self.state {
             LoginState::Idle => text(""),
             LoginState::Connecting => text("Connecting…"),

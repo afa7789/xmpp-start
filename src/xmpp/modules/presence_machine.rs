@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P1.4b — Presence state machine (auto-away / xa / DND)
 //
 // Ports presenceMachine.ts (XState, 6 states) to pure Rust.
@@ -158,25 +159,13 @@ impl PresenceMachine {
         let el = match status {
             PresenceStatus::Available => builder.build(),
             PresenceStatus::Away => builder
-                .append(
-                    Element::builder("show", NS_CLIENT)
-                        .append("away")
-                        .build(),
-                )
+                .append(Element::builder("show", NS_CLIENT).append("away").build())
                 .build(),
             PresenceStatus::ExtendedAway => builder
-                .append(
-                    Element::builder("show", NS_CLIENT)
-                        .append("xa")
-                        .build(),
-                )
+                .append(Element::builder("show", NS_CLIENT).append("xa").build())
                 .build(),
             PresenceStatus::DoNotDisturb => builder
-                .append(
-                    Element::builder("show", NS_CLIENT)
-                        .append("dnd")
-                        .build(),
-                )
+                .append(Element::builder("show", NS_CLIENT).append("dnd").build())
                 .build(),
             PresenceStatus::Offline => unreachable!("handled above"),
         };

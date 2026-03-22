@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P6.4 — Per-room ignore lists (PubSub private storage)
 //
 // Pure data module — no I/O, no async.
@@ -46,8 +47,7 @@ impl IgnoreManager {
     pub fn is_ignored(&self, room_jid: &str, user_jid: &str) -> bool {
         self.lists
             .get(room_jid)
-            .map(|set| set.contains(user_jid))
-            .unwrap_or(false)
+            .is_some_and(|set| set.contains(user_jid))
     }
 
     /// Returns the current ignore list for `room_jid`, sorted for determinism.

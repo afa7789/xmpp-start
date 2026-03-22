@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P4.1 — XEP-0313 Message Archive Management + XEP-0059 Result Set Management
 // XEP references:
 //   https://xmpp.org/extensions/xep-0313.html
@@ -149,11 +150,7 @@ impl MamManager {
         // --- Data form fields ---
         let form_type_field = Element::builder("field", NS_DATA)
             .attr("var", "FORM_TYPE")
-            .append(
-                Element::builder("value", NS_DATA)
-                    .append(NS_MAM)
-                    .build(),
-            )
+            .append(Element::builder("value", NS_DATA).append(NS_MAM).build())
             .build();
 
         let mut form_builder = Element::builder("x", NS_DATA)
@@ -291,19 +288,14 @@ impl MamManager {
             .to_string();
 
         // Find the inner <message>
-        let inner_msg = forwarded
-            .children()
-            .find(|c| c.name() == "message")?;
+        let inner_msg = forwarded.children().find(|c| c.name() == "message")?;
 
-        let forwarded_from = inner_msg
-            .attr("from")
-            .unwrap_or("")
-            .to_string();
+        let forwarded_from = inner_msg.attr("from").unwrap_or("").to_string();
 
         let body = inner_msg
             .children()
             .find(|c| c.name() == "body")
-            .map(|b| b.text())
+            .map(tokio_xmpp::minidom::Element::text)
             .unwrap_or_default();
 
         let msg = MamMessage {
@@ -368,7 +360,10 @@ impl MamManager {
         let mut last: Option<String> = None;
         let mut count: Option<u32> = None;
 
-        if let Some(rsm_set) = fin.children().find(|c| c.name() == "set" && c.ns() == NS_RSM) {
+        if let Some(rsm_set) = fin
+            .children()
+            .find(|c| c.name() == "set" && c.ns() == NS_RSM)
+        {
             for child in rsm_set.children() {
                 match child.name() {
                     "first" => first = Some(child.text()),
@@ -382,7 +377,11 @@ impl MamManager {
         // Finalise the accumulated result.
         let mut result = self.results.remove(&query_id).unwrap_or(MamResult {
             messages: Vec::new(),
-            rsm: RsmSet { first: None, last: None, count: None },
+            rsm: RsmSet {
+                first: None,
+                last: None,
+                count: None,
+            },
             complete: false,
         });
 
@@ -433,10 +432,14 @@ mod tests {
     }
 
     /// Build a well-formed MAM message wrapper element.
-    fn make_mam_message(query_id: &str, archive_id: &str, stamp: &str, from: &str, body: &str) -> Element {
-        let body_el = Element::builder("body", NS_CLIENT)
-            .append(body)
-            .build();
+    fn make_mam_message(
+        query_id: &str,
+        archive_id: &str,
+        stamp: &str,
+        from: &str,
+        body: &str,
+    ) -> Element {
+        let body_el = Element::builder("body", NS_CLIENT).append(body).build();
 
         let inner_msg = Element::builder("message", NS_CLIENT)
             .attr("from", from)
@@ -464,7 +467,13 @@ mod tests {
     }
 
     /// Build a well-formed <fin> IQ element.
-    fn make_fin_iq(query_id: Option<&str>, complete: bool, first: &str, last: &str, count: u32) -> Element {
+    fn make_fin_iq(
+        query_id: Option<&str>,
+        complete: bool,
+        first: &str,
+        last: &str,
+        count: u32,
+    ) -> Element {
         let first_el = Element::builder("first", NS_RSM).append(first).build();
         let last_el = Element::builder("last", NS_RSM).append(last).build();
         let count_el = Element::builder("count", NS_RSM)
@@ -590,8 +599,20 @@ mod tests {
         mgr.build_query_iq(make_query("qid-7"));
 
         // Push two messages first.
-        let m1 = make_mam_message("qid-7", "uid-1", "2024-01-01T00:00:00Z", "bob@example.com", "msg1");
-        let m2 = make_mam_message("qid-7", "uid-2", "2024-01-01T00:01:00Z", "bob@example.com", "msg2");
+        let m1 = make_mam_message(
+            "qid-7",
+            "uid-1",
+            "2024-01-01T00:00:00Z",
+            "bob@example.com",
+            "msg1",
+        );
+        let m2 = make_mam_message(
+            "qid-7",
+            "uid-2",
+            "2024-01-01T00:01:00Z",
+            "bob@example.com",
+            "msg2",
+        );
         mgr.on_mam_message(&m1);
         mgr.on_mam_message(&m2);
 

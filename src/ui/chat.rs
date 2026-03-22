@@ -65,6 +65,10 @@ impl ChatScreen {
         });
     }
 
+    pub fn on_presence(&mut self, jid: &str, available: bool) {
+        self.sidebar.on_presence(jid, available);
+    }
+
     /// Drain pending outgoing engine commands; called by App::update.
     pub fn drain_commands(&mut self) -> Vec<XmppCommand> {
         std::mem::take(&mut self.pending_commands)
@@ -74,14 +78,13 @@ impl ChatScreen {
         match msg {
             Message::Sidebar(smsg) => {
                 // When user selects a contact, open (or switch to) that conversation.
-                if let sidebar::Message::SelectContact(ref jid) = smsg {
-                    let jid = jid.clone();
-                    let own_jid = self.own_jid.clone();
-                    self.conversations
-                        .entry(jid.clone())
-                        .or_insert_with(|| ConversationView::new(jid.clone(), own_jid));
-                    self.active_jid = Some(jid);
-                }
+                let sidebar::Message::SelectContact(ref jid) = smsg;
+                let jid = jid.clone();
+                let own_jid = self.own_jid.clone();
+                self.conversations
+                    .entry(jid.clone())
+                    .or_insert_with(|| ConversationView::new(jid.clone(), own_jid));
+                self.active_jid = Some(jid);
                 self.sidebar.update(smsg).map(Message::Sidebar)
             }
 
@@ -120,17 +123,15 @@ impl ChatScreen {
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let sidebar_view = self.sidebar.view().map(Message::Sidebar);
 
         let main_area: Element<Message> = match &self.active_jid {
-            None => container(
-                text("Select a contact to start chatting").size(14),
-            )
-            .center(Length::Fill)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into(),
+            None => container(text("Select a contact to start chatting").size(14))
+                .center(Length::Fill)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
 
             Some(jid) => {
                 if let Some(convo) = self.conversations.get(jid) {
@@ -139,9 +140,7 @@ impl ChatScreen {
                         .view()
                         .map(move |m| Message::Conversation(jid2.clone(), m))
                 } else {
-                    container(text("Loading…"))
-                        .center(Length::Fill)
-                        .into()
+                    container(text("Loading…")).center(Length::Fill).into()
                 }
             }
         };
@@ -181,10 +180,7 @@ mod tests {
             body: "Hello!".into(),
         });
         assert!(s.conversations.contains_key("alice@example.com"));
-        assert_eq!(
-            s.conversations["alice@example.com"].messages().len(),
-            1
-        );
+        assert_eq!(s.conversations["alice@example.com"].messages().len(), 1);
     }
 
     #[test]

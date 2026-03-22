@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P1.7 — DNS SRV resolution + XEP-0156 host-meta discovery
 //
 // SRV lookup order (RFC 6120 + XEP-0368):
@@ -25,8 +26,5 @@ pub enum TlsMode {
 /// Resolve the best connection endpoint for a domain.
 /// TODO: Task P1.7 — implement using hickory-resolver
 pub async fn resolve(domain: &str) -> Result<ResolvedEndpoint> {
-    todo!(
-        "Task P1.7: implement SRV resolution for domain {}",
-        domain
-    )
+    todo!("Task P1.7: implement SRV resolution for domain {}", domain)
 }

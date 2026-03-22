@@ -63,6 +63,12 @@ fn make_body(id: usize) -> String {
     }
 }
 
+impl Default for BenchmarkScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BenchmarkScreen {
     pub fn new() -> Self {
         let messages = (0..MESSAGE_COUNT)
@@ -97,7 +103,7 @@ impl BenchmarkScreen {
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let back_btn = button("← Back").on_press(Message::Back).padding([6, 16]);
         let scroll_to_bottom_btn = button("Scroll to bottom")
             .on_press(Message::ScrollToBottom)
@@ -108,8 +114,11 @@ impl BenchmarkScreen {
         let header = container(
             row![
                 back_btn,
-                text(format!("Scroll Benchmark — {} messages", self.messages.len()))
-                    .size(18),
+                text(format!(
+                    "Scroll Benchmark — {} messages",
+                    self.messages.len()
+                ))
+                .size(18),
                 scroll_label,
                 scroll_to_bottom_btn,
             ]
@@ -129,11 +138,7 @@ impl BenchmarkScreen {
 
             row![
                 avatar,
-                column![
-                    text(&m.sender).size(14),
-                    text(&m.body).size(13),
-                ]
-                .spacing(2),
+                column![text(&m.sender).size(14), text(&m.body).size(13),].spacing(2),
             ]
             .spacing(10)
             .align_y(iced::Alignment::Center)

@@ -1,20 +1,23 @@
 // Task P2: UI Foundation
 // Reference: https://github.com/squidowl/halloy (iced IRC client)
 
+use std::sync::Arc;
+
 use iced::{Element, Subscription, Task};
+use sqlx::SqlitePool;
 use tokio::sync::mpsc;
 
-mod login;
 pub mod benchmark;
 pub mod chat;
 pub mod conversation;
+mod login;
 pub mod muc_panel;
 pub mod sidebar;
 pub mod styling;
 
-pub use login::LoginScreen;
 pub use benchmark::BenchmarkScreen;
 pub use chat::ChatScreen;
+pub use login::LoginScreen;
 
 use crate::config::{self, Settings, Theme};
 use crate::xmpp::{self, XmppCommand, XmppEvent};
@@ -24,6 +27,7 @@ pub struct App {
     screen: Screen,
     xmpp_tx: Option<mpsc::Sender<XmppCommand>>,
     settings: Settings,
+    db: Arc<SqlitePool>,
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +36,7 @@ pub enum Message {
     Benchmark(benchmark::Message),
     Chat(chat::Message),
     GoToBenchmark,
+    #[allow(dead_code)]
     ToggleTheme,
     XmppReady(mpsc::Sender<XmppCommand>),
     XmppEvent(XmppEvent),
@@ -44,11 +49,7 @@ enum Screen {
 }
 
 impl App {
-    pub fn new() -> (Self, Task<Message>) {
-        Self::new_with_settings(Settings::default())
-    }
-
-    pub fn new_with_settings(settings: Settings) -> (Self, Task<Message>) {
+    pub fn new_with_settings(settings: Settings, db: Arc<SqlitePool>) -> (Self, Task<Message>) {
         let password = config::load_password(&settings.last_jid).unwrap_or_default();
         let login = LoginScreen::with_saved(
             settings.last_jid.clone(),
@@ -60,6 +61,7 @@ impl App {
                 screen: Screen::Login(login),
                 xmpp_tx: None,
                 settings,
+                db,
             },
             Task::none(),
         )
@@ -165,7 +167,6 @@ impl App {
                 match event {
                     XmppEvent::Connected { ref bound_jid } => {
                         tracing::info!("XMPP: online as {bound_jid}");
-                        // Save password to keychain on first successful login.
                         if let Screen::Login(ref login) = self.screen {
                             let cfg = login.connect_config();
                             if !cfg.password.is_empty() {
@@ -191,17 +192,76 @@ impl App {
                         if let Screen::Chat(ref mut chat) = self.screen {
                             chat.set_roster(contacts.clone());
                         }
+                        // A3: persist roster to DB
+                        let pool = self.db.clone();
+                        let contacts = contacts.clone();
+                        return Task::future(async move {
+                            for c in &contacts {
+                                let _ = crate::store::roster_repo::upsert(
+                                    &pool,
+                                    &crate::store::roster_repo::RosterContact {
+                                        jid: c.jid.clone(),
+                                        name: c.name.clone(),
+                                        subscription: c.subscription.clone(),
+                                        groups: None,
+                                    },
+                                )
+                                .await;
+                            }
+                            Message::GoToBenchmark
+                        })
+                        .discard();
                     }
                     XmppEvent::MessageReceived(ref msg) => {
                         tracing::info!("XMPP: message from {}", msg.from);
                         if let Screen::Chat(ref mut chat) = self.screen {
                             chat.on_message_received(msg.clone());
                         }
+                        // A5: desktop notification
+                        if self.settings.notifications_enabled {
+                            let from = msg.from.split('/').next().unwrap_or(&msg.from).to_string();
+                            let _ = crate::notifications::notify_message(&from, &msg.body);
+                        }
+                        // A2: persist message + conversation to DB
+                        let pool = self.db.clone();
+                        let from_jid = msg.from.clone();
+                        let bare_jid = from_jid.split('/').next().unwrap_or(&from_jid).to_string();
+                        let msg_id = msg.id.clone();
+                        let body = msg.body.clone();
+                        let ts = chrono::Utc::now().timestamp_millis();
+                        return Task::future(async move {
+                            let _ = crate::store::conversation_repo::upsert(&pool, &bare_jid).await;
+                            let _ = crate::store::message_repo::insert(
+                                &pool,
+                                &crate::store::message_repo::Message {
+                                    id: msg_id,
+                                    conversation_jid: bare_jid,
+                                    from_jid,
+                                    body: Some(body),
+                                    timestamp: ts,
+                                    stanza_id: None,
+                                    origin_id: None,
+                                    state: "received".into(),
+                                    edited_body: None,
+                                    retracted: 0,
+                                },
+                            )
+                            .await;
+                            Message::GoToBenchmark
+                        })
+                        .discard();
                     }
                     XmppEvent::PresenceUpdated { ref jid, available } => {
                         tracing::debug!("XMPP: presence {jid} available={available}");
+                        // A4: forward to sidebar
+                        if let Screen::Chat(ref mut chat) = self.screen {
+                            chat.on_presence(jid, available);
+                        }
                     }
-                    XmppEvent::CatchupFinished { ref conversation_jid, fetched } => {
+                    XmppEvent::CatchupFinished {
+                        ref conversation_jid,
+                        fetched,
+                    } => {
                         tracing::info!(
                             "XMPP: MAM catchup complete for {conversation_jid} ({fetched} messages)"
                         );
@@ -212,7 +272,7 @@ impl App {
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         match &self.screen {
             Screen::Login(login) => login.view().map(Message::Login),
             Screen::Benchmark(bench) => bench.view().map(Message::Benchmark),

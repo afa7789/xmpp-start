@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P6.2 — XEP-0050 Ad-Hoc Commands
 // XEP reference: https://xmpp.org/extensions/xep-0050.html
 //
@@ -78,11 +79,7 @@ impl AdhocManager {
     /// ```
     ///
     /// Returns `(iq_id, element)`.
-    pub fn build_execute(
-        &mut self,
-        to_jid: &str,
-        node: &str,
-    ) -> (String, Element) {
+    pub fn build_execute(&mut self, to_jid: &str, node: &str) -> (String, Element) {
         let id = Uuid::new_v4().to_string();
         let command = Element::builder("command", NS_ADHOC)
             .attr("action", "execute")
@@ -221,7 +218,7 @@ impl AdhocManager {
         let notes: Vec<String> = command
             .children()
             .filter(|c| c.name() == "note" && c.ns() == NS_ADHOC)
-            .map(|c| c.text())
+            .map(tokio_xmpp::minidom::Element::text)
             .collect();
 
         Some(CommandResponse {
@@ -256,7 +253,7 @@ fn parse_data_form(x: &Element) -> Vec<DataField> {
             let value = field
                 .children()
                 .find(|c| c.name() == "value")
-                .map(|v| v.text());
+                .map(tokio_xmpp::minidom::Element::text);
 
             let options: Vec<(String, String)> = field
                 .children()
@@ -266,7 +263,7 @@ fn parse_data_form(x: &Element) -> Vec<DataField> {
                     let opt_value = opt
                         .children()
                         .find(|c| c.name() == "value")
-                        .map(|v| v.text())
+                        .map(tokio_xmpp::minidom::Element::text)
                         .unwrap_or_default();
                     (opt_label, opt_value)
                 })
@@ -322,8 +319,7 @@ mod tests {
     #[test]
     fn build_cancel_has_action_cancel() {
         let mut mgr = AdhocManager::new();
-        let (_id, el) =
-            mgr.build_cancel("admin.example.org", "change-user-password", "session-42");
+        let (_id, el) = mgr.build_cancel("admin.example.org", "change-user-password", "session-42");
 
         let cmd = el
             .children()
@@ -362,9 +358,7 @@ mod tests {
         let mut mgr = AdhocManager::new();
         let (id, _) = mgr.build_execute("admin.example.org", "get-user-info");
 
-        let value_el = Element::builder("value", NS_DATA)
-            .append("alice")
-            .build();
+        let value_el = Element::builder("value", NS_DATA).append("alice").build();
         let option_value = Element::builder("value", NS_DATA).append("a").build();
         let option_el = Element::builder("option", NS_DATA)
             .attr("label", "Option A")

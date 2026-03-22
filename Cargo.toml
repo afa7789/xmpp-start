@@ -76,6 +76,22 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio-test = "0.4"
 futures = "0.3"
 
+[lints.rust]
+# Enforce good practices
+unused_imports = "warn"
+unused_variables = "warn"
+unused_must_use = "deny"
+unreachable_patterns = "warn"
+
+[lints.clippy]
+# Style
+redundant_closure = "warn"
+redundant_closure_for_method_calls = "warn"
+cloned_instead_of_copied = "warn"
+map_unwrap_or = "warn"
+# Pedantic (opt-in)
+str_split_at_newline = "warn"
+
 [profile.release]
 lto = true
 codegen-units = 1

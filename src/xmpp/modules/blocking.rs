@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task P6.2 — XEP-0191 Blocking Command
 // XEP reference: https://xmpp.org/extensions/xep-0191.html
 //
@@ -294,9 +295,7 @@ mod tests {
         let item = Element::builder("item", NS_BLOCKING)
             .attr("jid", "badactor@example.org")
             .build();
-        let block = Element::builder("block", NS_BLOCKING)
-            .append(item)
-            .build();
+        let block = Element::builder("block", NS_BLOCKING).append(item).build();
         let iq = Element::builder("iq", NS_CLIENT)
             .attr("type", "set")
             .attr("id", "push-1")
