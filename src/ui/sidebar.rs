@@ -5,9 +5,11 @@
 use std::collections::HashMap;
 
 use iced::{
-    widget::{button, column, container, scrollable, text},
+    widget::{button, column, container, row, scrollable, text},
     Element, Length, Task,
 };
+
+use crate::ui::avatar::{jid_color, jid_initial};
 
 use crate::xmpp::RosterContact;
 
@@ -68,10 +70,30 @@ impl SidebarScreen {
             .iter()
             .map(|c| {
                 let available = self.presence.get(c.jid.as_str()).copied().unwrap_or(false);
-                let indicator = if available { "● " } else { "○ " };
-                let label = format!("{}{}", indicator, c.name.as_deref().unwrap_or(&c.jid));
+                let indicator = if available { "●" } else { "○" };
+                let display_name = c.name.as_deref().unwrap_or(&c.jid);
 
-                let btn = button(text(label)).width(Length::Fill).padding([6, 10]);
+                // H5: colored avatar square with JID initial (32x32)
+                let color = jid_color(&c.jid);
+                let initial = jid_initial(&c.jid).to_string();
+                let avatar = container(text(initial).size(14))
+                    .width(32)
+                    .height(32)
+                    .style(move |_theme: &iced::Theme| iced::widget::container::Style {
+                        background: Some(iced::Background::Color(color)),
+                        ..Default::default()
+                    })
+                    .align_x(iced::Alignment::Center)
+                    .align_y(iced::Alignment::Center);
+
+                let label_row = row![
+                    avatar,
+                    text(format!("{} {}", indicator, display_name)).size(13),
+                ]
+                .spacing(6)
+                .align_y(iced::Alignment::Center);
+
+                let btn = button(label_row).width(Length::Fill).padding([4, 8]);
 
                 let btn = btn.on_press(Message::SelectContact(c.jid.clone()));
 

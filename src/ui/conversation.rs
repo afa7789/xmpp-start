@@ -12,6 +12,7 @@ use iced::{
     Alignment, Color, Element, Font, Length, Task,
 };
 
+use crate::ui::avatar::{jid_color, jid_initial};
 use crate::ui::styling::{self, SpanStyle};
 
 /// A single message shown in the conversation view.
@@ -107,9 +108,6 @@ impl ConversationView {
 
                 let styled_spans = styling::parse(&m.body);
                 let body_widget = build_styled_text(&styled_spans);
-                let bubble = column![text(sender).size(11), body_widget]
-                    .spacing(2)
-                    .padding([6, 10]);
 
                 let align = if m.own {
                     Alignment::End
@@ -117,7 +115,37 @@ impl ConversationView {
                     Alignment::Start
                 };
 
-                container(bubble).width(Length::Fill).align_x(align).into()
+                // H5: show 24x24 avatar for non-own messages
+                if !m.own {
+                    let from_bare = m.from.split('/').next().unwrap_or(&m.from);
+                    let color = jid_color(from_bare);
+                    let initial = jid_initial(from_bare).to_string();
+                    let avatar = container(text(initial).size(11))
+                        .width(24)
+                        .height(24)
+                        .style(move |_theme: &iced::Theme| iced::widget::container::Style {
+                            background: Some(iced::Background::Color(color)),
+                            ..Default::default()
+                        })
+                        .align_x(Alignment::Center)
+                        .align_y(Alignment::Center);
+
+                    let bubble = row![
+                        avatar,
+                        column![text(sender).size(11), body_widget]
+                            .spacing(2)
+                            .padding([6, 10])
+                    ]
+                    .spacing(6)
+                    .align_y(Alignment::Start);
+
+                    container(bubble).width(Length::Fill).align_x(align).into()
+                } else {
+                    let bubble = column![text(sender).size(11), body_widget]
+                        .spacing(2)
+                        .padding([6, 10]);
+                    container(bubble).width(Length::Fill).align_x(align).into()
+                }
             })
             .collect();
 

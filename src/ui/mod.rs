@@ -7,6 +7,7 @@ use iced::{Element, Subscription, Task};
 use sqlx::SqlitePool;
 use tokio::sync::mpsc;
 
+pub mod avatar;
 pub mod benchmark;
 pub mod chat;
 pub mod conversation;
