@@ -1,4 +1,5 @@
-.PHONY: setup build run test lint fmt fmt-check clean
+.PHONY: setup build run test lint fmt fmt-check clean \
+        server-start server-stop server-setup server-logs
 
 # First-time setup: ensure stable toolchain is up to date
 setup:
@@ -39,3 +40,34 @@ fmt-check:
 # Remove build artifacts
 clean:
 	cargo clean
+
+# ---- Local XMPP server (Prosody via Docker) ----
+
+# Start the server in the background
+server-start:
+	docker compose up -d
+	@echo "Waiting for Prosody to be ready..."
+	@docker compose exec xmpp sh -c 'until prosodyctl status 2>/dev/null; do sleep 1; done' 2>/dev/null || sleep 4
+	@echo "Server is up at localhost:5222"
+
+# Stop and remove the container (data volume is kept)
+server-stop:
+	docker compose down
+
+# Create test accounts (run once after server-start)
+server-setup: server-start
+	docker compose exec xmpp prosodyctl register alice localhost alice123
+	docker compose exec xmpp prosodyctl register bob localhost bob123
+	@echo ""
+	@echo "Test accounts created:"
+	@echo "  alice@localhost  password: alice123"
+	@echo "  bob@localhost    password: bob123"
+	@echo "  server: localhost  (leave server field blank or type localhost)"
+
+# Tail server logs
+server-logs:
+	docker compose logs -f xmpp
+
+# Nuke the data volume (fresh start)
+server-reset:
+	docker compose down -v
