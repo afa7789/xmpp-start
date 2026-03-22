@@ -23,6 +23,8 @@ pub mod sync;          // Task P4.4 — background sync orchestrator (MAM catchu
 pub mod file_upload;        // Task P5.1 — XEP-0363 file upload
 pub mod avatar;             // Task P5.2 — XEP-0084 / vCard avatars
 pub mod message_mutations;  // Task P5.3 — XEP-0444 reactions, XEP-0308 corrections, XEP-0424 retractions
+pub mod link_preview;       // Task P5.5 — OG / HTML meta-tag link preview parser
+pub mod command_palette;    // Task P5.5 — command palette fuzzy search
 
 // Phase 6 (XEP parity)
 // pub mod caps;          // Task P6.1 — XEP-0115 entity capabilities
