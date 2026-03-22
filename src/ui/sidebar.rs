@@ -1,0 +1,122 @@
+// Task P2.2 — Sidebar / contact list
+// Source reference: apps/fluux/src/components/Sidebar.tsx
+//                   apps/fluux/src/components/sidebar-components/ContactList.tsx
+
+use iced::{
+    widget::{button, column, container, scrollable, text},
+    Element, Length, Task,
+};
+
+use crate::xmpp::RosterContact;
+
+#[derive(Debug, Clone)]
+pub struct SidebarScreen {
+    contacts: Vec<RosterContact>,
+    selected_jid: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Message {
+    SelectContact(String),
+}
+
+impl SidebarScreen {
+    pub fn new() -> Self {
+        Self {
+            contacts: vec![],
+            selected_jid: None,
+        }
+    }
+
+    pub fn set_contacts(&mut self, contacts: Vec<RosterContact>) {
+        self.contacts = contacts;
+    }
+
+    pub fn selected_jid(&self) -> Option<&str> {
+        self.selected_jid.as_deref()
+    }
+
+    pub fn update(&mut self, msg: Message) -> Task<Message> {
+        match msg {
+            Message::SelectContact(jid) => {
+                self.selected_jid = Some(jid);
+            }
+        }
+        Task::none()
+    }
+
+    pub fn view(&self) -> Element<Message> {
+        let header = text("Contacts").size(16);
+
+        let contact_rows: Vec<Element<Message>> = self
+            .contacts
+            .iter()
+            .map(|c| {
+                let label = c
+                    .name
+                    .as_deref()
+                    .unwrap_or(&c.jid)
+                    .to_string();
+
+                let is_selected = self.selected_jid.as_deref() == Some(c.jid.as_str());
+
+                let btn = button(text(label))
+                    .width(Length::Fill)
+                    .padding([6, 10]);
+
+                let btn = if is_selected {
+                    btn.on_press(Message::SelectContact(c.jid.clone()))
+                } else {
+                    btn.on_press(Message::SelectContact(c.jid.clone()))
+                };
+
+                btn.into()
+            })
+            .collect();
+
+        let empty_note = if self.contacts.is_empty() {
+            Some(text("(no contacts)").size(12))
+        } else {
+            None
+        };
+
+        let mut col = column![header].spacing(4).padding(8).width(Length::Fill);
+
+        for row in contact_rows {
+            col = col.push(row);
+        }
+
+        if let Some(note) = empty_note {
+            col = col.push(note);
+        }
+
+        container(scrollable(col))
+            .width(200)
+            .height(Length::Fill)
+            .into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sidebar_empty_by_default() {
+        let s = SidebarScreen::new();
+        assert!(s.contacts.is_empty());
+        assert!(s.selected_jid().is_none());
+    }
+
+    #[test]
+    fn sidebar_select_contact() {
+        let mut s = SidebarScreen::new();
+        s.set_contacts(vec![RosterContact {
+            jid: "alice@example.com".into(),
+            name: Some("Alice".into()),
+            subscription: "Both".into(),
+        }]);
+        s.update(Message::SelectContact("alice@example.com".into()));
+        assert_eq!(s.selected_jid(), Some("alice@example.com"));
+    }
+}
