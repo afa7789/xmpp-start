@@ -6,6 +6,8 @@ use iced::{
     Alignment, Element, Length, Task,
 };
 
+use crate::xmpp::ConnectConfig;
+
 #[derive(Debug, Clone)]
 pub struct LoginScreen {
     jid: String,
@@ -18,6 +20,7 @@ pub struct LoginScreen {
 enum LoginState {
     Idle,
     Connecting,
+    Connected(String), // bound JID
     Error(String),
 }
 
@@ -27,8 +30,9 @@ pub enum Message {
     PasswordChanged(String),
     ServerChanged(String),
     Connect,
+    /// Sent by App::update after dispatching the Connect command.
+    Connecting,
     GoToBenchmark,
-    // TODO: Connected(XmppClient) — emitted after successful auth (Task P1.2)
 }
 
 impl LoginScreen {
@@ -41,13 +45,35 @@ impl LoginScreen {
         }
     }
 
+    /// Build a ConnectConfig from the current field values.
+    pub fn connect_config(&self) -> ConnectConfig {
+        ConnectConfig {
+            jid: self.jid.clone(),
+            password: self.password.clone(),
+            server: self.server.clone(),
+        }
+    }
+
+    /// Called by App when XmppEvent::Connected arrives.
+    pub fn on_connected(&mut self, bound_jid: String) {
+        self.state = LoginState::Connected(bound_jid);
+    }
+
+    /// Called by App when XmppEvent::Disconnected arrives.
+    pub fn on_error(&mut self, reason: String) {
+        self.state = LoginState::Error(reason);
+    }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::JidChanged(v) => self.jid = v,
             Message::PasswordChanged(v) => self.password = v,
             Message::ServerChanged(v) => self.server = v,
             Message::Connect => {
-                // TODO: Task P1.1 — spawn tokio task, connect via xmpp engine
+                // App::update handles sending the command; we just show spinner.
+                self.state = LoginState::Connecting;
+            }
+            Message::Connecting => {
                 self.state = LoginState::Connecting;
             }
             Message::GoToBenchmark => {
@@ -60,8 +86,16 @@ impl LoginScreen {
     pub fn view(&self) -> Element<Message> {
         let status = match &self.state {
             LoginState::Idle => text(""),
-            LoginState::Connecting => text("Connecting..."),
+            LoginState::Connecting => text("Connecting…"),
+            LoginState::Connected(jid) => text(format!("Connected as {jid}")),
             LoginState::Error(e) => text(format!("Error: {e}")),
+        };
+
+        let connect_enabled = !self.jid.is_empty() && !self.password.is_empty();
+        let connect_btn = if connect_enabled {
+            button("Connect").on_press(Message::Connect)
+        } else {
+            button("Connect")
         };
 
         let form = column![
@@ -76,9 +110,7 @@ impl LoginScreen {
             text_input("Server (optional)", &self.server)
                 .on_input(Message::ServerChanged)
                 .padding(10),
-            button("Connect")
-                .on_press(Message::Connect)
-                .padding([10, 24]),
+            connect_btn.padding([10, 24]),
             status,
             button("Benchmark →")
                 .on_press(Message::GoToBenchmark)

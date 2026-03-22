@@ -1,6 +1,6 @@
 // Task P1.1 — TCP connection + STARTTLS + Direct TLS
-// Task P1.2 — SASL authentication
-// Task P1.7 — DNS SRV + XEP-0156 discovery
+// Task P1.2 — SASL authentication (delegated to tokio-xmpp)
+// Task P1.7 — DNS SRV + XEP-0156 discovery (delegated to tokio-xmpp ServerConfig::UseSrv)
 //
 // Source reference:
 //   apps/fluux/src-tauri/src/xmpp_proxy/ (existing Rust proxy)
@@ -11,6 +11,17 @@ pub mod sasl;
 pub mod tcp;
 
 use anyhow::Result;
+
+/// Credentials and server target for a single XMPP session.
+#[derive(Debug, Clone)]
+pub struct ConnectConfig {
+    /// Full JID, e.g. "user@example.com"
+    pub jid: String,
+    /// Account password.
+    pub password: String,
+    /// Optional server override (empty → SRV resolution from JID domain).
+    pub server: String,
+}
 
 /// Parsed server input from the login screen.
 /// Mirrors the existing parse_server_input() in the Rust proxy.

@@ -1,37 +1,41 @@
-// Task P0.2 — iced subscription that bridges the XmppEngine into the UI.
+// Task P1.9 — iced subscription: bridges XmppEngine ↔ UI via two channels.
 //
-// iced 0.13 pattern:
-//   iced::stream::channel(size, async_fn) -> Stream<Item = T>
-//   Subscription::run_with_id(id, stream)
+// Pattern:
+//   1. Subscription starts, creates a (cmd_tx, cmd_rx) pair.
+//   2. Sends cmd_tx back to the UI as Message::XmppReady so the UI can
+//      drive the engine (Connect, SendMessage, Disconnect).
+//   3. Spawns run_engine() which reads from cmd_rx and emits XmppEvent
+//      through event_tx → forwarded to UI as Message::XmppEvent.
 
 use iced::futures::SinkExt;
 use iced::Subscription;
 use tokio::sync::mpsc;
 
-use super::{engine::XmppEngine, XmppEvent};
+use super::{engine::run_engine, XmppCommand, XmppEvent};
 use crate::ui::Message;
 
-/// Returns an iced Subscription that spawns the XMPP engine and pipes its
-/// events into `Message::XmppEvent` variants.
+/// Returns an iced Subscription that owns the XMPP engine for the app lifetime.
 pub fn xmpp_subscription() -> Subscription<Message> {
-    // Build a stream that spawns the engine and forwards its events.
     let stream = iced::stream::channel(
-        100,
-        |mut iced_sender: iced::futures::channel::mpsc::Sender<Message>| async move {
-            let (tx, mut rx) = mpsc::channel::<XmppEvent>(32);
-            let engine = XmppEngine::new(tx);
+        64,
+        |mut iced_tx: iced::futures::channel::mpsc::Sender<Message>| async move {
+            // Channel for events engine → UI.
+            let (event_tx, mut event_rx) = mpsc::channel::<XmppEvent>(64);
+            // Channel for commands UI → engine.
+            let (cmd_tx, cmd_rx) = mpsc::channel::<XmppCommand>(32);
 
-            // Spawn the connect stub; errors are silently ignored for now.
-            tokio::spawn(async move {
-                let _ = engine.connect().await;
-            });
+            // Give the command sender to the UI so it can drive the engine.
+            let _ = iced_tx.send(Message::XmppReady(cmd_tx)).await;
 
-            // Forward every engine event into iced's message stream.
-            while let Some(event) = rx.recv().await {
-                let _ = iced_sender.send(Message::XmppEvent(event)).await;
+            // Spawn the engine; it will block waiting for a Connect command.
+            tokio::spawn(run_engine(event_tx, cmd_rx));
+
+            // Forward engine events into iced's message stream.
+            while let Some(event) = event_rx.recv().await {
+                let _ = iced_tx.send(Message::XmppEvent(event)).await;
             }
         },
     );
 
-    Subscription::run_with_id(std::any::TypeId::of::<XmppEngine>(), stream)
+    Subscription::run_with_id(std::any::TypeId::of::<XmppCommand>(), stream)
 }
