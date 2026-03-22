@@ -55,7 +55,7 @@ impl ChatScreen {
         let convo = self
             .conversations
             .entry(bare_jid.clone())
-            .or_insert_with(|| ConversationView::new(bare_jid, own_jid));
+            .or_insert_with(|| ConversationView::new(bare_jid.clone(), own_jid));
 
         convo.push_message(DisplayMessage {
             id: msg.id,
@@ -63,6 +63,11 @@ impl ChatScreen {
             body: msg.body,
             own: false,
         });
+
+        // B5: increment unread if not the currently active conversation
+        if self.active_jid.as_deref() != Some(bare_jid.as_str()) {
+            self.sidebar.increment_unread(&bare_jid);
+        }
     }
 
     pub fn on_presence(&mut self, jid: &str, available: bool) {
@@ -84,7 +89,9 @@ impl ChatScreen {
                 self.conversations
                     .entry(jid.clone())
                     .or_insert_with(|| ConversationView::new(jid.clone(), own_jid));
-                self.active_jid = Some(jid);
+                self.active_jid = Some(jid.clone());
+                // B5: clear unread count when conversation is opened
+                self.sidebar.clear_unread(&jid);
                 self.sidebar.update(smsg).map(Message::Sidebar)
             }
 

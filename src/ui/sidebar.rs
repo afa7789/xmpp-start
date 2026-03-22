@@ -5,8 +5,8 @@
 use std::collections::HashMap;
 
 use iced::{
-    widget::{button, column, container, scrollable, text},
-    Element, Length, Task,
+    widget::{button, column, container, row, scrollable, text},
+    Alignment, Element, Length, Task,
 };
 
 use crate::xmpp::RosterContact;
@@ -16,6 +16,7 @@ pub struct SidebarScreen {
     contacts: Vec<RosterContact>,
     selected_jid: Option<String>,
     presence: HashMap<String, bool>,
+    unread_counts: HashMap<String, u32>, // B5: unread message counts per JID
 }
 
 #[derive(Debug, Clone)]
@@ -35,7 +36,18 @@ impl SidebarScreen {
             contacts: vec![],
             selected_jid: None,
             presence: HashMap::new(),
+            unread_counts: HashMap::new(),
         }
+    }
+
+    /// B5: increment unread count for a JID.
+    pub fn increment_unread(&mut self, jid: &str) {
+        *self.unread_counts.entry(jid.to_owned()).or_insert(0) += 1;
+    }
+
+    /// B5: clear unread count for a JID.
+    pub fn clear_unread(&mut self, jid: &str) {
+        self.unread_counts.remove(jid);
     }
 
     pub fn on_presence(&mut self, jid: &str, available: bool) {
@@ -69,12 +81,28 @@ impl SidebarScreen {
             .map(|c| {
                 let available = self.presence.get(c.jid.as_str()).copied().unwrap_or(false);
                 let indicator = if available { "● " } else { "○ " };
-                let label = format!("{}{}", indicator, c.name.as_deref().unwrap_or(&c.jid));
+                let display_name = c.name.as_deref().unwrap_or(&c.jid);
+                let label = format!("{}{}", indicator, display_name);
 
-                let btn = button(text(label)).width(Length::Fill).padding([6, 10]);
+                // B5: render unread badge if count > 0
+                let unread = self.unread_counts.get(c.jid.as_str()).copied().unwrap_or(0);
+                let label_elem: Element<Message> = if unread > 0 {
+                    row![
+                        text(label).width(Length::Fill),
+                        container(text(unread.to_string()).size(11))
+                            .width(20)
+                            .height(20)
+                            .align_x(Alignment::Center)
+                            .align_y(Alignment::Center),
+                    ]
+                    .align_y(Alignment::Center)
+                    .into()
+                } else {
+                    text(label).into()
+                };
 
+                let btn = button(label_elem).width(Length::Fill).padding([6, 10]);
                 let btn = btn.on_press(Message::SelectContact(c.jid.clone()));
-
                 btn.into()
             })
             .collect();
