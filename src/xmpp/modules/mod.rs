@@ -9,8 +9,8 @@ pub mod stream_mgmt;   // Task P1.6 — XEP-0198 stream management
 // pub mod ping;          // Task P1.7 — XEP-0199 ping
 
 // Phase 3 (MUC)
-// pub mod muc;           // Task P3.1 — XEP-0045 multi-user chat
-// pub mod bookmarks;     // Task P3.4 — XEP-0048 bookmarks
+pub mod muc;           // Task P3.1 — XEP-0045 multi-user chat
+pub mod bookmarks;     // Task P3.4 — XEP-0048 bookmarks
 
 // Phase 4 (History)
 // pub mod mam;           // Task P4.1 — XEP-0313 message archive management
