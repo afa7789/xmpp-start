@@ -1,3 +1,4 @@
+pub mod avatar_crop;
 pub mod conversation_repo;
 pub mod message_repo;
 pub mod roster_repo;
