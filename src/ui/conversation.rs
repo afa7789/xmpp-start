@@ -53,6 +53,8 @@ pub struct ConversationView {
     reply_to: Option<(String, String)>,
     /// J3: whether notifications are muted for this conversation
     pub is_muted: bool,
+    /// L1: number of messages seen when conversation was last opened
+    last_seen_count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +86,7 @@ impl ConversationView {
             peer_blocked: false,
             reply_to: None,
             is_muted: false,
+            last_seen_count: 0,
         }
     }
 
@@ -94,6 +97,11 @@ impl ConversationView {
     /// B4: Replace all messages with history loaded from DB.
     pub fn load_history(&mut self, msgs: Vec<DisplayMessage>) {
         self.messages = msgs;
+    }
+
+    /// L1: record how many messages existed when the conversation was opened.
+    pub fn mark_seen(&mut self) {
+        self.last_seen_count = self.messages.len();
     }
 
     pub fn take_draft(&mut self) -> String {
@@ -155,7 +163,15 @@ impl ConversationView {
         let mut prev_sender: Option<String> = None;
         let mut prev_ts: Option<i64> = None;
 
-        for m in &self.messages {
+        for (msg_idx, m) in self.messages.iter().enumerate() {
+            // L1: insert "New messages" separator before the first unseen message
+            if self.last_seen_count > 0 && msg_idx == self.last_seen_count {
+                let sep = container(text("── New messages ──").size(11))
+                    .width(Length::Fill)
+                    .align_x(Alignment::Center)
+                    .padding([4, 0]);
+                rows.push(sep.into());
+            }
             let sender = if m.own {
                 "You".to_string()
             } else {
