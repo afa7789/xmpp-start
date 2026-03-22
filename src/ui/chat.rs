@@ -343,6 +343,27 @@ mod tests {
     }
 
     #[test]
+    fn g6_draft_preserved_on_conversation_switch() {
+        use crate::ui::sidebar;
+        let mut s = ChatScreen::new("me@example.com".into());
+        // Open alice's conversation and type a draft
+        let _ = s.update(Message::Sidebar(sidebar::Message::SelectContact(
+            "alice@example.com".into(),
+        )));
+        if let Some(convo) = s.conversations.get_mut("alice@example.com") {
+            convo.composer = "half-typed message".into();
+        }
+        // Switch to bob's conversation
+        let _ = s.update(Message::Sidebar(sidebar::Message::SelectContact(
+            "bob@example.com".into(),
+        )));
+        // Alice's draft should be preserved
+        assert_eq!(s.draft_for("alice@example.com"), "half-typed message");
+        // Bob's composer should be empty
+        assert_eq!(s.draft_for("bob@example.com"), "");
+    }
+
+    #[test]
     fn drain_commands_empties_queue() {
         let mut s = ChatScreen::new("me@example.com".into());
         s.pending_commands.push(XmppCommand::SendMessage {
