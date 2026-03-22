@@ -1,6 +1,7 @@
 pub mod conversation_repo;
 pub mod message_repo;
 pub mod roster_repo;
+pub mod thumbnail;
 
 use anyhow::Result;
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
