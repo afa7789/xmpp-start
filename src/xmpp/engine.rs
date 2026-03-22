@@ -28,6 +28,7 @@ use super::{
 
     modules::stream_mgmt::StreamMgmt,
     modules::blocking::BlockingManager,
+    modules::disco::{DiscoIdentity, DiscoManager},
     IncomingMessage, RosterContact, XmppCommand, XmppEvent,
 };
 
@@ -127,6 +128,12 @@ async fn run_session(
     let mut sm = StreamMgmt::new();
     // C4: XEP-0191 blocking command manager
     let mut blocking_mgr = BlockingManager::new();
+    // C5: XEP-0115/XEP-0030 service discovery + caps
+    let mut disco_mgr = DiscoManager::new(
+        "https://github.com/xmpp-start",
+        &[DiscoIdentity { category: "client".to_string(), kind: "pc".to_string(), name: "xmpp-start".to_string() }],
+        &["urn:xmpp:mam:2", "urn:xmpp:carbons:2"],
+    );
 
     loop {
         // Drain outbox before blocking on the next event.
@@ -158,7 +165,7 @@ async fn run_session(
                     }
                     Some(ev) => {
 
-                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr).await;
+                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut disco_mgr).await;
                     }
                 }
             }
@@ -218,6 +225,7 @@ async fn handle_client_event(
     reconnect_attempt: &mut u32,
     sm: &mut StreamMgmt,
     blocking_mgr: &mut BlockingManager,
+    disco_mgr: &mut DiscoManager,
 ) {
     match ev {
         tokio_xmpp::Event::Online { bound_jid, .. } => {
@@ -230,8 +238,8 @@ async fn handle_client_event(
             // Enable message carbons (P1.5 / XEP-0280).
             outbox.push_back(make_carbons_enable());
 
-            // Announce presence.
-            outbox.push_back(make_presence());
+            // Announce presence (C5: with XEP-0115 caps element).
+            outbox.push_back(make_presence_with_caps(disco_mgr));
 
             // C4: fetch blocklist (XEP-0191)
             outbox.push_back(blocking_mgr.build_fetch_iq());
@@ -266,7 +274,7 @@ async fn handle_client_event(
             if let Some(ack) = sm.maybe_send_ack() {
                 outbox.push_back(ack);
             }
-            dispatch_stanza(el, event_tx, blocking_mgr, sm, outbox).await;
+            dispatch_stanza(el, event_tx, blocking_mgr, sm, outbox, disco_mgr).await;
         }
     }
 }
@@ -277,6 +285,7 @@ async fn dispatch_stanza(
     blocking_mgr: &mut BlockingManager,
     sm: &mut StreamMgmt,
     outbox: &mut VecDeque<Element>,
+    disco_mgr: &mut DiscoManager,
 ) {
     // XEP-0198: handle server <a h='...'> acks
     if el.name() == "a" && el.ns() == "urn:xmpp:sm:3" {
@@ -293,7 +302,7 @@ async fn dispatch_stanza(
         return;
     }
     match el.name() {
-        "iq" => handle_iq(el, event_tx, blocking_mgr).await,
+        "iq" => handle_iq(el, event_tx, blocking_mgr, disco_mgr).await,
         "message" => handle_message(el, event_tx, blocking_mgr).await,
         "presence" => handle_presence(el, event_tx).await,
         _ => {}
@@ -308,7 +317,12 @@ async fn handle_iq(
     el: Element,
     event_tx: &mpsc::Sender<XmppEvent>,
     blocking_mgr: &mut BlockingManager,
+    disco_mgr: &mut DiscoManager,
 ) {
+    // C5: parse disco#info results into cache
+    if disco_mgr.on_info_result(&el).is_some() {
+        return;
+    }
     // C4: blocklist result (initial fetch)
     if el.attr("type") == Some("result") {
         let has_blocklist = el
@@ -473,6 +487,17 @@ fn make_carbons_enable() -> Element {
         xmpp_parsers::carbons::Enable,
     )
     .into()
+}
+
+fn make_presence_with_caps(disco_mgr: &DiscoManager) -> Element {
+    let mut presence = Presence::new(PresenceType::None);
+    // Append XEP-0115 <c> caps element
+    let caps_el = disco_mgr.build_caps_element();
+    let el: Element = presence.into();
+    // Rebuild with caps appended
+    let mut raw = Element::builder("presence", "jabber:client").build();
+    raw.append_child(caps_el);
+    raw
 }
 
 fn make_presence() -> Element {
