@@ -47,6 +47,8 @@ pub struct ConversationView {
     scroll_offset: AbsoluteOffset,
     #[allow(dead_code)]
     own_jid: String,
+    /// J3: whether notifications are muted for this conversation
+    pub is_muted: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +60,7 @@ pub enum Message {
     CopyToClipboard(String), // G7: copy message body to clipboard
     Noop,                    // G7: no-op task return
     Close,                   // G1: close this conversation
+    ToggleMute,              // J3: toggle notification mute
 }
 
 impl ConversationView {
@@ -69,6 +72,7 @@ impl ConversationView {
             scroll_id: Id::new("conversation"),
             scroll_offset: AbsoluteOffset::default(),
             own_jid,
+            is_muted: false,
         }
     }
 
@@ -105,7 +109,8 @@ impl ConversationView {
             }
             Message::CopyToClipboard(text) => iced::clipboard::write::<Message>(text),
             Message::Noop => Task::none(),
-            Message::Close => Task::none(), // handled by ChatScreen
+            Message::Close => Task::none(),      // handled by ChatScreen
+            Message::ToggleMute => Task::none(), // handled by ChatScreen → App
         }
     }
 
@@ -278,13 +283,20 @@ impl ConversationView {
 
         // G1: close button in header
         let close_btn = button("✕").on_press(Message::Close).padding([4, 8]);
+        let mute_btn = if self.is_muted {
+            button("🔕").on_press(Message::ToggleMute).padding([4, 8])
+        } else {
+            button("🔔").on_press(Message::ToggleMute).padding([4, 8])
+        };
         let header = container(
             row![
                 text(format!("Chat with {}", self.peer_jid))
                     .size(14)
                     .width(Length::Fill),
+                mute_btn,
                 close_btn,
             ]
+            .spacing(4)
             .align_y(Alignment::Center),
         )
         .padding([8, 12])

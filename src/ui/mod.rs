@@ -160,6 +160,16 @@ impl App {
             }
 
             Message::Chat(msg) => {
+                // J3: intercept ToggleMute to persist muted_jids
+                if let chat::Message::ToggleMute(ref jid) = msg {
+                    let jid_str = jid.clone();
+                    if self.settings.muted_jids.contains(&jid_str) {
+                        self.settings.muted_jids.remove(&jid_str);
+                    } else {
+                        self.settings.muted_jids.insert(jid_str);
+                    }
+                    let _ = config::save(&self.settings);
+                }
                 if let Screen::Chat(ref mut chat) = self.screen {
                     let task = chat.update(msg).map(Message::Chat);
                     let cmds = chat.drain_commands();
@@ -250,10 +260,10 @@ impl App {
                         if let Screen::Chat(ref mut chat) = self.screen {
                             chat.on_message_received(msg.clone());
                         }
-                        // A5: desktop notification
-                        if self.settings.notifications_enabled {
-                            let from = msg.from.split('/').next().unwrap_or(&msg.from).to_string();
-                            let _ = crate::notifications::notify_message(&from, &msg.body);
+                        // A5: desktop notification (J3: skip muted JIDs)
+                        let bare_from = msg.from.split('/').next().unwrap_or(&msg.from).to_string();
+                        if self.settings.notifications_enabled && !self.settings.muted_jids.contains(&bare_from) {
+                            let _ = crate::notifications::notify_message(&bare_from, &msg.body);
                         }
                         // A2: persist message + conversation to DB
                         let pool = self.db.clone();

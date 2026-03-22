@@ -202,6 +202,7 @@ fn settings_json_round_trip() {
         notifications_enabled: true,
         last_jid: "test@example.com".into(),
         last_server: "xmpp.example.com".into(),
+        muted_jids: std::collections::HashSet::new(),
     };
 
     let json = serde_json::to_string(&original).unwrap();
