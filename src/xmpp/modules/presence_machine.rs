@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Task P1.4b — Presence state machine (auto-away / xa / DND)
 //
 // Ports presenceMachine.ts (XState, 6 states) to pure Rust.

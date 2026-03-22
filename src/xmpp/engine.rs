@@ -30,6 +30,7 @@ use super::{
     modules::blocking::BlockingManager,
     modules::mam::{MamFilter, MamManager, MamQuery, RsmQuery},
     modules::catchup::CatchupManager,
+    modules::presence_machine::PresenceMachine,
     IncomingMessage, RosterContact, XmppCommand, XmppEvent,
 };
 
@@ -138,6 +139,8 @@ async fn run_session(
     // C3: XEP-0313 MAM + catchup state
     let mut mam_mgr = MamManager::new();
     let mut catchup_mgr = CatchupManager::new();
+    // C2: XEP-0153/presence state machine
+    let mut presence_machine = PresenceMachine::new();
 
     loop {
         // Drain outbox before blocking on the next event.
@@ -169,7 +172,7 @@ async fn run_session(
                     }
                     Some(ev) => {
 
-                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut own_jid_str, &mut mam_mgr, &mut catchup_mgr).await;
+                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut own_jid_str, &mut mam_mgr, &mut catchup_mgr, &mut presence_machine).await;
                     }
                 }
             }
@@ -232,6 +235,7 @@ async fn handle_client_event(
     own_jid_str: &mut String,
     mam_mgr: &mut MamManager,
     catchup_mgr: &mut CatchupManager,
+    presence_machine: &mut PresenceMachine,
 ) {
     match ev {
         tokio_xmpp::Event::Online { bound_jid, .. } => {
@@ -245,8 +249,11 @@ async fn handle_client_event(
             // Enable message carbons (P1.5 / XEP-0280).
             outbox.push_back(make_carbons_enable());
 
-            // Announce presence.
-            outbox.push_back(make_presence());
+            // Announce presence (C2: via PresenceMachine).
+            presence_machine.on_connected();
+            if let Some(p) = presence_machine.build_presence_stanza() {
+                outbox.push_back(p);
+            }
 
             // C4: fetch blocklist (XEP-0191)
             outbox.push_back(blocking_mgr.build_fetch_iq());
@@ -270,6 +277,7 @@ async fn handle_client_event(
 
         tokio_xmpp::Event::Disconnected(err) => {
             *reconnect_attempt += 1;
+            presence_machine.on_disconnected();
             let unacked = sm.unacked_stanzas().len();
             tracing::warn!(
                 "engine: disconnected — {err} ({unacked} unacked stanzas, h={})",
