@@ -123,8 +123,23 @@ impl ChatScreen {
         }
     }
 
+    /// G6: Return the non-empty draft for a JID, or empty string.
+    pub fn draft_for(&self, jid: &str) -> &str {
+        self.conversations
+            .get(jid)
+            .map(|cv| cv.composer.as_str())
+            .unwrap_or("")
+    }
+
     pub fn view(&self) -> Element<'_, Message> {
-        let sidebar_view = self.sidebar.view().map(Message::Sidebar);
+        // G6: collect JIDs that have a non-empty draft
+        let drafts: Vec<String> = self
+            .conversations
+            .iter()
+            .filter(|(_, cv)| !cv.composer.trim().is_empty())
+            .map(|(jid, _)| jid.clone())
+            .collect();
+        let sidebar_view = self.sidebar.view_with_drafts(&drafts).map(Message::Sidebar);
 
         let main_area: Element<Message> = match &self.active_jid {
             None => container(text("Select a contact to start chatting").size(14))

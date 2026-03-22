@@ -28,7 +28,7 @@ pub struct DisplayMessage {
 pub struct ConversationView {
     pub peer_jid: String,
     messages: Vec<DisplayMessage>,
-    composer: String,
+    pub(crate) composer: String, // G6: pub(crate) so ChatScreen can read drafts
     scroll_id: Id,
     scroll_offset: AbsoluteOffset,
     #[allow(dead_code)]

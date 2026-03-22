@@ -61,6 +61,12 @@ impl SidebarScreen {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
+        self.view_with_drafts(&[])
+    }
+
+    /// G6: render sidebar with optional draft indicators.
+    /// `drafts` is a list of JIDs that currently have a non-empty draft.
+    pub fn view_with_drafts(&self, drafts: &[String]) -> Element<'_, Message> {
         let header = text("Contacts").size(16);
 
         let contact_rows: Vec<Element<Message>> = self
@@ -69,7 +75,14 @@ impl SidebarScreen {
             .map(|c| {
                 let available = self.presence.get(c.jid.as_str()).copied().unwrap_or(false);
                 let indicator = if available { "● " } else { "○ " };
-                let label = format!("{}{}", indicator, c.name.as_deref().unwrap_or(&c.jid));
+                let display_name = c.name.as_deref().unwrap_or(&c.jid);
+                // G6: append [draft] if this JID has a non-empty draft
+                let has_draft = drafts.iter().any(|d| d == &c.jid);
+                let label = if has_draft {
+                    format!("{}{} [draft]", indicator, display_name)
+                } else {
+                    format!("{}{}", indicator, display_name)
+                };
 
                 let btn = button(text(label)).width(Length::Fill).padding([6, 10]);
 
