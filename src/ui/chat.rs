@@ -35,6 +35,7 @@ pub enum Message {
     Conversation(String, super::conversation::Message),
     CloseConversation(String), // G1: close a conversation by JID
     PeerTyping(String, bool),  // G2: (jid, composing)
+    OpenSettings,              // F3: open settings panel
 }
 
 impl ChatScreen {
@@ -136,6 +137,7 @@ impl ChatScreen {
                 }
                 Task::none()
             }
+            Message::OpenSettings => Task::none(), // handled by App
 
             Message::PeerTyping(jid, composing) => {
                 if composing {
@@ -254,7 +256,14 @@ impl ChatScreen {
         };
 
         let own_label = text(format!("Signed in as {}", self.own_jid)).size(11);
-        let status_bar = container(own_label).padding([2, 8]).width(Length::Fill);
+        let settings_btn = iced::widget::button(text("Settings").size(11))
+            .on_press(Message::OpenSettings)
+            .padding([2, 8]);
+        let status_bar = container(
+            row![own_label, settings_btn].spacing(8).align_y(iced::Alignment::Center),
+        )
+        .padding([2, 8])
+        .width(Length::Fill);
 
         column![
             row![sidebar_view, main_area]
