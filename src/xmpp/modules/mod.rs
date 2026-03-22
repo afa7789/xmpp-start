@@ -4,6 +4,7 @@
 // Phase 1 (Core)
 // pub mod connection;    // Task P1.9 — connection state machine
 // pub mod roster;        // Task P1.4 — RFC 6121 roster + presence
+pub mod presence_machine; // Task P1.4b — auto-away/xa/DND state machine
 // pub mod chat;          // Task P1.5 — message send/receive + carbons
 pub mod stream_mgmt;   // Task P1.6 — XEP-0198 stream management
 // pub mod ping;          // Task P1.7 — XEP-0199 ping
