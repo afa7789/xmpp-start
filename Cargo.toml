@@ -54,6 +54,12 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 # Base64 (avatar data encode/decode)
 base64 = "0.22"
 
+# SHA-1 (XEP-0115 capability hash)
+sha1 = { version = "0.10", features = ["oid"] }
+
+# Desktop notifications
+notify-rust = { version = "4", default-features = false, features = ["d"] }
+
 # Utilities
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }

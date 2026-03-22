@@ -17,7 +17,7 @@ pub mod bookmarks;     // Task P3.4 — XEP-0048 bookmarks
 pub mod mam;           // Task P4.1 — XEP-0313 message archive management
 pub mod catchup;       // Task P4.3 — MAM catchup state machine
 pub mod sync;          // Task P4.4 — background sync orchestrator (MAM catchup)
-// pub mod conversation_sync; // Task P6.4 — XEP-0223 conversation sync
+pub mod conversation_sync; // Task P6.4 — XEP-0223 conversation sync
 
 // Phase 5 (Rich features)
 pub mod file_upload;        // Task P5.1 — XEP-0363 file upload
@@ -27,8 +27,9 @@ pub mod link_preview;       // Task P5.5 — OG / HTML meta-tag link preview par
 pub mod command_palette;    // Task P5.5 — command palette fuzzy search
 
 // Phase 6 (XEP parity)
-// pub mod caps;          // Task P6.1 — XEP-0115 entity capabilities
-// pub mod disco;         // Task P6.1 — XEP-0030 service discovery
+pub mod push_cleanup;  // Task P6.5 — XEP-0357 push-disable / WebPush VAPID unsubscribe
+pub mod disco;         // Task P6.1 — XEP-0115 entity capabilities + XEP-0030 service discovery
 // pub mod adhoc;         // Task P6.2 — XEP-0050 ad-hoc commands
 // pub mod blocking;      // Task P6.2 — XEP-0191 blocking
-// pub mod entity_time;   // Task P6.4 — XEP-0202 entity time
+pub mod entity_time;   // Task P6.4 — XEP-0202 entity time
+pub mod ignore;        // Task P6.4 — per-room ignored users via PubSub
