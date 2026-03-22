@@ -55,6 +55,9 @@ pub struct ConversationView {
     pub is_muted: bool,
     /// L1: number of messages seen when conversation was last opened
     last_seen_count: usize,
+    /// G9: search state
+    search_open: bool,
+    search_query: String,
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +75,8 @@ pub enum Message {
     ReplyTo(String, String), // G3: (msg_id, preview)
     CancelReply,             // G3: cancel current reply
     ToggleMute,              // J3: toggle notification mute
+    SearchToggled,           // G9: toggle search bar
+    SearchQueryChanged(String), // G9: search input changed
 }
 
 impl ConversationView {
@@ -87,6 +92,8 @@ impl ConversationView {
             reply_to: None,
             is_muted: false,
             last_seen_count: 0,
+            search_open: false,
+            search_query: String::new(),
         }
     }
 
@@ -153,6 +160,17 @@ impl ConversationView {
                 Task::none()
             }
             Message::ToggleMute => Task::none(),         // handled by ChatScreen → App
+            Message::SearchToggled => {
+                self.search_open = !self.search_open;
+                if !self.search_open {
+                    self.search_query.clear();
+                }
+                Task::none()
+            }
+            Message::SearchQueryChanged(q) => {
+                self.search_query = q;
+                Task::none()
+            }
         }
     }
 
@@ -163,9 +181,14 @@ impl ConversationView {
         let mut prev_sender: Option<String> = None;
         let mut prev_ts: Option<i64> = None;
 
+        let query_lower = self.search_query.to_lowercase();
         for (msg_idx, m) in self.messages.iter().enumerate() {
-            // L1: insert "New messages" separator before the first unseen message
-            if self.last_seen_count > 0 && msg_idx == self.last_seen_count {
+            // G9: skip non-matching messages when searching
+            if !query_lower.is_empty() && !m.body.to_lowercase().contains(&query_lower) {
+                continue;
+            }
+            // L1: insert "New messages" separator before the first unseen message (only when not searching)
+            if query_lower.is_empty() && self.last_seen_count > 0 && msg_idx == self.last_seen_count {
                 let sep = container(text("── New messages ──").size(11))
                     .width(Length::Fill)
                     .align_x(Alignment::Center)
@@ -372,20 +395,42 @@ impl ConversationView {
         } else {
             button("🔔").on_press(Message::ToggleMute).padding([4, 8])
         };
-        let header = container(
+        let search_btn = button("🔍").on_press(Message::SearchToggled).padding([4, 8]);
+        let match_count = if !self.search_query.is_empty() {
+            self.messages.iter().filter(|m| m.body.to_lowercase().contains(&self.search_query.to_lowercase())).count()
+        } else {
+            0
+        };
+        let header_content: Element<Message> = if self.search_open {
+            row![
+                text_input("Search…", &self.search_query)
+                    .on_input(Message::SearchQueryChanged)
+                    .padding(6)
+                    .width(Length::Fill),
+                text(format!("{} results", match_count)).size(11),
+                search_btn,
+                close_btn,
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center)
+            .into()
+        } else {
             row![
                 text(format!("Chat with {}", self.peer_jid))
                     .size(14)
                     .width(Length::Fill),
                 block_btn,
                 mute_btn,
+                search_btn,
                 close_btn,
             ]
             .spacing(4)
-            .align_y(Alignment::Center),
-        )
-        .padding([8, 12])
-        .width(Length::Fill);
+            .align_y(Alignment::Center)
+            .into()
+        };
+        let header = container(header_content)
+            .padding([8, 12])
+            .width(Length::Fill);
 
         let mut col = column![header, scroll_area, scroll_bar];
         if let Some(strip) = reply_strip {
