@@ -110,6 +110,29 @@ pub enum XmppEvent {
 
     // D4: bookmarks loaded from server (XEP-0048)
     BookmarksReceived(Vec<modules::bookmarks::Bookmark>),
+
+    // J6: XEP-0084 PubSub avatar received (modern path)
+    AvatarUpdated {
+        jid: String,
+        data: Vec<u8>,
+    },
+
+    // K4: XEP-0184 delivery receipt — recipient confirmed message received
+    MessageDelivered {
+        id: String,
+        from: String,
+    },
+
+    // K5: XEP-0333 read marker — recipient has displayed the message
+    MessageRead {
+        id: String,
+        from: String,
+    },
+
+    // J10: MAM archiving preferences received
+    MamPrefsReceived {
+        default_mode: String,
+    },
 }
 
 /// Commands sent from the UI to the XMPP engine.
@@ -154,4 +177,8 @@ pub enum XmppCommand {
     JoinRoom { jid: String, nick: String },
     /// D3: Leave a MUC room (XEP-0045).
     LeaveRoom(String),
+    /// K5: Send an XEP-0333 displayed marker to indicate a message was read.
+    SendDisplayed { to: String, id: String },
+    /// J10: Set MAM archiving preferences.
+    SetMamPrefs { default_mode: String },
 }

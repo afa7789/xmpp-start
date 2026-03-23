@@ -41,6 +41,8 @@ use super::{
 const NS_CARBONS: &str = "urn:xmpp:carbons:2";
 const NS_FORWARD: &str = "urn:xmpp:forward:0";
 const NS_MAM: &str = "urn:xmpp:mam:2";
+const NS_RECEIPTS: &str = "urn:xmpp:receipts";
+const NS_CHAT_MARKERS: &str = "urn:xmpp:chat-markers:0";
 
 // ---------------------------------------------------------------------------
 // Connection state machine  (P1.9)
@@ -306,6 +308,16 @@ async fn run_session(
                             tracing::info!("muc: leaving room {jid}");
                         }
                     }
+                    Some(XmppCommand::SendDisplayed { to, id }) => {
+                        // K5: XEP-0333 send displayed marker
+                        outbox.push_back(make_displayed_message(&to, &id));
+                        tracing::debug!("chat-markers: sent displayed for {id} to {to}");
+                    }
+                    Some(XmppCommand::SetMamPrefs { default_mode }) => {
+                        // J10: set MAM archiving preferences
+                        outbox.push_back(make_mam_prefs_set(&default_mode));
+                        tracing::debug!("mam: sent prefs-set default={default_mode}");
+                    }
                     Some(XmppCommand::RemoveContact(_))
                     | Some(XmppCommand::RenameContact { .. })
                     | Some(XmppCommand::FetchVCard(_))
@@ -389,6 +401,10 @@ async fn handle_client_event(
             // D4: fetch bookmarks from private XML storage (XEP-0048)
             outbox.push_back(make_bookmarks_get_iq());
             tracing::debug!("bookmarks: requested private XML storage");
+
+            // J10: fetch MAM archiving preferences
+            outbox.push_back(make_mam_prefs_get_iq());
+            tracing::debug!("mam: requested archiving preferences");
 
             let _ = event_tx
                 .send(XmppEvent::Connected {
@@ -551,10 +567,32 @@ async fn dispatch_stanza(
             }
             // XEP-0280: carbon <received> — message received on another device
             if let Some(inner) = extract_carbon(&el, "received") {
-                handle_message(inner, event_tx, blocking_mgr).await;
+                handle_message(inner, event_tx, blocking_mgr, outbox).await;
                 return;
             }
-            handle_message(el, event_tx, blocking_mgr).await;
+            // J6: XEP-0084 PEP avatar metadata notification
+            // <message><event xmlns="...pubsub#event"><items node="urn:xmpp:avatar:metadata:2">
+            {
+                let is_avatar_meta = el.children().any(|c| {
+                    c.name() == "event"
+                        && c.ns() == "http://jabber.org/protocol/pubsub#event"
+                        && c.children().any(|items| {
+                            items.name() == "items"
+                                && items.attr("node") == Some("urn:xmpp:avatar:metadata:2")
+                        })
+                });
+                if is_avatar_meta {
+                    let from_jid = el.attr("from").unwrap_or("").to_string();
+                    if let Some(info) = avatar_mgr.on_avatar_metadata_event(&from_jid, &el) {
+                        // Fetch the actual avatar data
+                        let fetch_iq = avatar_mgr.build_avatar_data_request(&info.jid, &info.sha1);
+                        outbox.push_back(fetch_iq);
+                        tracing::debug!("avatar: fetching XEP-0084 data for {from_jid}");
+                    }
+                    return;
+                }
+            }
+            handle_message(el, event_tx, blocking_mgr, outbox).await;
         }
         "presence" => {
             // D3: update MUC occupant lists from room presence stanzas
@@ -628,6 +666,31 @@ async fn handle_iq(
             .await;
         return;
     }
+    // J6: detect XEP-0084 avatar data result (PubSub items node='urn:xmpp:avatar:data')
+    if el.attr("type") == Some("result") {
+        let is_avatar_data = el.children().any(|c| {
+            c.name() == "pubsub"
+                && c.ns() == "http://jabber.org/protocol/pubsub"
+                && c.children().any(|items| {
+                    items.name() == "items"
+                        && items.attr("node") == Some("urn:xmpp:avatar:data")
+                })
+        });
+        if is_avatar_data {
+            let from_jid = el.attr("from").unwrap_or("").to_string();
+            if let Some(avatar_info) = avatar_mgr.on_avatar_data_result(&from_jid, &el) {
+                if !avatar_info.data.is_empty() {
+                    let _ = event_tx
+                        .send(XmppEvent::AvatarUpdated {
+                            jid: avatar_info.jid,
+                            data: avatar_info.data,
+                        })
+                        .await;
+                }
+            }
+            return;
+        }
+    }
     // H1: detect vCard result and extract PHOTO/BINVAL
     if let Some(avatar_info) = avatar_mgr.on_vcard_result(&el) {
         if !avatar_info.data.is_empty() {
@@ -659,6 +722,22 @@ async fn handle_iq(
         }
     }
 
+    // J10: detect MAM prefs result
+    if el.attr("type") == Some("result") {
+        let prefs_default = el.children().find_map(|c| {
+            if c.name() == "prefs" && c.ns() == NS_MAM {
+                c.attr("default").map(str::to_string)
+            } else {
+                None
+            }
+        });
+        if let Some(default_mode) = prefs_default {
+            let _ = event_tx
+                .send(XmppEvent::MamPrefsReceived { default_mode })
+                .await;
+            return;
+        }
+    }
     // D4: detect bookmarks result (private XML storage, XEP-0048)
     if el.attr("type") == Some("result") {
         let has_private = el
@@ -745,6 +824,7 @@ async fn handle_message(
     el: Element,
     event_tx: &mpsc::Sender<XmppEvent>,
     blocking_mgr: &BlockingManager,
+    outbox: &mut VecDeque<Element>,
 ) {
     // E3: detect XEP-0444 reaction stanza before consuming el
     if let Some(reactions_el) = el
@@ -771,6 +851,49 @@ async fn handle_message(
         }
         return;
     }
+
+    // K4: XEP-0184 delivery receipt — <received xmlns='urn:xmpp:receipts' id='...'/>
+    if let Some(received_el) = el
+        .children()
+        .find(|c| c.name() == "received" && c.ns() == NS_RECEIPTS)
+    {
+        if let Some(receipt_id) = received_el.attr("id") {
+            let from = el.attr("from").unwrap_or("").to_string();
+            let bare_from = from.split('/').next().unwrap_or(&from).to_string();
+            let _ = event_tx
+                .send(XmppEvent::MessageDelivered {
+                    id: receipt_id.to_string(),
+                    from: bare_from,
+                })
+                .await;
+        }
+        return;
+    }
+
+    // K5: XEP-0333 displayed marker — <displayed xmlns='urn:xmpp:chat-markers:0' id='...'/>
+    if let Some(displayed_el) = el
+        .children()
+        .find(|c| c.name() == "displayed" && c.ns() == NS_CHAT_MARKERS)
+    {
+        if let Some(marker_id) = displayed_el.attr("id") {
+            let from = el.attr("from").unwrap_or("").to_string();
+            let bare_from = from.split('/').next().unwrap_or(&from).to_string();
+            let _ = event_tx
+                .send(XmppEvent::MessageRead {
+                    id: marker_id.to_string(),
+                    from: bare_from,
+                })
+                .await;
+        }
+        return;
+    }
+
+    // K4: if sender is requesting a receipt, remember message id for auto-reply below
+    let receipt_request = el
+        .children()
+        .any(|c| c.name() == "request" && c.ns() == NS_RECEIPTS);
+    let msg_from = el.attr("from").map(str::to_string);
+    let msg_id_raw = el.attr("id").map(str::to_string);
 
     // G2: detect XEP-0085 chat state notifications from the raw element
     // before consuming el into XmppMessage (which may drop unknown children)
@@ -823,6 +946,21 @@ async fn handle_message(
     }
 
     let id = msg.id.unwrap_or_default();
+
+    // K4: auto-reply with <received> if sender requested a delivery receipt
+    if receipt_request {
+        if let (Some(reply_to), Some(orig_id)) = (msg_from, msg_id_raw) {
+            let receipt = Element::builder("message", "jabber:client")
+                .attr("to", reply_to)
+                .append(
+                    Element::builder("received", NS_RECEIPTS)
+                        .attr("id", orig_id)
+                        .build(),
+                )
+                .build();
+            outbox.push_back(receipt);
+        }
+    }
 
     let _ = event_tx
         .send(XmppEvent::MessageReceived(IncomingMessage {
@@ -906,7 +1044,10 @@ fn make_message(to: Jid, body: &str) -> Element {
     msg.type_ = MessageType::Chat;
     msg.id = Some(uuid::Uuid::new_v4().to_string());
     msg.bodies.insert(String::new(), Body(body.to_owned()));
-    msg.into()
+    let mut el: Element = msg.into();
+    // K4: request a delivery receipt (XEP-0184)
+    el.append_child(Element::builder("request", NS_RECEIPTS).build());
+    el
 }
 
 /// G2: Build a XEP-0085 chat state stanza.
@@ -985,6 +1126,40 @@ fn make_bookmarks_get_iq() -> Element {
         .attr("type", "get")
         .attr("id", "bookmarks-get")
         .append(query)
+        .build()
+}
+
+/// K5: Build an XEP-0333 <displayed> chat marker message.
+fn make_displayed_message(to: &str, id: &str) -> Element {
+    Element::builder("message", "jabber:client")
+        .attr("to", to)
+        .append(
+            Element::builder("displayed", NS_CHAT_MARKERS)
+                .attr("id", id)
+                .build(),
+        )
+        .build()
+}
+
+/// J10: Build a MAM prefs get IQ (XEP-0313).
+fn make_mam_prefs_get_iq() -> Element {
+    Element::builder("iq", "jabber:client")
+        .attr("type", "get")
+        .attr("id", uuid::Uuid::new_v4().to_string())
+        .append(Element::builder("prefs", NS_MAM).build())
+        .build()
+}
+
+/// J10: Build a MAM prefs set IQ with the given default archiving mode.
+fn make_mam_prefs_set(default_mode: &str) -> Element {
+    Element::builder("iq", "jabber:client")
+        .attr("type", "set")
+        .attr("id", uuid::Uuid::new_v4().to_string())
+        .append(
+            Element::builder("prefs", NS_MAM)
+                .attr("default", default_mode)
+                .build(),
+        )
         .build()
 }
 
