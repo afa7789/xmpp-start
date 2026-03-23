@@ -229,7 +229,11 @@ impl SidebarScreen {
     /// G6: render sidebar with optional draft indicators.
     /// `drafts` is a list of JIDs that currently have a non-empty draft.
     /// `default_conference_service` is pre-filled in the create-room form.
-    pub fn view_with_drafts(&self, drafts: &[String], default_conference_service: &str) -> Element<'_, Message> {
+    pub fn view_with_drafts(
+        &self,
+        drafts: &[String],
+        default_conference_service: &str,
+    ) -> Element<'_, Message> {
         let add_btn = button("+")
             .on_press(Message::ToggleAddContact)
             .padding([2, 6]);

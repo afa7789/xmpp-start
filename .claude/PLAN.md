@@ -4067,4 +4067,286 @@ No new files needed. No engine changes needed.
 
 ---
 
+## J9: Account Registration Wizard (XEP-0077)
+
+**Status**: Pending
+**Complexity**: Medium (~2–3 days)
+**XEP**: https://xmpp.org/extensions/xep-0077.html
+
+### Overview
+
+Adds a multi-step "Create account" wizard reachable from the login screen.
+The wizard connects to the server unauthenticated, fetches the registration
+form via `jabber:iq:register`, fills in username+password (plus any extra
+fields the server requires), submits, and on success transitions the user
+straight into the normal login flow.
+
+---
+
+### Key Constraint: tokio-xmpp 4 Has No Pre-Auth Client
+
+`tokio-xmpp 4.0.0`'s `client_login()` (in `src/client/connect.rs`) calls
+`auth()` and `bind()` immediately after `ServerConnector::connect()` returns.
+There is no built-in way to stop at the post-TLS, pre-SASL point using
+`AsyncClient`.
+
+However, `ServerConfig::connect()` (in `src/starttls/mod.rs`) returns a raw
+`XMPPStream<TlsStream<TcpStream>>` before auth. The registration session can
+be driven directly against that stream using `tokio_xmpp::minidom::Element`
+send/receive — no `AsyncClient` needed.
+
+The registration flow is therefore: open a raw `XMPPStream`, exchange IQ
+stanzas manually, close the stream, then let the normal `AsyncClient`-based
+login proceed.
+
+---
+
+### Architecture
+
+#### New file: `src/xmpp/modules/registration.rs`
+
+Pure state machine (no I/O, no async) — mirrors the pattern of `account.rs`,
+`push.rs`, etc.
+
+```
+pub struct RegistrationManager {
+    pending_get_id: Option<String>,   // IQ id for the "get" request
+    pending_set_id: Option<String>,   // IQ id for the "set" submission
+}
+
+impl RegistrationManager {
+    pub fn build_get_iq(&mut self) -> Element           // <iq type="get"> jabber:iq:register
+    pub fn build_set_iq(&mut self, username: &str, password: &str, extra: &HashMap<String,String>) -> Element
+    pub fn parse_form_fields(el: &Element) -> Vec<String>   // field names from <query> result
+    pub fn on_result(&mut self, el: &Element) -> RegistrationIqResult
+}
+
+pub enum RegistrationIqResult {
+    FormFields(Vec<String>),    // server returned the empty form
+    Success,                    // set IQ returned type="result"
+    Conflict,                   // <error type="cancel"><conflict/></error>
+    NotAllowed,                 // <error><not-allowed/></error>
+    Other(String),              // other error text
+    Unrelated,                  // IQ id doesn't match
+}
+```
+
+Note: `build_get_iq` MUST use `<iq type="get">` with no `to` attribute (the
+IQ is directed to the server, not a JID). The `<query xmlns="jabber:iq:register"/>`
+child is the only content.
+
+#### New async function: `run_registration_session` (in `src/xmpp/engine.rs` or a new `src/xmpp/registration_engine.rs`)
+
+This is the only async/I/O code for J9. It is called when the engine receives
+`XmppCommand::FetchRegistrationForm` or `XmppCommand::SubmitRegistration`
+while in the `Idle` state.
+
+```
+async fn run_registration_session(
+    server: String,          // domain, e.g. "example.com"
+    event_tx: &mpsc::Sender<XmppEvent>,
+    cmd_rx: &mut mpsc::Receiver<XmppCommand>,
+)
+```
+
+Flow:
+1. Synthesise a bare JID `"register@{server}"` (only the domain matters for
+   `ServerConfig::connect()`; node can be any placeholder).
+2. Call `ServerConfig` (Manual or UseSrv) `.connect(&jid, jabber:client ns)`.
+   This opens TCP, does STARTTLS, and exchanges stream headers — returning
+   `XMPPStream<TlsStream<TcpStream>>` before SASL.
+3. Send `build_get_iq()` over the raw stream.
+4. Read the next element from the stream (loop until we get an `<iq>`).
+5. Call `RegistrationManager::on_result()` → `FormFields(fields)`.
+6. Emit `XmppEvent::RegistrationFormReceived { fields }`.
+7. Wait for `XmppCommand::SubmitRegistration { username, password, extra_fields }`.
+8. Send `build_set_iq(...)` over the stream.
+9. Read the response. Emit `XmppEvent::RegistrationSuccess` or
+   `XmppEvent::RegistrationFailed { reason }`.
+10. Close the stream (`send_end()` or drop).
+11. Return. The engine goes back to `Idle`; the UI can now send `XmppCommand::Connect`.
+
+The `run_engine` loop needs a new idle-state branch:
+```rust
+Some(XmppCommand::FetchRegistrationForm { server }) => {
+    run_registration_session(server, &event_tx, &mut cmd_rx).await;
+}
+```
+
+#### `src/xmpp/mod.rs` — new variants
+
+```rust
+// Commands
+XmppCommand::FetchRegistrationForm { server: String }
+XmppCommand::SubmitRegistration {
+    server: String,
+    username: String,
+    password: String,
+    extra_fields: Vec<(String, String)>,   // (field_name, value)
+}
+
+// Events
+XmppEvent::RegistrationFormReceived { fields: Vec<String> }
+XmppEvent::RegistrationSuccess
+XmppEvent::RegistrationFailed { reason: String }
+```
+
+`extra_fields` covers the uncommon case where a server asks for `email`,
+`name`, etc. For the initial implementation, the wizard only fills
+`username` + `password`, and `extra_fields` is empty — but the type must
+carry the door open.
+
+#### `src/xmpp/modules/mod.rs`
+
+Add `pub mod registration;` under Phase 6.
+
+---
+
+### UI: `src/ui/register.rs` (new file)
+
+Follows the exact same pattern as `src/ui/login.rs`. A self-contained screen
+with its own `Message` enum and `view()` / `update()`.
+
+#### State machine
+
+```
+pub enum RegisterStep {
+    Server,          // Step 1: user types the server domain
+    FetchingForm,    // waiting for RegistrationFormReceived
+    FillForm {       // Step 2: username + password (+ extras)
+        fields: Vec<String>,
+        username: String,
+        password: String,
+        extra_values: HashMap<String, String>,
+    },
+    Submitting,      // waiting for RegistrationSuccess / RegistrationFailed
+    Success,         // Step 3: "Account created! Logging in…"
+    Failed(String),  // Step 3b: error + retry button
+}
+```
+
+#### Message enum
+
+```rust
+pub enum Message {
+    ServerChanged(String),
+    FetchForm,                         // "Next" pressed on step 1
+    UsernameChanged(String),
+    PasswordChanged(String),
+    ExtraFieldChanged(String, String), // (field_name, value)
+    Submit,                            // "Register" pressed on step 2
+    Retry,                             // "Try again" on Failed step
+    BackToLogin,                       // "Already have an account?" link
+    // Driven by App::update from XmppEvent:
+    FormReceived(Vec<String>),
+    RegistrationDone,
+    RegistrationError(String),
+}
+```
+
+#### View structure (ASCII wireframe)
+
+```
+Step 1 — Server
+┌────────────────────────────────┐
+│      Create a new account      │
+│                                │
+│  Server  [___________________] │
+│                                │
+│          [     Next     ]      │
+│                                │
+│  Already have an account?      │
+│  → Sign in                     │
+└────────────────────────────────┘
+
+Step 2 — Fill form (post-fetch)
+┌────────────────────────────────┐
+│      Create a new account      │
+│      on example.com            │
+│                                │
+│  Username [___________________]│
+│  Password [___________________]│
+│  (extra fields if any)         │
+│                                │
+│  [   Register   ]              │
+└────────────────────────────────┘
+
+Step 3a — Success
+┌────────────────────────────────┐
+│  Account created!              │
+│  Logging in as alice@example…  │
+└────────────────────────────────┘
+
+Step 3b — Failed
+┌────────────────────────────────┐
+│  Registration failed:          │
+│  Username already taken.       │
+│                                │
+│  [   Try again   ]             │
+└────────────────────────────────┘
+```
+
+---
+
+### Wiring into `App` (`src/ui/mod.rs`)
+
+1. Add a `Register(RegisterScreen)` variant to `AppScreen` (or equivalent).
+2. In `App::update`, when `LoginScreen` emits `Message::GoToRegister`:
+   - Transition `AppScreen` to `Register(RegisterScreen::new())`.
+3. Map `XmppEvent::RegistrationFormReceived { fields }` →
+   `RegisterScreen::Message::FormReceived(fields)`.
+4. Map `XmppEvent::RegistrationSuccess` → `RegisterScreen::Message::RegistrationDone`.
+5. Map `XmppEvent::RegistrationFailed { reason }` → `RegisterScreen::Message::RegistrationError(reason)`.
+6. On `RegistrationDone`, auto-populate the `LoginScreen` with
+   `username@server` + password, then transition back to login screen and
+   trigger `XmppCommand::Connect` automatically.
+7. On `RegisterScreen::Message::BackToLogin`, transition back to `Login` screen.
+
+#### New `LoginScreen::Message` variant
+
+```rust
+Message::GoToRegister
+```
+
+The login screen needs a "Create account" link/button that emits
+`GoToRegister`. The `App::update` intercepts it and transitions the view.
+
+---
+
+### Files to touch
+
+| File | Change |
+|------|--------|
+| `src/xmpp/mod.rs` | Add 2 commands + 3 events |
+| `src/xmpp/modules/mod.rs` | Add `pub mod registration;` |
+| `src/xmpp/modules/registration.rs` | **New** — pure state machine |
+| `src/xmpp/engine.rs` | Add `FetchRegistrationForm` arm in `run_engine` idle loop; add `run_registration_session` function |
+| `src/ui/register.rs` | **New** — multi-step wizard screen |
+| `src/ui/login.rs` | Add `GoToRegister` message + "Create account" button |
+| `src/ui/mod.rs` | Add `AppScreen::Register` variant; wire events; add transitions |
+
+No changes to `src/config/mod.rs` — registration doesn't persist state beyond
+the session. On success the normal `save()` / `save_password()` path via the
+login screen handles persistence.
+
+---
+
+### Implementation checklist
+
+- [ ] Add `XmppCommand::FetchRegistrationForm` and `XmppCommand::SubmitRegistration` to `src/xmpp/mod.rs`
+- [ ] Add `XmppEvent::RegistrationFormReceived`, `RegistrationSuccess`, `RegistrationFailed` to `src/xmpp/mod.rs`
+- [ ] Create `src/xmpp/modules/registration.rs` with `RegistrationManager` and tests
+- [ ] Add `pub mod registration;` to `src/xmpp/modules/mod.rs`
+- [ ] Add `run_registration_session()` async function to `src/xmpp/engine.rs`
+- [ ] Add `FetchRegistrationForm` branch to `run_engine` idle loop
+- [ ] Create `src/ui/register.rs` with `RegisterScreen`, `RegisterStep`, `Message`
+- [ ] Add `Message::GoToRegister` to `src/ui/login.rs` + "Create account" button in `view()`
+- [ ] Add `AppScreen::Register(RegisterScreen)` to `src/ui/mod.rs`
+- [ ] Wire `XmppEvent::Registration*` events to `RegisterScreen` messages in `App::update`
+- [ ] On `RegistrationDone`: auto-fill login screen + trigger connect
+- [ ] `cargo test --lib` — all tests pass
+- [ ] `cargo clippy --all-targets` — no errors
+
+---
+
 *Last updated: 2026-03-23*

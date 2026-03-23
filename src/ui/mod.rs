@@ -886,7 +886,11 @@ impl App {
                         }
                     }
                     // K3: incoming room invitation received
-                    XmppEvent::RoomInvitationReceived { room_jid, from_jid, reason } => {
+                    XmppEvent::RoomInvitationReceived {
+                        room_jid,
+                        from_jid,
+                        reason,
+                    } => {
                         if let Screen::Chat(ref mut chat) = self.screen {
                             let _ = chat.update(chat::Message::RoomInvitationReceived {
                                 room_jid: room_jid.clone(),
@@ -896,6 +900,13 @@ impl App {
                         }
                         let body = format!("{} invited you to {}", from_jid, room_jid);
                         return self.update(Message::ShowToast(body, ToastKind::Info));
+                    }
+                    // K2: room list received from MUC service
+                    XmppEvent::RoomListReceived(rooms) => {
+                        tracing::info!("k2: {} public rooms received", rooms.len());
+                        if let Screen::Chat(ref mut chat) = self.screen {
+                            let _ = chat.update(chat::Message::RoomListReceived(rooms));
+                        }
                     }
                     XmppEvent::BookmarksReceived(bookmarks) => {
                         tracing::info!("D4: {} bookmark(s) received", bookmarks.len());
@@ -920,6 +931,16 @@ impl App {
                                     }
                                 });
                             }
+                        }
+                    }
+                    // L3: XEP-0425 — message was moderated in a MUC room
+                    XmppEvent::MessageModerated {
+                        ref room_jid,
+                        ref message_id,
+                    } => {
+                        tracing::info!("muc: message {} moderated in {}", message_id, room_jid);
+                        if let Screen::Chat(ref mut chat) = self.screen {
+                            chat.on_message_moderated(room_jid, message_id);
                         }
                     }
                 }

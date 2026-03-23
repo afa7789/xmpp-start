@@ -244,6 +244,7 @@ pub enum Message {
     StartEdit(String, String),    // E1: (msg_id, current_body) — populate composer for edit
     CancelEdit,                   // E1: cancel edit mode
     RetractMessage(String),       // E2: (msg_id) — retract own message
+    ModerateMessage(String, Option<String>), // L3: (msg_id, reason) — moderator retract any message
     RequestOlderHistory,          // G8: emitted on scroll to top to request older MAM history
     AttachmentLoaded(String, iced_image::Handle), // I4: (msg_id, image_handle)
     // E4/I3: file upload
@@ -474,6 +475,7 @@ impl ConversationView {
                 Task::none()
             }
             Message::RetractMessage(_) => Task::none(), // bubbled to ChatScreen
+            Message::ModerateMessage(_, _) => Task::none(), // L3: bubbled to ChatScreen
             Message::RequestOlderHistory => Task::none(), // bubbled to ChatScreen
             Message::AttachmentLoaded(msg_id, handle) => {
                 self.attachments.insert(msg_id, handle);
@@ -656,9 +658,7 @@ impl ConversationView {
                                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                                     let samples: Vec<i16> = data
                                         .iter()
-                                        .map(|&s| {
-                                            (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
-                                        })
+                                        .map(|&s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
                                         .collect();
                                     let _ = tx2.send(samples);
                                 },
@@ -671,10 +671,8 @@ impl ConversationView {
                             device.build_input_stream(
                                 &config.into(),
                                 move |data: &[u16], _: &cpal::InputCallbackInfo| {
-                                    let samples: Vec<i16> = data
-                                        .iter()
-                                        .map(|&s| (s as i32 - 32768) as i16)
-                                        .collect();
+                                    let samples: Vec<i16> =
+                                        data.iter().map(|&s| (s as i32 - 32768) as i16).collect();
                                     let _ = tx3.send(samples);
                                 },
                                 err_fn,
@@ -975,6 +973,23 @@ impl ConversationView {
                 "Retract message",
                 tooltip::Position::Top,
             );
+            // L3: moderate button — shown on hover, non-own messages, moderator only
+            let is_moderator = occupants
+                .iter()
+                .any(|o| o.nick == own_nick && o.role == "Moderator");
+            let moderate_btn: Option<iced::widget::Tooltip<Message>> =
+                if is_hovered && is_moderator && !m.own && !m.retracted {
+                    let mod_msg_id = m.id.clone();
+                    Some(tooltip(
+                        button(text("\u{1F6E1}").size(10))
+                            .on_press(Message::ModerateMessage(mod_msg_id, None))
+                            .padding([2, 4]),
+                        "Moderate (remove) message",
+                        tooltip::Position::Top,
+                    ))
+                } else {
+                    None
+                };
 
             let align = if m.own {
                 Alignment::End
@@ -1012,15 +1027,13 @@ impl ConversationView {
                 };
 
                 let text_col = if show_sender {
-                    let mut col = column![row![
-                        text(sender.clone()).size(11),
-                        copy_btn,
-                        reply_btn,
-                    ]
-                    .spacing(8)
-                    .align_y(Alignment::Center),]
-                    .spacing(2)
-                    .padding([0, 6]);
+                    let mut header_row = row![text(sender.clone()).size(11), copy_btn, reply_btn,]
+                        .spacing(8)
+                        .align_y(Alignment::Center);
+                    if let Some(btn) = moderate_btn {
+                        header_row = header_row.push(btn);
+                    }
+                    let mut col = column![header_row].spacing(2).padding([0, 6]);
                     if let Some(preview) = m.reply_preview.as_ref() {
                         col = col.push(
                             container(text(format!("↩ {}", preview)).size(11)).padding([2, 6]),
@@ -1091,8 +1104,7 @@ impl ConversationView {
             };
 
             // L2: wrap in amber highlight if own_nick is @-mentioned in this message
-            let is_mentioned = !own_nick.is_empty()
-                && m.body.contains(&format!("@{}", own_nick));
+            let is_mentioned = !own_nick.is_empty() && m.body.contains(&format!("@{}", own_nick));
             let row_elem: Element<Message> = if is_mentioned {
                 container(row_elem)
                     .width(Length::Fill)
@@ -1276,44 +1288,44 @@ impl ConversationView {
         };
 
         // L2: @mention autocomplete panel — shown above composer when mention_prefix is Some
-        let mention_panel: Option<Element<Message>> =
-            if let Some(ref prefix) = self.mention_prefix {
-                let prefix_lower = prefix.to_lowercase();
-                let matches: Vec<String> = occupants
-                    .iter()
-                    .filter(|o| o.available && o.nick.to_lowercase().starts_with(&prefix_lower))
-                    .map(|o| o.nick.clone())
-                    .collect();
-                if matches.is_empty() {
-                    None
-                } else {
-                    let mut panel_col: iced::widget::Column<Message> =
-                        column![].spacing(2).padding([4, 8]);
-                    // Dismiss button at the top
-                    panel_col = panel_col.push(
-                        button(text("✕ Dismiss").size(10))
-                            .on_press(Message::MentionDismissed)
-                            .padding([2, 6]),
-                    );
-                    for nick in matches {
-                        let nick_clone = nick.clone();
-                        panel_col = panel_col.push(
-                            button(text(format!("@{}", nick)).size(13))
-                                .on_press(Message::MentionSelected(nick_clone))
-                                .padding([4, 8])
-                                .width(Length::Fill),
-                        );
-                    }
-                    Some(
-                        container(panel_col)
-                            .width(Length::Fill)
-                            .padding([2, 0])
-                            .into(),
-                    )
-                }
-            } else {
+        let mention_panel: Option<Element<Message>> = if let Some(ref prefix) = self.mention_prefix
+        {
+            let prefix_lower = prefix.to_lowercase();
+            let matches: Vec<String> = occupants
+                .iter()
+                .filter(|o| o.available && o.nick.to_lowercase().starts_with(&prefix_lower))
+                .map(|o| o.nick.clone())
+                .collect();
+            if matches.is_empty() {
                 None
-            };
+            } else {
+                let mut panel_col: iced::widget::Column<Message> =
+                    column![].spacing(2).padding([4, 8]);
+                // Dismiss button at the top
+                panel_col = panel_col.push(
+                    button(text("✕ Dismiss").size(10))
+                        .on_press(Message::MentionDismissed)
+                        .padding([2, 6]),
+                );
+                for nick in matches {
+                    let nick_clone = nick.clone();
+                    panel_col = panel_col.push(
+                        button(text(format!("@{}", nick)).size(13))
+                            .on_press(Message::MentionSelected(nick_clone))
+                            .padding([4, 8])
+                            .width(Length::Fill),
+                    );
+                }
+                Some(
+                    container(panel_col)
+                        .width(Length::Fill)
+                        .padding([2, 0])
+                        .into(),
+                )
+            }
+        } else {
+            None
+        };
 
         let emoji_btn = button(text("😊").size(14))
             .on_press(Message::EmojiPickerToggled)

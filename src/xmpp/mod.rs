@@ -144,12 +144,20 @@ pub enum XmppEvent {
     RoomConfigured {
         room_jid: String,
     },
+    // L3: A message in a MUC room was moderated (tombstoned by a moderator).
+    MessageModerated {
+        room_jid: String,
+        message_id: String,
+    },
+
     // K3: Incoming room invitation (XEP-0249 direct or XEP-0045 mediated)
     RoomInvitationReceived {
         room_jid: String,
         from_jid: String,
         reason: Option<String>,
     },
+    // K2: Room list received from MUC service (disco#items result)
+    RoomListReceived(Vec<modules::disco::DiscoItem>),
 }
 
 /// Commands sent from the UI to the XMPP engine.
@@ -180,6 +188,13 @@ pub enum XmppCommand {
     },
     /// H1: Fetch avatar for a JID (vCard-temp fallback).
     FetchAvatar(String),
+    /// H2: Publish own avatar via PubSub (XEP-0084).
+    SetAvatar {
+        /// Raw image bytes.
+        data: Vec<u8>,
+        /// MIME type (e.g., "image/png").
+        mime_type: String,
+    },
     /// Block one or more JIDs (XEP-0191).
     BlockJid(String),
     /// Unblock a previously blocked JID (XEP-0191).
@@ -225,6 +240,8 @@ pub enum XmppCommand {
         user: String,
         reason: Option<String>,
     },
+    /// K2: Browse public rooms — send disco#items to MUC service.
+    FetchRoomList,
     /// K7: Enable push notifications (XEP-0357).
     EnablePush {
         /// The push service JID (e.g., "push.example.com").
@@ -252,5 +269,11 @@ pub enum XmppCommand {
     ConfigureRoom {
         room_jid: String,
         config: crate::xmpp::modules::muc_config::MucRoomConfig,
+    },
+    /// L3: Send a moderation action (XEP-0425) in a MUC room.
+    ModerateMessage {
+        room_jid: String,
+        message_id: String,
+        reason: Option<String>,
     },
 }

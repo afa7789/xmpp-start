@@ -56,6 +56,8 @@ pub struct ChatScreen {
     pending_invitations: Vec<PendingInvitation>,
     /// K3: invite dialog state: (room_jid, draft invitee JID, draft reason)
     pending_invite_dialog: Option<(String, String, String)>,
+    /// K2: public rooms list received from MUC service (for browse dialog)
+    public_rooms: Vec<crate::xmpp::modules::disco::DiscoItem>,
 }
 
 #[derive(Debug, Clone)]
@@ -83,16 +85,18 @@ pub enum Message {
         from_jid: String,
         reason: Option<String>,
     },
-    AcceptInvitation(String),   // room_jid
-    DeclineInvitation(String),  // room_jid
+    AcceptInvitation(String),  // room_jid
+    DeclineInvitation(String), // room_jid
     // K3: outgoing invite dialog
-    OpenInviteDialog(String),   // room_jid we want to invite someone into
+    OpenInviteDialog(String), // room_jid we want to invite someone into
     InviteJidChanged(String),
     InviteReasonChanged(String),
     SubmitInvite,
     DismissInviteDialog,
     // M4: periodic tick forwarded to the active conversation's voice state machine
     VoiceTick,
+    // K2: public room list received from MUC service
+    RoomListReceived(Vec<crate::xmpp::modules::disco::DiscoItem>),
 }
 
 impl ChatScreen {
@@ -113,6 +117,7 @@ impl ChatScreen {
             muc_own_nicks: HashMap::new(),
             pending_invitations: Vec::new(),
             pending_invite_dialog: None,
+            public_rooms: Vec::new(),
         }
     }
 
@@ -318,6 +323,13 @@ impl ChatScreen {
         }
     }
 
+    /// L3: XEP-0425 — apply local tombstone when a message is moderated in a MUC.
+    pub fn on_message_moderated(&mut self, room_jid: &str, msg_id: &str) {
+        if let Some(convo) = self.conversations.get_mut(room_jid) {
+            convo.apply_retraction(msg_id);
+        }
+    }
+
     /// Drain pending outgoing engine commands; called by App::update.
     pub fn drain_commands(&mut self) -> Vec<XmppCommand> {
         std::mem::take(&mut self.pending_commands)
@@ -389,16 +401,20 @@ impl ChatScreen {
                     let local = self.sidebar.create_room_local().to_owned();
                     let service = self.sidebar.create_room_service().to_owned();
                     let nick = self.sidebar.create_room_nick().to_owned();
-                    if !local.trim().is_empty() && !service.trim().is_empty() && !nick.trim().is_empty() {
+                    if !local.trim().is_empty()
+                        && !service.trim().is_empty()
+                        && !nick.trim().is_empty()
+                    {
                         let room_jid = format!("{}@{}", local, service);
                         self.on_join_room(&room_jid);
                         // L2: record own nick for this room
                         self.muc_own_nicks.insert(room_jid.clone(), nick.clone());
-                        self.pending_commands.push(crate::xmpp::XmppCommand::CreateRoom {
-                            local,
-                            service,
-                            nick,
-                        });
+                        self.pending_commands
+                            .push(crate::xmpp::XmppCommand::CreateRoom {
+                                local,
+                                service,
+                                nick,
+                            });
                     }
                     let _ = self.sidebar.update(smsg);
                     return Task::none();
@@ -532,10 +548,18 @@ impl ChatScreen {
             }
 
             // K3: incoming invitation received from engine event
-            Message::RoomInvitationReceived { room_jid, from_jid, reason } => {
+            Message::RoomInvitationReceived {
+                room_jid,
+                from_jid,
+                reason,
+            } => {
                 // De-duplicate by room_jid
                 self.pending_invitations.retain(|i| i.room_jid != room_jid);
-                self.pending_invitations.push(PendingInvitation { room_jid, from_jid, reason });
+                self.pending_invitations.push(PendingInvitation {
+                    room_jid,
+                    from_jid,
+                    reason,
+                });
                 Task::none()
             }
 
@@ -545,7 +569,10 @@ impl ChatScreen {
                 let nick = self.own_jid.split('@').next().unwrap_or("me").to_string();
                 self.on_join_room(&room_jid);
                 self.muc_own_nicks.insert(room_jid.clone(), nick.clone());
-                self.pending_commands.push(XmppCommand::JoinRoom { jid: room_jid, nick });
+                self.pending_commands.push(XmppCommand::JoinRoom {
+                    jid: room_jid,
+                    nick,
+                });
                 Task::none()
             }
 
@@ -596,6 +623,12 @@ impl ChatScreen {
 
             Message::DismissInviteDialog => {
                 self.pending_invite_dialog = None;
+                Task::none()
+            }
+
+            // K2: room list received from MUC service — store for browse dialog
+            Message::RoomListReceived(rooms) => {
+                self.public_rooms = rooms;
                 Task::none()
             }
 
@@ -664,6 +697,23 @@ impl ChatScreen {
                         .push(crate::xmpp::XmppCommand::SendRetraction {
                             to: jid.clone(),
                             origin_id: mid,
+                        });
+                    return Task::none();
+                }
+
+                // L3: intercept ModerateMessage — apply local tombstone + send moderation stanza
+                if let super::conversation::Message::ModerateMessage(ref msg_id, ref reason) = cmsg
+                {
+                    let mid = msg_id.clone();
+                    let rsn = reason.clone();
+                    if let Some(convo) = self.conversations.get_mut(&jid) {
+                        convo.apply_retraction(&mid);
+                    }
+                    self.pending_commands
+                        .push(crate::xmpp::XmppCommand::ModerateMessage {
+                            room_jid: jid.clone(),
+                            message_id: mid,
+                            reason: rsn,
                         });
                     return Task::none();
                 }
@@ -861,7 +911,10 @@ impl ChatScreen {
             .nth(1)
             .map(|domain| format!("conference.{}", domain))
             .unwrap_or_default();
-        let sidebar_view = self.sidebar.view_with_drafts(&drafts, &conference_service).map(Message::Sidebar);
+        let sidebar_view = self
+            .sidebar
+            .view_with_drafts(&drafts, &conference_service)
+            .map(Message::Sidebar);
 
         // K3: if there is a pending invite dialog, show it instead of the conversation
         let main_area: Element<Message> = if let Some((ref room_jid, ref invitee, ref reason)) =
@@ -906,8 +959,8 @@ impl ChatScreen {
             let name_input = text_input("Room display name", &name_val)
                 .on_input(Message::RoomConfigNameChanged)
                 .padding(6);
-            let public_check = checkbox("Public room", public_val)
-                .on_toggle(Message::RoomConfigPublicChanged);
+            let public_check =
+                checkbox("Public room", public_val).on_toggle(Message::RoomConfigPublicChanged);
             let persistent_check = checkbox("Persistent room", persistent_val)
                 .on_toggle(Message::RoomConfigPersistentChanged);
             let cancel_btn = button(text("Cancel").size(13))
@@ -1003,8 +1056,8 @@ impl ChatScreen {
                             .view(&self.avatars, time_format, occupants, own_nick)
                             .map(move |m| Message::Conversation(jid2.clone(), m));
                         if is_typing {
-                            let indicator =
-                                container(text(format!("{} is typing…", jid)).size(11)).padding([2, 8]);
+                            let indicator = container(text(format!("{} is typing…", jid)).size(11))
+                                .padding([2, 8]);
                             column![conv_view, indicator]
                                 .height(iced::Length::Fill)
                                 .into()

@@ -56,6 +56,12 @@ pub struct Settings {
     /// M1: time format for timestamps (12h or 24h).
     #[serde(default)]
     pub time_format: TimeFormat,
+    /// H2: cached own avatar data (PNG bytes).
+    #[serde(default)]
+    pub avatar_data: Option<Vec<u8>>,
+    /// K6: contact sorting preference ("alphabetical" or "recent")
+    #[serde(default)]
+    pub contact_sort: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
@@ -99,6 +105,8 @@ impl Default for Settings {
             mam_default_mode: None,
             use_system_theme: false,
             time_format: TimeFormat::TwentyFourHour,
+            avatar_data: None,
+            contact_sort: "alphabetical".to_string(),
         }
     }
 }
@@ -213,6 +221,8 @@ mod tests {
             mam_default_mode: Some("roster".into()),
             use_system_theme: true,
             time_format: TimeFormat::TwelveHour,
+            avatar_data: None,
+            contact_sort: "alphabetical".to_string(),
         };
         let json = serde_json::to_string(&s).unwrap();
         let s2: Settings = serde_json::from_str(&json).unwrap();

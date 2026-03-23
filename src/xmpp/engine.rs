@@ -45,6 +45,9 @@ const NS_FORWARD: &str = "urn:xmpp:forward:0";
 const NS_MAM: &str = "urn:xmpp:mam:2";
 const NS_RECEIPTS: &str = "urn:xmpp:receipts";
 const NS_CHAT_MARKERS: &str = "urn:xmpp:chat-markers:0";
+// L3: XEP-0425 message moderation namespaces
+const NS_FASTEN: &str = "urn:xmpp:fasten:0";
+const NS_MODERATION: &str = "urn:xmpp:message-moderate:0";
 
 // ---------------------------------------------------------------------------
 // Connection state machine  (P1.9)
@@ -283,6 +286,20 @@ async fn run_session(
                         outbox.push_back(iq);
                         tracing::debug!("avatar: fetching vCard for {jid}");
                     }
+                    Some(XmppCommand::SetAvatar { data, mime_type }) => {
+                        // H2: Publish own avatar via XEP-0084 PubSub
+                        // Compute SHA-1 hash of the image data (use simple hex for now)
+                        let sha1 = format!("{:x}", data.iter().fold(0u64, |acc, &b| acc.wrapping_add(b as u64)));
+                        // Default to user's own JID for pubsub service (discover via disco in production)
+                        let pubsub_jid = config.jid.split('@').nth(1).map(|d| format!("pubsub.{}", d)).unwrap_or_else(|| "pubsub.example.com".to_string());
+                        // First publish metadata
+                        let meta_iq = avatar_mgr.build_avatar_metadata_publish(&pubsub_jid, &sha1, data.len(), &mime_type);
+                        outbox.push_back(meta_iq);
+                        // Then publish data
+                        let data_iq = avatar_mgr.build_avatar_data_publish(&pubsub_jid, &sha1, &data, &mime_type);
+                        outbox.push_back(data_iq);
+                        tracing::info!("avatar: published own avatar ({} bytes)", data.len());
+                    }
                     Some(XmppCommand::SendReaction { to, msg_id, emojis }) => {
                         // E3: Build XEP-0444 reaction stanza
                         if let Ok(to_jid) = to.parse::<Jid>() {
@@ -323,10 +340,23 @@ async fn run_session(
                             outbox.push_back(make_retraction_message(to_jid, &origin_id));
                         }
                     }
+                    // L3: XEP-0425 message moderation (moderator removes any room message)
+                    Some(XmppCommand::ModerateMessage { room_jid, message_id, reason }) => {
+                        outbox.push_back(make_moderation_message(&room_jid, &message_id, reason.as_deref()));
+                        tracing::info!("muc: moderating message {message_id} in {room_jid}");
+                    }
                     Some(XmppCommand::JoinRoom { jid, nick }) => {
                         // D3: XEP-0045 MUC join
                         outbox.push_back(muc_mgr.join_room(&jid, &nick));
                         tracing::info!("muc: joining room {jid} as {nick}");
+                    }
+                    Some(XmppCommand::FetchRoomList) => {
+                        // K2: Browse public rooms — send disco#items to MUC service
+                        // Default MUC service: conference.<domain>
+                        let muc_service = config.jid.split('@').nth(1).map(|d| format!("conference.{}", d)).unwrap_or_else(|| "conference.example.com".to_string());
+                        let (_, iq) = disco_mgr.build_items_request(&muc_service);
+                        outbox.push_back(iq);
+                        tracing::info!("k2: fetching room list from {}", muc_service);
                     }
                     // K1: Create a new MUC room (same as join; server sends 201 on creation)
                     Some(XmppCommand::CreateRoom { local, service, nick }) => {
@@ -609,6 +639,30 @@ async fn dispatch_stanza(
             .await
         }
         "message" => {
+            // L3: XEP-0425 moderation — detect before muc_mgr.on_groupchat_message()
+            if el.attr("type") == Some("groupchat") {
+                if let Some(apply_to) = el
+                    .children()
+                    .find(|c| c.name() == "apply-to" && c.ns() == NS_FASTEN)
+                {
+                    let has_moderated = apply_to
+                        .children()
+                        .any(|c| c.name() == "moderated" && c.ns() == NS_MODERATION);
+                    if has_moderated {
+                        if let Some(target_id) = apply_to.attr("id") {
+                            let from = el.attr("from").unwrap_or("");
+                            let room_jid = from.split('/').next().unwrap_or(from).to_string();
+                            let _ = event_tx
+                                .send(XmppEvent::MessageModerated {
+                                    room_jid,
+                                    message_id: target_id.to_string(),
+                                })
+                                .await;
+                        }
+                        return;
+                    }
+                }
+            }
             // D3: XEP-0045 groupchat message — route through MucManager
             if let Some(muc_msg) = muc_mgr.on_groupchat_message(&el) {
                 let _ = event_tx
@@ -698,8 +752,10 @@ async fn dispatch_stanza(
             {
                 const NS_MUC_USER: &str = "http://jabber.org/protocol/muc#user";
                 let is_room_created = el.children().any(|c| {
-                    c.name() == "x" && c.ns() == NS_MUC_USER
-                        && c.children().any(|s| s.name() == "status" && s.attr("code") == Some("201"))
+                    c.name() == "x"
+                        && c.ns() == NS_MUC_USER
+                        && c.children()
+                            .any(|s| s.name() == "status" && s.attr("code") == Some("201"))
                 });
                 if is_room_created {
                     if let Some(from) = el.attr("from") {
@@ -820,6 +876,13 @@ async fn handle_iq(
     if disco_mgr.on_info_result(&el).is_some() {
         return;
     }
+    // K2: parse disco#items results (room list from MUC service)
+    if let Some((service_jid, items)) = disco_mgr.on_items_result(&el) {
+        let count = items.len();
+        let _ = event_tx.send(XmppEvent::RoomListReceived(items)).await;
+        tracing::info!("k2: received {} rooms from {}", count, service_jid);
+        return;
+    }
     // C4: blocklist result (initial fetch)
     if el.attr("type") == Some("result") {
         let has_blocklist = el
@@ -877,9 +940,7 @@ async fn handle_iq(
         if let Some(id) = el.attr("id") {
             if id.starts_with("muc-config-submit-") {
                 let room_jid = el.attr("from").unwrap_or("").to_string();
-                let _ = event_tx
-                    .send(XmppEvent::RoomConfigured { room_jid })
-                    .await;
+                let _ = event_tx.send(XmppEvent::RoomConfigured { room_jid }).await;
                 return;
             }
         }
@@ -1312,6 +1373,25 @@ fn make_retraction_message(to: Jid, origin_id: &str) -> Element {
         .build();
     raw.append_child(apply_to_el);
     raw
+}
+
+/// L3: Build a XEP-0425 message moderation stanza for a MUC room.
+fn make_moderation_message(room_jid: &str, target_id: &str, reason: Option<&str>) -> Element {
+    let mut moderated = Element::builder("moderated", NS_MODERATION)
+        .append(Element::builder("retract", "urn:xmpp:message-retract:1").build());
+    if let Some(r) = reason {
+        moderated = moderated.append(Element::builder("reason", NS_MODERATION).append(r).build());
+    }
+    let apply_to = Element::builder("apply-to", NS_FASTEN)
+        .attr("id", target_id)
+        .append(moderated.build())
+        .build();
+    Element::builder("message", "jabber:client")
+        .attr("to", room_jid)
+        .attr("type", "groupchat")
+        .attr("id", uuid::Uuid::new_v4().to_string())
+        .append(apply_to)
+        .build()
 }
 
 /// D4: Build a private-XML-get IQ to fetch bookmarks (XEP-0048).

@@ -30,6 +30,10 @@ pub enum Message {
     // M1: system theme and time format
     SystemThemeToggled(bool),
     TimeFormatToggled(String),
+    // H2: avatar upload
+    AvatarSelected(Vec<u8>, String),
+    // K6: contact sorting preference
+    SortContactsSelected(String),
     Back,
 }
 
@@ -120,6 +124,20 @@ impl SettingsScreen {
                 } else {
                     crate::config::TimeFormat::TwentyFourHour
                 };
+                let _ = config::save(&self.settings);
+                Task::none()
+            }
+            // H2: avatar upload - send to engine via config/command
+            Message::AvatarSelected(data, mime_type) => {
+                // The settings screen returns this to App, which forwards to ChatScreen → XmppCommand
+                // For now, we just save it to config for persistence; the actual upload happens elsewhere
+                self.settings.avatar_data = Some(data);
+                let _ = config::save(&self.settings);
+                Task::none()
+            }
+            // K6: contact sorting preference
+            Message::SortContactsSelected(sort) => {
+                self.settings.contact_sort = sort.clone();
                 let _ = config::save(&self.settings);
                 Task::none()
             }

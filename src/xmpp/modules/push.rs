@@ -69,20 +69,14 @@ impl PushManager {
     pub fn build_enable_iq(&mut self, service_jid: &str) -> Element {
         let iq_id = Uuid::new_v4().to_string();
         let node = Uuid::new_v4().to_string();
-        
+
         // Generate a random 16-byte secret (hex encoded)
-        let secret: String = (0..16)
-            .map(|_| format!("{:02x}", rand_byte()))
-            .collect();
+        let secret: String = (0..16).map(|_| format!("{:02x}", rand_byte())).collect();
 
         let enable_el = Element::builder("enable", NS_PUSH)
             .attr("jid", service_jid)
             .attr("node", &node)
-            .append(
-                Element::builder("secret", NS_PUSH)
-                    .append(secret)
-                    .build(),
-            )
+            .append(Element::builder("secret", NS_PUSH).append(secret).build())
             .build();
 
         let iq = Element::builder("iq", NS_CLIENT)
@@ -92,7 +86,8 @@ impl PushManager {
             .build();
 
         // Track this pending request
-        self.pending_enable.insert(iq_id.clone(), service_jid.to_string());
+        self.pending_enable
+            .insert(iq_id.clone(), service_jid.to_string());
 
         iq
     }
@@ -102,7 +97,8 @@ impl PushManager {
     /// Uses the existing PushCleanup logic for the disable stanza.
     pub fn build_disable_iq(&mut self, service_jid: &str) -> Element {
         // Get the node from an existing subscription if available
-        let node = self.subscriptions
+        let node = self
+            .subscriptions
             .get(service_jid)
             .map(|s| s.node.clone())
             .unwrap_or_else(|| Uuid::new_v4().to_string());
@@ -179,7 +175,9 @@ impl PushManager {
         }
 
         // Find the disable element and extract jid/node
-        let disable_el = el.children().find(|c| c.name() == "disable" && c.ns() == NS_PUSH)?;
+        let disable_el = el
+            .children()
+            .find(|c| c.name() == "disable" && c.ns() == NS_PUSH)?;
         let service_jid = disable_el.attr("jid")?;
 
         if let Some(sub) = self.subscriptions.get_mut(service_jid) {
@@ -198,18 +196,12 @@ impl PushManager {
 
     /// Get all active subscriptions.
     pub fn active_subscriptions(&self) -> Vec<&PushSubscription> {
-        self.subscriptions
-            .values()
-            .filter(|s| s.enabled)
-            .collect()
+        self.subscriptions.values().filter(|s| s.enabled).collect()
     }
 
     /// Get the number of active subscriptions.
     pub fn active_count(&self) -> usize {
-        self.subscriptions
-            .values()
-            .filter(|s| s.enabled)
-            .count()
+        self.subscriptions.values().filter(|s| s.enabled).count()
     }
 }
 

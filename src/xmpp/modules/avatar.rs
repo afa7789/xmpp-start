@@ -312,6 +312,118 @@ impl AvatarManager {
     }
 
     // -----------------------------------------------------------------------
+    // XEP-0084: Publish own avatar
+    // -----------------------------------------------------------------------
+
+    /// Build a PubSub publish IQ to publish avatar metadata.
+    ///
+    /// `sha1` is the SHA-1 hash of the image data (hex string), used as the item ID.
+    /// `bytes` is the size of the image in bytes.
+    /// `mime_type` is the MIME type (e.g. "image/png").
+    ///
+    /// ```xml
+    /// <iq type="set" to="pubsub.myhost.com" id="{id}">
+    ///   <pubsub xmlns="http://jabber.org/protocol/pubsub">
+    ///     <publish node="urn:xmpp:avatar:metadata">
+    ///       <item id="{sha1}">
+    ///         <metadata xmlns="urn:xmpp:avatar:metadata">
+    ///           <info id="{sha1}" bytes="{size}" type="{mime_type}"/>
+    ///         </metadata>
+    ///       </item>
+    ///     </publish>
+    ///   </pubsub>
+    /// </iq>
+    /// ```
+    pub fn build_avatar_metadata_publish(
+        &self,
+        pubsub_jid: &str,
+        sha1: &str,
+        bytes: usize,
+        mime_type: &str,
+    ) -> Element {
+        let info = Element::builder("info", NS_AVATAR_META)
+            .attr("id", sha1)
+            .attr("bytes", bytes.to_string())
+            .attr("type", mime_type)
+            .build();
+
+        let metadata = Element::builder("metadata", NS_AVATAR_META)
+            .append(info)
+            .build();
+
+        let item = Element::builder("item", NS_PUBSUB)
+            .attr("id", sha1)
+            .append(metadata)
+            .build();
+
+        let publish = Element::builder("publish", NS_PUBSUB)
+            .attr("node", NS_AVATAR_META)
+            .append(item)
+            .build();
+
+        let pubsub = Element::builder("pubsub", NS_PUBSUB)
+            .append(publish)
+            .build();
+
+        Element::builder("iq", NS_CLIENT)
+            .attr("type", "set")
+            .attr("to", pubsub_jid)
+            .append(pubsub)
+            .build()
+    }
+
+    /// Build a PubSub publish IQ to publish avatar image data.
+    ///
+    /// `sha1` is the SHA-1 hash of the image data (hex string), used as the item ID.
+    /// `data` is the raw image bytes.
+    /// `mime_type` is the MIME type (e.g. "image/png").
+    ///
+    /// ```xml
+    /// <iq type="set" to="pubsub.myhost.com" id="{id}">
+    ///   <pubsub xmlns="http://jabber.org/protocol/pubsub">
+    ///     <publish node="urn:xmpp:avatar:data">
+    ///       <item id="{sha1}">
+    ///         <data xmlns="urn:xmpp:avatar:data">{base64}</data>
+    ///       </item>
+    ///     </publish>
+    ///   </pubsub>
+    /// </iq>
+    /// ```
+    pub fn build_avatar_data_publish(
+        &self,
+        pubsub_jid: &str,
+        sha1: &str,
+        data: &[u8],
+        mime_type: &str,
+    ) -> Element {
+        let encoded = BASE64.encode(data);
+
+        let data_el = Element::builder("data", NS_AVATAR_DATA)
+            .append(encoded)
+            .build();
+
+        let item = Element::builder("item", NS_PUBSUB)
+            .attr("id", sha1)
+            .append(data_el)
+            .build();
+
+        let publish = Element::builder("publish", NS_PUBSUB)
+            .attr("node", NS_AVATAR_DATA)
+            .append(item)
+            .build();
+
+        let pubsub = Element::builder("pubsub", NS_PUBSUB)
+            .append(publish)
+            .build();
+
+        Element::builder("iq", NS_CLIENT)
+            .attr("type", "set")
+            .attr("to", pubsub_jid)
+            .append(pubsub)
+            .build()
+    }
+
+    // -----------------------------------------------------------------------
     // Cache
     // -----------------------------------------------------------------------
 

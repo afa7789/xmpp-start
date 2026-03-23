@@ -75,8 +75,9 @@ make lint       # cargo clippy --all-targets
 make run        # cargo run
 ```
 
-## Rules
-- Update the Yaml, and describe better the roadmap only in the markdown, so we keep track of the tasks in yaml, but have descriptions more data somewhere else so it is easier to track/parse read,update.
+## Task Tracking Rules
 
-## Rules
-- Update the Yaml, and describe better the roadmap only in the markdown, so we keep track of the tasks in yaml, but have descriptions more data somewhere else so it is easier to track/parse read,update.
+- **`tasks/tasks.yaml`** is the single source of truth for task state (pending/completed, dates, IDs). Keep it machine-parseable.
+- **`tasks/todo.md`** and **`.claude/PLAN.md`** hold rich descriptions, context, step-by-step notes, and rationale. These are human/agent readable.
+- When completing a task: update YAML first (move to completed, add date), then mark done in PLAN.md/todo.md.
+- Never write verbose descriptions into tasks.yaml — keep YAML minimal. Put descriptions and design notes in PLAN.md.
