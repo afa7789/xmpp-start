@@ -42,7 +42,7 @@
 
 ## Phase F — Polish
 - [x] ✅ **F3**: Settings panel (font size, timestamps, theme toggle) — already implemented (2026-03-22)
-- [ ] **F4**: Reconnect logic with backoff
+- [x] ✅ **F4**: Reconnect logic with backoff — (2026-03-22) reconnect_attempt state, 2^n backoff capped at 64s, banner overlay in view()
 - [ ] **F5**: Avatar fetching (XEP-0084 + vCard fallback)
 
 ## Phase G — Conversation UX

@@ -55,6 +55,8 @@ pub struct App {
     // F2: command palette
     show_palette: bool,
     palette_query: String,
+    // E4: pending upload (target_jid, file_path) — set when RequestUploadSlot is sent
+    pending_upload: Option<(String, std::path::PathBuf)>,
 }
 
 #[derive(Debug, Clone)]
@@ -114,6 +116,7 @@ impl App {
                 show_console: false,
                 show_palette: false,
                 palette_query: String::new(),
+                pending_upload: None,
             },
             Task::none(),
         )
@@ -367,6 +370,14 @@ impl App {
                         Task::none()
                     };
                     let task = chat.update(msg).map(Message::Chat);
+                    // E4: capture pending upload targets before draining commands
+                    let upload_targets = chat.drain_upload_targets();
+                    if !upload_targets.is_empty() {
+                        // Store the first target (FIFO queue)
+                        if self.pending_upload.is_none() {
+                            self.pending_upload = upload_targets.into_iter().next();
+                        }
+                    }
                     let cmds = chat.drain_commands();
                     if !cmds.is_empty() {
                         if let Some(ref tx) = self.xmpp_tx {
@@ -607,11 +618,47 @@ impl App {
                         );
                     }
                     XmppEvent::UploadSlotReceived {
-                        ref put_url,
-                        ref get_url,
-                        ..
+                        put_url,
+                        get_url,
+                        headers,
                     } => {
                         tracing::info!("E4: upload slot received put={put_url} get={get_url}");
+                        // E4: perform HTTP PUT and send get_url as message
+                        if let Some((target_jid, file_path)) = self.pending_upload.take() {
+                            if let Some(ref tx) = self.xmpp_tx {
+                                let tx = tx.clone();
+                                return Task::future(async move {
+                                    let file_bytes = tokio::fs::read(&file_path).await;
+                                    match file_bytes {
+                                        Ok(bytes) => {
+                                            let client = reqwest::Client::new();
+                                            let mut req = client.put(&put_url).body(bytes);
+                                            for (k, v) in &headers {
+                                                req = req.header(k.as_str(), v.as_str());
+                                            }
+                                            match req.send().await {
+                                                Ok(resp) if resp.status().is_success() => {
+                                                    let _ = tx.send(XmppCommand::SendMessage {
+                                                        to: target_jid,
+                                                        body: get_url,
+                                                    }).await;
+                                                }
+                                                Ok(resp) => {
+                                                    tracing::warn!("E4: PUT failed: {}", resp.status());
+                                                }
+                                                Err(e) => {
+                                                    tracing::warn!("E4: PUT error: {e}");
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!("E4: failed to read file {:?}: {e}", file_path);
+                                        }
+                                    }
+                                    Message::GoToBenchmark
+                                }).discard();
+                            }
+                        }
                     }
                     XmppEvent::ConsoleEntry { direction, xml } => {
                         self.console_entries.push((direction, xml));
@@ -695,6 +742,27 @@ impl App {
 
         // Build layers: screen + optional palette + optional console panel + button + optional toasts
         let mut layers: Vec<Element<Message>> = vec![screen_view];
+
+        // F4: reconnect banner — shown at top of screen when reconnecting
+        if self.reconnect_attempt > 0 {
+            let banner_text = format!(
+                "Reconnecting (attempt {})…",
+                self.reconnect_attempt
+            );
+            let banner = container(text(banner_text).size(12).color(Color::WHITE))
+                .width(Length::Fill)
+                .padding([4, 12])
+                .style(|_theme: &iced::Theme| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(Color::from_rgb(0.8, 0.4, 0.0))),
+                    ..Default::default()
+                });
+            let banner_overlay = container(column![banner])
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Start)
+                .width(Length::Fill)
+                .height(Length::Fill);
+            layers.push(banner_overlay.into());
+        }
 
         // F2: palette overlay
         if self.show_palette {

@@ -19,9 +19,20 @@ use iced::{
 use chrono::{TimeZone, Utc};
 
 use crate::xmpp::modules::link_preview::LinkPreview;
+use ::image::ImageEncoder;
 
 // G4: /me action message prefix (XEP-0245)
 const ME_PREFIX: &str = "/me ";
+
+/// I3/E4: A file staged for upload.
+#[derive(Debug, Clone)]
+pub struct Attachment {
+    pub path: std::path::PathBuf,
+    pub name: String,
+    pub size: u64,
+    /// Upload progress 0–100.
+    pub progress: u8,
+}
 
 fn extract_first_url(text: &str) -> Option<String> {
     for word in text.split_whitespace() {
@@ -131,6 +142,10 @@ pub struct ConversationView {
     attachments: std::collections::HashMap<String, iced_image::Handle>,
     /// I4: pending image URLs to fetch — msg_id → url
     pending_images: std::collections::HashMap<String, String>,
+    /// I3/E4: files staged for upload
+    pub pending_attachments: Vec<Attachment>,
+    /// I2: drag-drop staging (path string shown to user)
+    drag_drop_active: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -159,6 +174,16 @@ pub enum Message {
     RetractMessage(String),       // E2: (msg_id) — retract own message
     RequestOlderHistory,          // G8: emitted on scroll to top to request older MAM history
     AttachmentLoaded(String, iced_image::Handle), // I4: (msg_id, image_handle)
+    // E4/I3: file upload
+    OpenFilePicker,                              // E4: open native file picker
+    FilePicked(Option<std::path::PathBuf>),      // E4: result from file picker
+    RemoveAttachment(usize),                     // I3: remove staged attachment by index
+    AttachmentProgress(usize, u8),              // I3: (index, progress 0–100)
+    // I1: clipboard paste
+    PasteFromClipboard,
+    ClipboardImageReady(Vec<u8>),               // I1: PNG bytes from clipboard
+    // I2: drag-drop
+    FilesDropped(Vec<std::path::PathBuf>),       // I2: files dropped onto composer
 }
 
 impl ConversationView {
@@ -184,6 +209,8 @@ impl ConversationView {
             loading_older: false,
             attachments: std::collections::HashMap::new(),
             pending_images: std::collections::HashMap::new(),
+            pending_attachments: vec![],
+            drag_drop_active: false,
         }
     }
 
@@ -342,10 +369,107 @@ impl ConversationView {
                 self.attachments.insert(msg_id, handle);
                 Task::none()
             }
+            // E4/I3: open native file picker via rfd
+            Message::OpenFilePicker => {
+                Task::future(async {
+                    let path = rfd::AsyncFileDialog::new()
+                        .set_title("Select file to send")
+                        .pick_file()
+                        .await
+                        .map(|f| f.path().to_path_buf());
+                    Message::FilePicked(path)
+                })
+            }
+            Message::FilePicked(Some(path)) => {
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "file".into());
+                let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                self.pending_attachments.push(Attachment {
+                    path,
+                    name,
+                    size,
+                    progress: 0,
+                });
+                Task::none()
+            }
+            Message::FilePicked(None) => Task::none(),
+            Message::RemoveAttachment(idx) => {
+                if idx < self.pending_attachments.len() {
+                    self.pending_attachments.remove(idx);
+                }
+                Task::none()
+            }
+            Message::AttachmentProgress(idx, pct) => {
+                if let Some(a) = self.pending_attachments.get_mut(idx) {
+                    a.progress = pct;
+                }
+                Task::none()
+            }
+            // I1: clipboard image paste
+            Message::PasteFromClipboard => {
+                Task::future(async {
+                    // Try to read image bytes from arboard clipboard
+                    let result = tokio::task::spawn_blocking(|| {
+                        let mut clipboard = arboard::Clipboard::new().ok()?;
+                        let img = clipboard.get_image().ok()?;
+                        // Encode RGBA pixels as PNG
+                        let mut png_bytes: Vec<u8> = Vec::new();
+                        let encoder = ::image::codecs::png::PngEncoder::new(&mut png_bytes);
+                        ::image::ImageEncoder::write_image(
+                            encoder,
+                            &img.bytes,
+                            img.width as u32,
+                            img.height as u32,
+                            ::image::ExtendedColorType::Rgba8,
+                        )
+                        .ok()?;
+                        Some(png_bytes)
+                    })
+                    .await;
+                    match result {
+                        Ok(Some(bytes)) => Message::ClipboardImageReady(bytes),
+                        _ => Message::PasteFromClipboard, // no-op if nothing available
+                    }
+                })
+            }
+            Message::ClipboardImageReady(bytes) => {
+                // Stage the clipboard image as a temp file attachment
+                let tmp_path = std::env::temp_dir().join("clipboard_paste.png");
+                if std::fs::write(&tmp_path, &bytes).is_ok() {
+                    let size = bytes.len() as u64;
+                    self.pending_attachments.push(Attachment {
+                        path: tmp_path,
+                        name: "clipboard_paste.png".into(),
+                        size,
+                        progress: 0,
+                    });
+                }
+                Task::none()
+            }
+            // I2: drag-drop files
+            Message::FilesDropped(paths) => {
+                for path in paths {
+                    let name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "file".into());
+                    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                    self.pending_attachments.push(Attachment {
+                        path,
+                        name,
+                        size,
+                        progress: 0,
+                    });
+                }
+                self.drag_drop_active = false;
+                Task::none()
+            }
         }
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
+    pub fn view(&self, avatars: &std::collections::HashMap<String, Vec<u8>>) -> Element<'_, Message> {
         // ---- Message list (G5: grouping + date separators) ----
         let mut rows: Vec<Element<Message>> = Vec::new();
         let mut prev_date: Option<chrono::NaiveDate> = None;
@@ -486,19 +610,25 @@ impl ConversationView {
                     .align_x(Alignment::Center)
                     .into()
             } else if !m.own {
-                // H5: avatar + sender + body for incoming messages
+                // H5/H1: avatar + sender + body for incoming messages
                 let from_bare = m.from.split('/').next().unwrap_or(&m.from);
-                let color = jid_color(from_bare);
-                let initial = jid_initial(from_bare).to_string();
-                let avatar = container(text(initial).size(11))
-                    .width(24)
-                    .height(24)
-                    .style(move |_theme: &iced::Theme| iced::widget::container::Style {
-                        background: Some(iced::Background::Color(color)),
-                        ..Default::default()
-                    })
-                    .align_x(Alignment::Center)
-                    .align_y(Alignment::Center);
+                let avatar: Element<Message> = if let Some(png) = avatars.get(from_bare) {
+                    let handle = iced_image::Handle::from_bytes(png.clone());
+                    image(handle).width(24).height(24).into()
+                } else {
+                    let color = jid_color(from_bare);
+                    let initial = jid_initial(from_bare).to_string();
+                    container(text(initial).size(11))
+                        .width(24)
+                        .height(24)
+                        .style(move |_theme: &iced::Theme| iced::widget::container::Style {
+                            background: Some(iced::Background::Color(color)),
+                            ..Default::default()
+                        })
+                        .align_x(Alignment::Center)
+                        .align_y(Alignment::Center)
+                        .into()
+                };
 
                 let text_col = if show_sender {
                     let mut col = column![row![
@@ -720,8 +850,18 @@ impl ConversationView {
             .on_press(Message::EmojiPickerToggled)
             .padding([6, 8]);
 
+        // E4/I3: paperclip button for file picker
+        let attach_btn = tooltip(
+            button(text("📎").size(14))
+                .on_press(Message::OpenFilePicker)
+                .padding([6, 8]),
+            "Attach file",
+            tooltip::Position::Top,
+        );
+
         let composer_row = row![
             emoji_btn,
+            attach_btn,
             text_input("Type a message…", &self.composer)
                 .on_input(Message::ComposerChanged)
                 .on_submit(Message::Send)
@@ -732,6 +872,48 @@ impl ConversationView {
         .spacing(8)
         .align_y(Alignment::Center)
         .padding([4, 8]);
+
+        // I3: pending attachments strip above composer
+        let attachments_strip: Option<Element<Message>> = if !self.pending_attachments.is_empty() {
+            let mut att_col: iced::widget::Column<Message> = column![].spacing(2).padding([4, 8]);
+            for (i, att) in self.pending_attachments.iter().enumerate() {
+                let size_kb = att.size / 1024;
+                let label = format!("{} ({}KB)", att.name, size_kb);
+                let remove_btn = button(text("✕").size(10))
+                    .on_press(Message::RemoveAttachment(i))
+                    .padding([2, 4]);
+                let progress_bar = container(
+                    container(text("").size(1))
+                        .width(Length::Fixed(att.progress as f32 * 2.0))
+                        .height(4)
+                        .style(|_theme: &iced::Theme| iced::widget::container::Style {
+                            background: Some(iced::Background::Color(
+                                iced::Color::from_rgb(0.2, 0.7, 0.3),
+                            )),
+                            ..Default::default()
+                        }),
+                )
+                .width(200)
+                .height(4)
+                .style(|_theme: &iced::Theme| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(iced::Color::from_rgb(
+                        0.3, 0.3, 0.3,
+                    ))),
+                    ..Default::default()
+                });
+                let att_row = row![
+                    text(label).size(11).width(Length::Fill),
+                    progress_bar,
+                    remove_btn,
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center);
+                att_col = att_col.push(att_row);
+            }
+            Some(container(att_col).width(Length::Fill).into())
+        } else {
+            None
+        };
 
         let close_btn = tooltip(
             button(text("×").size(14))
@@ -825,6 +1007,9 @@ impl ConversationView {
             col = col.push(strip);
         }
         if let Some(strip) = edit_strip {
+            col = col.push(strip);
+        }
+        if let Some(strip) = attachments_strip {
             col = col.push(strip);
         }
         if let Some(panel) = emoji_panel {
