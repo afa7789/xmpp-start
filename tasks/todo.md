@@ -16,6 +16,7 @@
 - ✅ **G6**: Draft auto-save per conversation
 - ✅ **J2**: Custom status message
 - ✅ **J4**: Sound notifications
+- ✅ **K1** (PLAN.md): Room creation UI + config modal (2026-03-23)
 
 ## Phase B — Storage Layer
 - [x] ✅ **B4**: Load message history on conversation open (50 most recent) — (2026-03-22)

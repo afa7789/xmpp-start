@@ -868,17 +868,15 @@ This also covers the "show panic/error in UI" feature requested earlier.
 
 ## Phase K — Room Features
 
-### K1: Room creation UI + configuration modal
+### K1: Room creation UI + configuration modal ✅ 2026-03-23
 **Goal**: A "New room" button in the sidebar lets the user create a MUC with name,
 subject, and privacy settings.
-**Files touched**: `src/ui/sidebar.rs`, `src/ui/chat.rs`, `src/xmpp/engine.rs`
+**Files touched**: `src/ui/sidebar.rs`, `src/ui/chat.rs`, `src/xmpp/engine.rs`, `src/xmpp/mod.rs`, `src/ui/mod.rs`
 **Depends on**: D3
-**Steps**:
-1. Add a "+" button next to "Rooms" in the sidebar.
-2. Show a modal with fields: room JID (local part), display name, subject, private toggle.
-3. On confirm, send `XmppCommand::CreateRoom { jid, config }`.
-4. Engine sends create + configure IQ sequence; on success emit `XmppEvent::RoomJoined`.
-**Done when**: filling the modal and clicking Create results in a new persistent room.
+**Done**: Sidebar "*" button opens create-room form (local, service, nick). Engine detects
+XEP-0045 status 201 and requests config form. ChatScreen shows config modal (room name,
+public checkbox, persistent checkbox) before submitting. ConfigureRoom command submits
+the config form to the server. Room goes live on successful IQ result.
 
 ### K2: Browse public rooms (XEP-0045 browse)
 **Goal**: A "Browse rooms" dialog lists public rooms on the server with occupant
@@ -1150,7 +1148,6 @@ F1–F5 independent of each other (depend on B1 only)
 3. **L3**: Message moderation by moderators
 4. **M4**: Audio recording (voice messages)
 5. **K3**: Room invitations
-6. **K1**: Room creation UI
 
 ### Medium Priority
 1. **K6**: Chat preferences panel
@@ -1166,4 +1163,461 @@ F1–F5 independent of each other (depend on B1 only)
 
 ---
 
-*Last updated: 2026-03-22*
+## K1: Room Creation UI + Config Modal
+
+**Task**: Allow the user to create a new MUC room from the sidebar with a simple
+creation form, then configure it (name, public/private, persistent/temporary) via
+a modal before the room goes live.
+
+**XEP references**: XEP-0045 §8 (Creating a room), §9 (Configuration)
+**Dependencies**: D3 (JoinRoom), S10 (data forms renderer, already done), muc_config.rs (already done)
+
+---
+
+### XMPP Stanza Flow
+
+```
+CLIENT                                SERVER
+  |                                      |
+  |--- <presence to='newroom@conf/nick'  |
+  |    <x xmlns='muc'/>/>               |
+  |                                      |
+  |    Server creates room, grants owner affiliation
+  |                                      |
+  |<-- <presence from='newroom@conf/nick'|
+  |    ... affiliation='owner' status='201'> (201 = room created)
+  |                                      |
+  |--- <iq type='get' to='newroom@conf'  |
+  |    <query xmlns='muc#owner'/>/>     |
+  |                                      |
+  |<-- <iq type='result'>               |
+  |    <query xmlns='muc#owner'>        |
+  |      <x type='form' xmlns='jabber:x:data'>   (config form)
+  |                                      |
+  |--- <iq type='set' to='newroom@conf' |
+  |    <query xmlns='muc#owner'>        |
+  |      <x type='submit' xmlns='jabber:x:data'> (config submit)
+  |                                      |
+  |<-- <iq type='result'/>              |   (room is now live)
+```
+
+Key: status code 201 in the join presence means the room was just created and
+configuration is expected. If absent (room already exists) skip straight to the
+normal join flow.
+
+---
+
+### State Machine (where K1 sits across layers)
+
+```
+UI: "New Room" button clicked
+  → sidebar::Message::ToggleCreateRoom
+  → SidebarScreen shows creation form (room_local, conference_service, nick)
+  → User submits → sidebar::Message::SubmitCreateRoom
+  → ChatScreen intercepts → XmppCommand::CreateRoom { local, service, nick }
+
+Engine receives XmppCommand::CreateRoom:
+  → builds join presence (same as JoinRoom, no extra flags)
+  → pushes to outbox
+  → records room as "pending_create" in engine state
+
+Engine receives 201 presence (room created):
+  → sends MucConfigManager::build_config_request(room_jid)
+  → emits XmppEvent::RoomConfigFormReceived { room_jid, config: MucRoomConfig }
+
+UI receives RoomConfigFormReceived:
+  → ChatScreen stores pending config room_jid + pre-filled MucRoomConfig
+  → App shows config modal (or ChatScreen owns it — see UI section below)
+
+User fills modal and submits:
+  → chat::Message::SubmitRoomConfig(room_jid, MucRoomConfig)
+  → ChatScreen pushes XmppCommand::ConfigureRoom { room_jid, config }
+
+Engine receives XmppCommand::ConfigureRoom:
+  → calls MucConfigManager::build_config_submit(room_jid, &config)
+  → pushes iq to outbox
+
+Engine receives IQ result for config submit:
+  → emits XmppEvent::RoomConfigured { room_jid }
+
+UI receives RoomConfigured:
+  → dismisses modal, opens conversation for room_jid
+```
+
+---
+
+### New XmppCommand variants (src/xmpp/mod.rs)
+
+Add to the `XmppCommand` enum:
+
+```rust
+/// K1: Create a new MUC room by joining it (XEP-0045 §8).
+/// The engine joins the room; if the server returns status 201 (room created),
+/// it requests the config form automatically.
+CreateRoom {
+    /// Local part of the room JID (before the '@').
+    local: String,
+    /// Conference service domain (e.g. "conference.example.com").
+    service: String,
+    /// Nickname to use in the new room.
+    nick: String,
+},
+/// K1: Submit a room configuration form (XEP-0045 §9).
+ConfigureRoom {
+    room_jid: String,
+    config: crate::xmpp::modules::muc_config::MucRoomConfig,
+},
+```
+
+---
+
+### New XmppEvent variants (src/xmpp/mod.rs)
+
+Add to the `XmppEvent` enum:
+
+```rust
+/// K1: Server returned a config form for a newly created room.
+RoomConfigFormReceived {
+    room_jid: String,
+    /// Pre-parsed defaults from the server's form.
+    config: modules::muc_config::MucRoomConfig,
+},
+/// K1: Room configuration was accepted by the server — room is now live.
+RoomConfigured {
+    room_jid: String,
+},
+```
+
+---
+
+### Engine changes (src/xmpp/engine.rs)
+
+**Add MucConfigManager to the session state** (alongside `muc_mgr`):
+```rust
+let mut muc_config_mgr = MucConfigManager::new();
+```
+Add `muc_config_mgr` to the `handle_client_event` and `dispatch_stanza` signatures
+(follow the same pattern used for `muc_mgr` and `bookmark_mgr`).
+
+**Command arm — CreateRoom**:
+```rust
+Some(XmppCommand::CreateRoom { local, service, nick }) => {
+    let room_jid = format!("{}@{}", local, service);
+    outbox.push_back(muc_mgr.join_room(&room_jid, &nick));
+    tracing::info!("muc: creating room {room_jid} as {nick}");
+}
+```
+No special tracking is needed beyond what MucManager already does — the
+server sends a presence with status 201 back on the same room JID.
+
+**Command arm — ConfigureRoom**:
+```rust
+Some(XmppCommand::ConfigureRoom { room_jid, config }) => {
+    let (_, iq) = muc_config_mgr.build_config_submit(&room_jid, &config);
+    outbox.push_back(iq);
+    tracing::info!("muc: submitting config for {room_jid}");
+}
+```
+
+**Presence dispatch — detect status 201**:
+In `dispatch_stanza`, inside the `"presence"` arm, after `muc_mgr.on_presence(&el)`:
+
+```rust
+// K1: detect room-created status code 201 in MUC owner presence
+let is_room_created = el.children().any(|c| {
+    c.name() == "x" && c.ns() == NS_MUC_USER
+        && c.children().any(|s| s.name() == "status" && s.attr("code") == Some("201"))
+});
+if is_room_created {
+    if let Some(from) = el.attr("from") {
+        let room_jid = from.split('/').next().unwrap_or(from).to_string();
+        let (_, iq) = muc_config_mgr.build_config_request(&room_jid);
+        outbox.push_back(iq);
+        tracing::info!("muc: room {room_jid} created, requesting config form");
+    }
+}
+```
+
+**IQ dispatch — handle config form result**:
+In `handle_iq`, add a branch detecting `<query xmlns='muc#owner'>` in a result IQ:
+
+```rust
+const NS_MUC_OWNER: &str = "http://jabber.org/protocol/muc#owner";
+if el.attr("type") == Some("result") {
+    let has_owner_query = el.children()
+        .any(|c| c.name() == "query" && c.ns() == NS_MUC_OWNER);
+    if has_owner_query {
+        let room_jid = el.attr("from").unwrap_or("").to_string();
+        if let Some(query) = el.children().find(|c| c.name() == "query" && c.ns() == NS_MUC_OWNER) {
+            if let Some(config) = muc_config_mgr.parse_config_form(query) {
+                let _ = event_tx.send(XmppEvent::RoomConfigFormReceived {
+                    room_jid,
+                    config,
+                }).await;
+            }
+        }
+        return;
+    }
+}
+```
+
+Also add a branch for the config-submit result IQ (id prefix `"muc-config-submit-"`):
+```rust
+if el.attr("type") == Some("result") {
+    if let Some(id) = el.attr("id") {
+        if id.starts_with("muc-config-submit-") {
+            let room_jid = el.attr("from").unwrap_or("").to_string();
+            let _ = event_tx.send(XmppEvent::RoomConfigured { room_jid }).await;
+            return;
+        }
+    }
+}
+```
+
+**Add muc_config_mgr to dispatch_stanza signature**: follow the same pattern as
+the other managers. Needs to be passed through `handle_client_event` → `dispatch_stanza` → `handle_iq`.
+
+---
+
+### Sidebar changes (src/ui/sidebar.rs)
+
+**State** — add to `SidebarScreen`:
+```rust
+show_create_room: bool,
+create_room_local: String,
+create_room_service: String,
+create_room_nick: String,
+```
+
+**Messages** — add to `sidebar::Message`:
+```rust
+ToggleCreateRoom,
+CreateRoomLocalChanged(String),
+CreateRoomServiceChanged(String),
+CreateRoomNickChanged(String),
+SubmitCreateRoom,
+```
+
+**Accessors** — add getters:
+```rust
+pub fn create_room_local(&self) -> &str { &self.create_room_local }
+pub fn create_room_service(&self) -> &str { &self.create_room_service }
+pub fn create_room_nick(&self) -> &str { &self.create_room_nick }
+```
+
+**update()** — add arms:
+```rust
+Message::ToggleCreateRoom => {
+    self.show_create_room = !self.show_create_room;
+    self.create_room_local.clear();
+    self.create_room_service.clear();
+    self.create_room_nick.clear();
+}
+Message::CreateRoomLocalChanged(v) => self.create_room_local = v,
+Message::CreateRoomServiceChanged(v) => self.create_room_service = v,
+Message::CreateRoomNickChanged(v) => self.create_room_nick = v,
+Message::SubmitCreateRoom => {
+    // ChatScreen intercepts this
+    self.show_create_room = false;
+    self.create_room_local.clear();
+    self.create_room_service.clear();
+    self.create_room_nick.clear();
+}
+```
+
+**view_with_drafts()** — add a "+" room button (e.g. `"[+]"` or `"new room"`) next to the
+existing join (`"#"`) button in the header row. Add a `create_room_row` block
+below `join_room_row` that renders three text_input fields (local, service, nick)
+plus a "Create" button when `show_create_room` is true.
+
+Header button label convention: use `"+"` for add contact (existing), `"#"` for
+join room (existing), `"*"` for create room (new). All in the same header row.
+
+---
+
+### ChatScreen changes (src/ui/chat.rs)
+
+**State** — add:
+```rust
+/// K1: JID of a room waiting for config form submission.
+pending_room_config: Option<(String, crate::xmpp::modules::muc_config::MucRoomConfig)>,
+```
+
+**Messages** — add to `chat::Message`:
+```rust
+RoomConfigFormReceived(String, crate::xmpp::modules::muc_config::MucRoomConfig),
+RoomConfigured(String),
+// Config modal field messages (owned by ChatScreen, not a sub-widget)
+RoomConfigNameChanged(String),
+RoomConfigPublicChanged(bool),
+RoomConfigPersistentChanged(bool),
+SubmitRoomConfig,
+DismissRoomConfig,
+```
+
+**update()** — intercept `Message::Sidebar(sidebar::Message::SubmitCreateRoom)`:
+```rust
+if let sidebar::Message::SubmitCreateRoom = smsg {
+    let local = self.sidebar.create_room_local().to_owned();
+    let service = self.sidebar.create_room_service().to_owned();
+    let nick = self.sidebar.create_room_nick().to_owned();
+    if !local.trim().is_empty() && !service.trim().is_empty() && !nick.trim().is_empty() {
+        let room_jid = format!("{}@{}", local, service);
+        self.on_join_room(&room_jid);
+        self.pending_commands.push(XmppCommand::CreateRoom { local, service, nick });
+    }
+    let _ = self.sidebar.update(smsg);
+    return Task::none();
+}
+```
+
+Handle incoming events in `update()`:
+```rust
+Message::RoomConfigFormReceived(room_jid, config) => {
+    self.pending_room_config = Some((room_jid, config));
+    Task::none()
+}
+Message::RoomConfigured(room_jid) => {
+    self.pending_room_config = None;
+    // Open the new room conversation
+    let own = self.own_jid.clone();
+    self.conversations.entry(room_jid.clone())
+        .or_insert_with(|| ConversationView::new(room_jid.clone(), own));
+    self.active_jid = Some(room_jid);
+    Task::none()
+}
+Message::RoomConfigNameChanged(v) => {
+    if let Some((_, ref mut cfg)) = self.pending_room_config {
+        cfg.room_name = Some(v);
+    }
+    Task::none()
+}
+Message::RoomConfigPublicChanged(v) => {
+    if let Some((_, ref mut cfg)) = self.pending_room_config {
+        cfg.public = Some(v);
+    }
+    Task::none()
+}
+Message::RoomConfigPersistentChanged(v) => {
+    if let Some((_, ref mut cfg)) = self.pending_room_config {
+        cfg.persistent_room = Some(v);
+    }
+    Task::none()
+}
+Message::SubmitRoomConfig => {
+    if let Some((room_jid, config)) = self.pending_room_config.take() {
+        self.pending_commands.push(XmppCommand::ConfigureRoom { room_jid, config });
+    }
+    Task::none()
+}
+Message::DismissRoomConfig => {
+    self.pending_room_config = None;
+    Task::none()
+}
+```
+
+**view()** — when `pending_room_config.is_some()`, render a modal overlay on top of
+the normal chat layout (see UI section below).
+
+---
+
+### App::update changes (src/ui/mod.rs)
+
+In the `XmppEvent` match arm, add handlers:
+
+```rust
+XmppEvent::RoomConfigFormReceived { room_jid, config } => {
+    if let Screen::Chat(ref mut chat) = self.screen {
+        return chat.update(chat::Message::RoomConfigFormReceived(room_jid, config))
+            .map(Message::Chat);
+    }
+    Task::none()
+}
+XmppEvent::RoomConfigured { room_jid } => {
+    if let Screen::Chat(ref mut chat) = self.screen {
+        return chat.update(chat::Message::RoomConfigured(room_jid))
+            .map(Message::Chat);
+    }
+    Task::none()
+}
+```
+
+---
+
+### Config Modal UI Layout
+
+The modal is rendered inline in `ChatScreen::view()` as an iced `container` with a
+semi-transparent overlay, positioned over the conversation area. No external modal
+library needed — use iced's `stack` or absolute positioning if available in iced 0.13,
+otherwise render it as a conditional column replacing the right pane.
+
+Fields to show (minimal — maps directly to `MucRoomConfig`):
+
+```
+┌─────────────────────────────────────┐
+│  Configure New Room                 │
+├─────────────────────────────────────┤
+│  Room Name:  [________________]     │
+│  Public room:    [x]                │
+│  Persistent room: [x]               │
+├─────────────────────────────────────┤
+│           [Cancel]  [Create Room]   │
+└─────────────────────────────────────┘
+```
+
+- Room name: `text_input` bound to `MucRoomConfig.room_name`
+- Public room: `checkbox` bound to `MucRoomConfig.public`
+- Persistent room: `checkbox` bound to `MucRoomConfig.persistent_room`
+- "Create Room" button → `Message::SubmitRoomConfig`
+- "Cancel" button → `Message::DismissRoomConfig`
+
+Do not expose `whois`, `max_users`, `password`, etc. in this first-pass modal — keep
+it minimal. Those fields can be added in a follow-up advanced config panel.
+
+---
+
+### File Change Summary
+
+| File | Change |
+|---|---|
+| `src/xmpp/mod.rs` | Add `CreateRoom`, `ConfigureRoom` to `XmppCommand`; add `RoomConfigFormReceived`, `RoomConfigured` to `XmppEvent` |
+| `src/xmpp/engine.rs` | Add `muc_config_mgr: MucConfigManager` to session; handle `CreateRoom`, `ConfigureRoom` commands; detect status 201 in presence; detect owner query IQ result; detect config-submit IQ result; thread `muc_config_mgr` through `handle_client_event` and `dispatch_stanza` |
+| `src/ui/sidebar.rs` | Add `show_create_room` state + 5 messages + 3 accessors + view row |
+| `src/ui/chat.rs` | Add `pending_room_config` state; add 7 messages; intercept `SubmitCreateRoom`; handle `RoomConfigFormReceived`, `RoomConfigured`, config field messages; render modal in `view()` |
+| `src/ui/mod.rs` | Handle `XmppEvent::RoomConfigFormReceived` and `XmppEvent::RoomConfigured` in `App::update` |
+| `src/xmpp/modules/muc_config.rs` | No changes needed — existing `build_config_request`, `build_config_submit`, `parse_config_form` are sufficient |
+
+**Note**: `muc_config.rs` is already imported in `modules/mod.rs`. No new module files needed.
+
+---
+
+### Risks and Constraints
+
+1. **Status 201 detection**: Some servers (e.g. Prosody) reliably send status 201;
+   others may not. If 201 is absent, the room was pre-existing — the engine must
+   not send a config request in that case. The status-code check is the correct guard.
+
+2. **Config form IQ from attribute**: The server sends the config form result with
+   `from='room@conference.example.com'` (bare room JID). The `muc_config_mgr`
+   tracks pending query IDs (`"muc-config-req-*"`); use `el.attr("id")` prefix
+   check as a secondary guard alongside the `muc#owner` namespace check.
+
+3. **dispatch_stanza signature growth**: The function already has 12+ parameters.
+   Adding `muc_config_mgr` continues the pattern but makes it unwieldy. The builder
+   should follow the existing pattern exactly (add it after `bookmark_mgr`). Refactor
+   into a context struct is out of scope for K1.
+
+4. **iced modal**: iced 0.13 does not have a built-in modal widget. The simplest
+   approach is a conditional: when `pending_room_config.is_some()`, replace the right
+   pane content with the config form column instead of the conversation view. A true
+   overlay can be deferred.
+
+5. **Default service**: The create-room form needs a conference service JID. Derive it
+   from the user's own JID domain: if `own_jid = "user@example.com"` pre-fill
+   `create_room_service` with `"conference.example.com"`. The user can edit it.
+   `ChatScreen::own_jid()` already exposes this. Pass it down to `SidebarScreen` as a
+   parameter to `view_with_drafts()` or a separate method.
+
+---
+
+*Last updated: 2026-03-23*
