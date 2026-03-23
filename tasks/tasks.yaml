@@ -19,6 +19,13 @@ priorities:
 
 # Completed tasks (for reference)
 completed:
+  - id: BUG-LOGIN-1
+    name: "Login redirects to benchmark then locks on first screen"
+    completed: "2026-03-23"
+    fix: |
+      Root cause: Task::future(...).discard() pattern was returning Message::GoToBenchmark
+      from async futures which may have been processed anyway.
+      Fix: Replaced all fire-and-forget background tasks with tokio::spawn().
   - id: B1
     name: "rustls CryptoProvider"
     completed: "2026-03-22"
@@ -208,34 +215,6 @@ completed:
 
 # Pending tasks organized by priority
 pending:
-  bugs:
-    - id: BUG-LOGIN-1
-      name: "Login redirects to benchmark then locks on first screen"
-      description: |
-        On first login, app enters benchmark screen after ~5 seconds, then logs off 
-        and locks on the login screen. Login succeeds (shows online), roster loads 
-        (1 contact), MAM catchup completes (50 messages), bookmarks load (2), avatars 
-        arrive, then something triggers the benchmark screen transition.
-        
-        Timeline from logs (2026-03-23T02:26):
-        - 02:26:12 - connecting as abeilice@kosmos.org
-        - 02:26:14 - online, MAM catchup triggered, bookmarks requested, MAM prefs requested
-        - 02:26:14 - XMPP online, roster (1 contacts), avatar fetching
-        - 02:26:15 - bookmarks loaded (2)
-        - 02:26:17 - disco responses
-        - 02:26:19 - messages received, MAM catchup complete (50), D4 bookmarks, J10 MAM prefs
-        - 02:26:19 - presence updates, avatar received (6688 bytes)
-        - THEN: benchmark screen triggers, login is invalidated
-        
-        Something between the last avatar receipt and the next event causes the screen
-        to switch to Benchmark and then back to Login.
-      files:
-        - "src/ui/mod.rs"
-      notes: |
-        Root cause not yet identified. Investigate screen transition events after 
-        avatar/message receipt. Check for any event that could trigger Benchmark screen.
-        Check if there's an unhandled XmppEvent variant that maps to Benchmark screen.
-
   critical:
     - id: OMEMO
       name: "OMEMO end-to-end encryption"
@@ -521,8 +500,7 @@ implemented_xeps:
 
 # Statistics
 stats:
-  completed: 56
-  pending_bugs: 1
+  completed: 57
   pending_critical: 3
   pending_high: 5
   pending_medium: 7

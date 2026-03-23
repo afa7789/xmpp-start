@@ -1,11 +1,9 @@
 # xmpp-start TODO
 
 ## Bugs
-- [ ] **BUG-LOGIN-1**: On first login, app enters benchmark screen after ~5 seconds, then logs off and locks on first screen
-  - Symptom: Login succeeds, shows "online as...", loads roster (1 contact), MAM catchup (50 messages), bookmarks (2), avatar received, then abruptly switches to Benchmark → back to Login
-  - Log: 2026-03-23T02:26 - connects as abeilice@kosmos.org → roster loaded → MAM complete → bookmarks → avatars → **some event triggers benchmark screen**
-  - Files to investigate: `src/ui/mod.rs` screen transitions, benchmark screen, event handling
-  - Priority: CRITICAL — blocks basic login
+- [x] **BUG-LOGIN-1**: On first login, app enters benchmark screen after ~5 seconds, then logs off and locks on first screen — FIXED
+  - Root cause: `Task::future(...).discard()` pattern was returning `Message::GoToBenchmark` from async futures
+  - Fix: Replaced all fire-and-forget background tasks with `tokio::spawn()` which runs truly in background
 - [x] Auto-away not escalating to XA after 15 min (`src/ui/mod.rs`) — FIXED
 - [x] Duplicate `PaletteQuery` arm in `App::update` (`src/ui/mod.rs`) — FIXED
 
