@@ -546,7 +546,7 @@ async fn handle_iq(
         let has_fin = el.children().any(|c| c.name() == "fin" && c.ns() == NS_MAM);
         if has_fin {
             if let Some((query_id, mam_result)) = mam_mgr.on_fin_iq(&el) {
-                let fetched = mam_result.rsm.count.unwrap_or(0) as usize;
+                let fetched = mam_result.messages.len();
                 // Use on_result to peek at conversation jid, then call on_fin
                 let conv_jid = catchup_mgr
                     .on_result(&query_id, "__server__")
