@@ -25,6 +25,58 @@ use crate::xmpp::modules::link_preview::LinkPreview;
 // G4: /me action message prefix (XEP-0245)
 const ME_PREFIX: &str = "/me ";
 
+// M4: maximum voice recording duration (5 minutes = 300 seconds)
+const VOICE_MAX_SECS: u32 = 300;
+
+// M4: Voice recording state machine
+pub enum VoiceState {
+    Idle,
+    Recording(RecordingHandle),
+    Encoding,
+    Uploading,
+}
+
+impl std::fmt::Debug for VoiceState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Idle => write!(f, "VoiceState::Idle"),
+            Self::Recording(_) => write!(f, "VoiceState::Recording(...)"),
+            Self::Encoding => write!(f, "VoiceState::Encoding"),
+            Self::Uploading => write!(f, "VoiceState::Uploading"),
+        }
+    }
+}
+
+// Cloning VoiceState resets any in-progress recording to Idle.
+// ConversationView derives Clone, so we provide a safe fallback.
+impl Clone for VoiceState {
+    fn clone(&self) -> Self {
+        VoiceState::Idle
+    }
+}
+
+// M4: Handle kept alive while recording is in progress.
+// The cpal::Stream is !Send on some platforms, so it lives on a
+// dedicated std::thread; this struct holds the control primitives.
+pub struct RecordingHandle {
+    pub rx: std::sync::mpsc::Receiver<Vec<i16>>,
+    pub stop_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    // Keep the stream alive via a dedicated thread that owns it.
+    // Dropping the JoinHandle is fine — the thread exits when the stop_flag is set.
+    pub _thread: Option<std::thread::JoinHandle<()>>,
+    pub sample_rate: u32,
+    pub channels: u16,
+}
+
+impl std::fmt::Debug for RecordingHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RecordingHandle")
+            .field("sample_rate", &self.sample_rate)
+            .field("channels", &self.channels)
+            .finish_non_exhaustive()
+    }
+}
+
 /// I3/E4: A file staged for upload.
 #[derive(Debug, Clone)]
 pub struct Attachment {
@@ -162,6 +214,10 @@ pub struct ConversationView {
     hovered_message: Option<String>,
     /// L2: @mention autocomplete — Some(prefix) when active, None when inactive
     mention_prefix: Option<String>,
+    /// M4: voice recording state
+    voice_state: VoiceState,
+    /// M4: seconds elapsed since recording started (updated by VoiceTick)
+    voice_elapsed_secs: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -208,6 +264,12 @@ pub enum Message {
     // L2: @mention autocomplete
     MentionSelected(String), // nick string (without @)
     MentionDismissed,        // dismiss autocomplete without selecting
+    // M4: voice recording
+    StartRecording,                             // mic button clicked — begin capture
+    StopRecording,                              // stop button clicked — encode + upload
+    CancelRecording,                            // cancel button — drop buffer
+    VoiceEncodingDone(std::path::PathBuf, u64), // (temp_path, byte_size) — ready to upload
+    VoiceTick,                                  // fired every 100 ms to update elapsed timer
 }
 
 impl ConversationView {
@@ -238,6 +300,8 @@ impl ConversationView {
             message_states: std::collections::HashMap::new(),
             hovered_message: None,
             mention_prefix: None,
+            voice_state: VoiceState::Idle,
+            voice_elapsed_secs: 0,
         }
     }
 
@@ -335,6 +399,11 @@ impl ConversationView {
                 self.reply_to = None;
                 self.edit_mode = None;
                 self.mention_prefix = None;
+                // M4: if we were in Uploading state, reset voice state after send
+                if matches!(self.voice_state, VoiceState::Uploading) {
+                    self.voice_state = VoiceState::Idle;
+                    self.voice_elapsed_secs = 0;
+                }
                 Task::none()
             }
             Message::Scrolled(offset) => {
@@ -536,6 +605,210 @@ impl ConversationView {
             }
             Message::MentionDismissed => {
                 self.mention_prefix = None;
+                Task::none()
+            }
+            // M4: start recording — spawn a dedicated thread that owns the cpal stream
+            Message::StartRecording => {
+                use cpal::traits::{DeviceTrait, HostTrait};
+                use std::sync::atomic::{AtomicBool, Ordering};
+                use std::sync::{mpsc, Arc};
+
+                let host = cpal::default_host();
+                let device = match host.default_input_device() {
+                    Some(d) => d,
+                    None => {
+                        tracing::warn!("M4: no default input device available");
+                        return Task::none();
+                    }
+                };
+                let config = match device.default_input_config() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!("M4: failed to get default input config: {e}");
+                        return Task::none();
+                    }
+                };
+                let sample_rate = config.sample_rate().0;
+                let channels = config.channels();
+
+                let (tx, rx) = mpsc::channel::<Vec<i16>>();
+                let stop_flag = Arc::new(AtomicBool::new(false));
+                let stop_flag_thread = stop_flag.clone();
+
+                let thread = std::thread::spawn(move || {
+                    use cpal::traits::{DeviceTrait, StreamTrait};
+
+                    let err_fn = |e| tracing::warn!("M4: cpal stream error: {e}");
+                    // Build stream based on sample format
+                    let stream = match config.sample_format() {
+                        cpal::SampleFormat::I16 => device.build_input_stream(
+                            &config.into(),
+                            move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                                let _ = tx.send(data.to_vec());
+                            },
+                            err_fn,
+                            None,
+                        ),
+                        cpal::SampleFormat::F32 => {
+                            let tx2 = tx.clone();
+                            device.build_input_stream(
+                                &config.into(),
+                                move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                                    let samples: Vec<i16> = data
+                                        .iter()
+                                        .map(|&s| {
+                                            (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
+                                        })
+                                        .collect();
+                                    let _ = tx2.send(samples);
+                                },
+                                err_fn,
+                                None,
+                            )
+                        }
+                        cpal::SampleFormat::U16 => {
+                            let tx3 = tx.clone();
+                            device.build_input_stream(
+                                &config.into(),
+                                move |data: &[u16], _: &cpal::InputCallbackInfo| {
+                                    let samples: Vec<i16> = data
+                                        .iter()
+                                        .map(|&s| (s as i32 - 32768) as i16)
+                                        .collect();
+                                    let _ = tx3.send(samples);
+                                },
+                                err_fn,
+                                None,
+                            )
+                        }
+                        _ => {
+                            tracing::warn!("M4: unsupported sample format");
+                            return;
+                        }
+                    };
+                    match stream {
+                        Ok(s) => {
+                            if let Err(e) = s.play() {
+                                tracing::warn!("M4: failed to start stream: {e}");
+                                return;
+                            }
+                            // Keep the stream alive until the stop flag is set
+                            while !stop_flag_thread.load(Ordering::Relaxed) {
+                                std::thread::sleep(std::time::Duration::from_millis(10));
+                            }
+                            // stream drops here, stopping capture
+                        }
+                        Err(e) => {
+                            tracing::warn!("M4: failed to build input stream: {e}");
+                        }
+                    }
+                });
+
+                self.voice_elapsed_secs = 0;
+                self.voice_state = VoiceState::Recording(RecordingHandle {
+                    rx,
+                    stop_flag,
+                    _thread: Some(thread),
+                    sample_rate,
+                    channels,
+                });
+                Task::none()
+            }
+
+            // M4: stop recording — collect samples, encode to WAV in blocking thread
+            Message::StopRecording => {
+                let handle = match std::mem::replace(&mut self.voice_state, VoiceState::Encoding) {
+                    VoiceState::Recording(h) => h,
+                    other => {
+                        self.voice_state = other;
+                        return Task::none();
+                    }
+                };
+                // Signal the recording thread to stop
+                handle
+                    .stop_flag
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                // Drain all buffered chunks
+                let mut all_samples: Vec<i16> = Vec::new();
+                // Give the thread a moment to flush its final chunk
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                while let Ok(chunk) = handle.rx.try_recv() {
+                    all_samples.extend(chunk);
+                }
+                let sample_rate = handle.sample_rate;
+                let channels = handle.channels;
+                // Encode to WAV in a blocking task, then emit VoiceEncodingDone
+                Task::future(async move {
+                    let result = tokio::task::spawn_blocking(move || {
+                        let id = uuid::Uuid::new_v4().to_string();
+                        let path = std::env::temp_dir().join(format!("voice_{}.wav", id));
+                        let spec = hound::WavSpec {
+                            channels,
+                            sample_rate,
+                            bits_per_sample: 16,
+                            sample_format: hound::SampleFormat::Int,
+                        };
+                        let mut writer = hound::WavWriter::create(&path, spec)
+                            .map_err(|e| std::io::Error::other(e.to_string()))?;
+                        for sample in &all_samples {
+                            writer
+                                .write_sample(*sample)
+                                .map_err(|e| std::io::Error::other(e.to_string()))?;
+                        }
+                        writer
+                            .finalize()
+                            .map_err(|e| std::io::Error::other(e.to_string()))?;
+                        let size = std::fs::metadata(&path)?.len();
+                        Ok::<(std::path::PathBuf, u64), std::io::Error>((path, size))
+                    })
+                    .await;
+                    match result {
+                        Ok(Ok((path, size))) => Message::VoiceEncodingDone(path, size),
+                        Ok(Err(e)) => {
+                            tracing::warn!("M4: WAV encoding failed: {e}");
+                            Message::CancelRecording
+                        }
+                        Err(e) => {
+                            tracing::warn!("M4: spawn_blocking panicked: {e}");
+                            Message::CancelRecording
+                        }
+                    }
+                })
+            }
+
+            // M4: cancel recording — drop buffer, return to Idle
+            Message::CancelRecording => {
+                if let VoiceState::Recording(ref handle) = self.voice_state {
+                    handle
+                        .stop_flag
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+                self.voice_state = VoiceState::Idle;
+                self.voice_elapsed_secs = 0;
+                Task::none()
+            }
+
+            // M4: encoding done — stage the WAV as an attachment and trigger Send
+            Message::VoiceEncodingDone(path, size) => {
+                self.voice_state = VoiceState::Uploading;
+                self.pending_attachments.push(Attachment {
+                    name: "voice_message.wav".into(),
+                    path,
+                    size,
+                    progress: 0,
+                });
+                // Reuse the existing Send path which picks up pending_attachments
+                Task::done(Message::Send)
+            }
+
+            // M4: periodic tick — update elapsed counter; auto-stop at 5 min
+            Message::VoiceTick => {
+                if matches!(self.voice_state, VoiceState::Recording(_)) {
+                    self.voice_elapsed_secs += 1;
+                    if self.voice_elapsed_secs >= VOICE_MAX_SECS {
+                        return Task::done(Message::StopRecording);
+                    }
+                }
                 Task::none()
             }
         }
@@ -1055,19 +1328,56 @@ impl ConversationView {
             tooltip::Position::Top,
         );
 
-        let composer_row = row![
-            emoji_btn,
-            attach_btn,
-            text_input("Type a message…", &self.composer)
-                .on_input(Message::ComposerChanged)
-                .on_submit(Message::Send)
-                .padding(10)
-                .width(Length::Fill),
-            send_btn.padding([10, 16]),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center)
-        .padding([4, 8]);
+        // M4: composer row switches to recording strip when recording is active
+        let composer_row = match &self.voice_state {
+            VoiceState::Idle => {
+                // Normal composer with mic button on the right of attach
+                let mic_btn = tooltip(
+                    button(text("🎤").size(14))
+                        .on_press(Message::StartRecording)
+                        .padding([6, 8]),
+                    "Record voice message",
+                    tooltip::Position::Top,
+                );
+                row![
+                    emoji_btn,
+                    attach_btn,
+                    mic_btn,
+                    text_input("Type a message…", &self.composer)
+                        .on_input(Message::ComposerChanged)
+                        .on_submit(Message::Send)
+                        .padding(10)
+                        .width(Length::Fill),
+                    send_btn.padding([10, 16]),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center)
+                .padding([4, 8])
+            }
+            VoiceState::Recording(_) => {
+                let mins = self.voice_elapsed_secs / 60;
+                let secs = self.voice_elapsed_secs % 60;
+                let elapsed_str = format!("🔴 {}:{:02}", mins, secs);
+                row![
+                    button(text("✕ Cancel").size(13))
+                        .on_press(Message::CancelRecording)
+                        .padding([8, 12]),
+                    text(elapsed_str).size(14).width(Length::Fill),
+                    button(text("■ Stop").size(13))
+                        .on_press(Message::StopRecording)
+                        .padding([8, 12]),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center)
+                .padding([4, 8])
+            }
+            VoiceState::Encoding | VoiceState::Uploading => {
+                row![text("Sending voice message…").size(13).width(Length::Fill),]
+                    .spacing(8)
+                    .align_y(Alignment::Center)
+                    .padding([4, 8])
+            }
+        };
 
         // I3: pending attachments strip above composer
         let attachments_strip: Option<Element<Message>> = if !self.pending_attachments.is_empty() {

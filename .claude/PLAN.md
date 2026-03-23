@@ -1264,18 +1264,252 @@ clicking an emoji inserts it at cursor position.
 4. On click, append the emoji character to `self.composer`.
 **Done when**: clicking 😊 button opens grid; clicking 👍 inserts it into the text box.
 
-### M4: Audio recording (voice messages)
-**Goal**: Holding the microphone button records audio; releasing sends it as a voice
-message via HTTP Upload (XEP-0363) as an OGG/Opus file.
-**Files touched**: `src/ui/conversation.rs`, `src/xmpp/engine.rs`
-**Depends on**: E4 (HTTP Upload)
-**Steps**:
-1. Add `recording: bool` + `recorder: Option<AudioRecorder>` to `ConversationView`.
-2. Use `cpal` crate to capture microphone audio into a buffer.
-3. Encode to OGG/Opus with `opus` crate (or raw WAV fallback).
-4. On button release, upload via E4 flow and send the URL as a message.
-5. Show a waveform / duration preview in the composer while recording.
-**Done when**: pressing mic starts recording; releasing uploads and sends the audio.
+### M4: Audio recording (voice messages) ✅ 2026-03-23
+**Goal**: A microphone button in the composer lets the user record a voice message.
+On stop, the recording is encoded and uploaded via the existing E4 (XEP-0363) HTTP
+Upload flow; the CDN URL is then sent as a plain message body.
+**Depends on**: E4 (HTTP Upload, already wired end-to-end)
+**Status**: Done — cpal 0.15 + hound 3; VoiceState machine in ConversationView; VoiceTick subscription at 1s.
+
+---
+
+#### Crate selection
+
+| Concern | Chosen crate | Rationale |
+|---------|-------------|-----------|
+| Audio capture | `cpal 0.15` | Cross-platform (CoreAudio on macOS), already the de-facto std for Rust native audio; no Tokio conflicts |
+| WAV encoding | `hound 3` | Trivial to write PCM → WAV; zero unsafe, small dep |
+| Opus encoding | `audiopus 0.3` (wraps libopus) | Produces real Opus frames; needs libopus system lib on macOS (available via `brew install opus`). **Alternative**: skip Opus in v1, ship WAV only — simpler, no C dep |
+| OGG container | `ogg 0.9` | Wraps Opus frames in an Ogg page stream |
+
+**Recommendation for v1**: WAV only (`cpal` + `hound`). This eliminates the C
+dependency on libopus and ships faster. OGG/Opus can be layered in v2 with
+`audiopus` + `ogg`. The upload and send path is identical for both formats.
+
+**New `Cargo.toml` deps to add:**
+```toml
+cpal = "0.15"
+hound = "3"
+# v2 (optional, add later):
+# audiopus = "0.3"
+# ogg = "0.9"
+```
+
+---
+
+#### State machine
+
+```
+Idle
+ │  [user clicks mic button]
+ ▼
+Recording
+ │  cpal stream captures PCM samples into a Vec<i16> buffer
+ │  elapsed timer ticks every 100 ms → UI shows "0:00", "0:01", …
+ │  [user clicks stop OR auto-stop at 5 min]
+ ▼
+Encoding
+ │  background thread: hound writes PCM → temp .wav file in std::env::temp_dir()
+ │  [encoding done]  [encoding error → Idle + toast]
+ ▼
+Uploading
+ │  push temp file path into pending_attachments (reuses existing Attachment struct)
+ │  emit RequestUploadSlot { filename, size, mime: "audio/wav" }
+ │  engine → server → UploadSlotReceived → HTTP PUT → SendMessage with get_url
+ │  [upload success → Idle, message sent]  [upload error → Idle + toast]
+ ▼
+(Sent — back to Idle)
+```
+
+Cancel can be triggered from Recording or Encoding states; it drops the buffer
+and temp file, returns to Idle.
+
+---
+
+#### Recording runs in a background thread
+
+`cpal`'s `build_input_stream` uses a callback on a native audio thread — it must
+**not** touch iced state directly. The design:
+
+1. Spawn a dedicated `std::thread` (not Tokio) for the cpal stream lifetime.
+2. The callback sends `Vec<i16>` chunks over a `std::sync::mpsc::Sender<Vec<i16>>`.
+3. `ConversationView` holds a `RecordingHandle` containing:
+   - the `mpsc::Receiver<Vec<i16>>` (drained on each iced tick or on stop)
+   - an `Arc<AtomicBool>` stop flag
+   - the `cpal::Stream` (kept alive; dropped on stop/cancel)
+4. On stop, set the AtomicBool, join the thread, drain the receiver to collect all
+   chunks, then hand the assembled `Vec<i16>` to a Tokio `spawn_blocking` for
+   hound encoding.
+
+This keeps the cpal callback fully off the async executor and avoids `Send` issues.
+
+---
+
+#### New XmppCommand variants
+
+No new `XmppCommand` variants are needed. The voice message reuses:
+- `XmppCommand::RequestUploadSlot { filename, size, mime }` — already exists
+- `XmppCommand::SendMessage { to, body }` — already exists
+
+The engine and file_upload module are untouched.
+
+---
+
+#### New UI state in `ConversationView`
+
+```rust
+// Added to ConversationView struct:
+voice_state: VoiceState,
+voice_elapsed_secs: u32,    // updated by a tick subscription
+```
+
+```rust
+pub enum VoiceState {
+    Idle,
+    Recording(RecordingHandle),
+    Encoding,
+    Uploading,
+}
+
+pub struct RecordingHandle {
+    pub rx: std::sync::mpsc::Receiver<Vec<i16>>,
+    pub stop_flag: Arc<std::sync::atomic::AtomicBool>,
+    pub _stream: cpal::Stream,  // held alive; dropped on stop
+    pub sample_rate: u32,
+    pub channels: u16,
+}
+```
+
+---
+
+#### New `Message` variants in `ConversationView`
+
+```rust
+// Added to conversation::Message enum:
+StartRecording,                    // mic button clicked — begin capture
+StopRecording,                     // stop button clicked — encode + upload
+CancelRecording,                   // cancel button — drop buffer
+VoiceEncodingDone(std::path::PathBuf, u64), // (temp_path, byte_size) — ready to upload
+VoiceTick,                         // fired every 100 ms to update elapsed timer
+```
+
+`VoiceTick` is driven by `iced::time::every(Duration::from_millis(100))` in the
+subscription layer (same pattern as the idle-detection timer if one exists, or a
+new subscription added to `src/ui/mod.rs`).
+
+---
+
+#### UI layout — mic button + recording strip
+
+The mic button lives in the composer toolbar row, to the right of the paperclip
+(📎) button and to the left of the send button.
+
+**Idle state** — toolbar shows:
+```
+[📎] [composer text input ......................] [🎤] [Send]
+```
+
+**Recording state** — composer is replaced by a recording strip:
+```
+[✕ Cancel]  [🔴 0:12]  [■ Stop]
+```
+- The text input is hidden (or disabled) while recording.
+- The red dot pulses (can be approximated by toggling an emoji or color on
+  alternating VoiceTick ticks).
+- Duration shown as `M:SS`.
+
+**Uploading state** — strip shows a spinner / "Sending…" label. The existing
+`AttachmentProgress` machinery can drive a progress bar if desired; for v1 a
+static "Sending…" label is sufficient.
+
+---
+
+#### Files to touch
+
+| File | Change |
+|------|--------|
+| `Cargo.toml` | Add `cpal = "0.15"` and `hound = "3"` |
+| `src/ui/conversation.rs` | Add `VoiceState`, `RecordingHandle`, new `Message` variants; wire `update()` arms; add mic button + recording strip to `view_composer()` |
+| `src/ui/mod.rs` | Add `VoiceTick` subscription (`iced::time::every`) mapped to `conversation::Message::VoiceTick`; pass it through to the active `ConversationView` |
+| `src/ui/chat.rs` | Handle `conversation::Message::VoiceTick` dispatch; no structural changes needed |
+
+**Files NOT touched**: `src/xmpp/**` (engine, modules, mod.rs) — zero XMPP-layer
+changes required because the existing upload flow handles voice files identically
+to image files.
+
+---
+
+#### Encoding detail (hound + spawn_blocking)
+
+On `StopRecording`, the update arm:
+1. Sets the stop flag, drains the mpsc receiver to collect all `Vec<i16>` chunks.
+2. Assembles a flat `Vec<i16>` of PCM samples.
+3. Calls `tokio::task::spawn_blocking(move || { ... })` to write WAV:
+   ```rust
+   let spec = hound::WavSpec {
+       channels,
+       sample_rate,
+       bits_per_sample: 16,
+       sample_format: hound::SampleFormat::Int,
+   };
+   let path = std::env::temp_dir().join(format!("voice_{}.wav", uuid));
+   let mut writer = hound::WavWriter::create(&path, spec)?;
+   for sample in samples { writer.write_sample(sample)?; }
+   writer.finalize()?;
+   Ok((path, file_size))
+   ```
+4. Returns `Message::VoiceEncodingDone(path, size)` via `Task::future`.
+
+On `VoiceEncodingDone`, the update arm:
+1. Sets `voice_state = VoiceState::Uploading`.
+2. Pushes an `Attachment { path, name: "voice_message.wav", size, progress: 0 }`
+   into `pending_attachments` (the same `Vec` used by file uploads).
+3. Returns the same `Task` that `Send` would return when attachments are staged —
+   or alternatively, emits `conversation::Message::Send` directly to trigger the
+   existing upload dispatch path in `chat.rs`.
+
+This means the encoding → upload handoff is a 3-line code path that reuses all
+existing upload logic without duplication.
+
+---
+
+#### Risks and constraints
+
+- **macOS microphone permission**: macOS requires `NSMicrophoneUsageDescription`
+  in `Info.plist` for sandboxed apps. Since this project appears to be a
+  non-sandboxed CLI app (no `.xcodeproj` or entitlements file), CoreAudio will
+  trigger the system permission dialog automatically on first `build_input_stream`
+  call. No extra wiring needed for non-sandboxed builds.
+
+- **cpal device enumeration**: `cpal::default_input_device()` can return `None`
+  on machines with no mic. The `StartRecording` arm must handle this gracefully
+  (show a toast, stay Idle).
+
+- **Thread safety of `cpal::Stream`**: `cpal::Stream` is `!Send` on some
+  platforms. It must be held in the same thread that created it, or wrapped in
+  a `std::thread` that owns the stream for its lifetime. The design above (dedicated
+  `std::thread` that drops the stream on stop) handles this correctly.
+
+- **WAV file size**: 5 minutes of mono 44100 Hz 16-bit PCM ≈ 26 MB. This is large
+  but within XEP-0363 slot limits for most servers. The auto-stop at 5 min caps it.
+  For v2, Opus at 24 kbps brings the same duration to ~900 KB.
+
+- **Temp file cleanup**: The temp `.wav` file should be deleted after the HTTP PUT
+  succeeds. This can be done in the `UploadSlotReceived` handler in `src/ui/mod.rs`
+  after the `tokio::spawn` that does the PUT — add `let _ = tokio::fs::remove_file(&file_path).await;`
+  after a successful upload.
+
+---
+
+#### Acceptance criteria (Done when)
+
+- Clicking the mic button starts a recording (elapsed timer increments).
+- Clicking Stop encodes the audio to a `.wav` temp file.
+- The temp file is uploaded via the existing XEP-0363 HTTP Upload flow.
+- The CDN URL is sent as a chat message to the active conversation peer.
+- Clicking Cancel at any point returns the composer to Idle with no message sent.
+- `cargo test --lib` passes (no new test regressions).
+- `cargo clippy --all-targets` is clean.
 
 ### M5: OMEMO encryption toggle (XEP-0384)
 **Goal**: A lock button in the composer enables end-to-end encryption for the conversation.
@@ -1301,6 +1535,201 @@ Encryption status icon shown per message (open lock = plaintext, shield = encryp
 2. Render the hover bar as an overlay row aligned to the bubble's top-right corner.
 3. Reuse E3 reaction infrastructure to send/receive reactions.
 **Done when**: hovering a message shows the action bar; clicking 👍 adds a reaction pill below.
+
+---
+
+## R2: Enhanced Link Previews
+
+### Goal
+Upgrade the existing E5 text-only preview card into a rich card with a thumbnail image,
+bold title, truncated description, site name, and a video indicator overlay when
+`og:type = video.*`.
+
+### Current state (what E5 already does)
+- `src/xmpp/modules/link_preview.rs`: `parse_preview()` extracts `og:title`,
+  `og:description`, `og:image`, `og:site_name`, Twitter Card equivalents, and `<title>`.
+  The `LinkPreview` struct has five fields; `og:type` is NOT currently parsed.
+- `src/ui/chat.rs`: two fetch sites (`on_message_received` ~line 248 and a second
+  path ~line 773). Both create a fresh `reqwest::Client` per call and loop over
+  `pending_previews`, returning on the first successful result — subsequent URLs in the
+  same batch are silently dropped.
+- `src/ui/conversation.rs` `render_preview_card()`: renders text only; `image_url` is
+  shown as a small blue text label, not a real image widget.
+
+### What R2 adds
+1. **`og:type` parsing** — detect `video.*` pages so the UI can show a play icon.
+2. **Thumbnail fetch** — fetch the `og:image` URL as bytes and produce an
+   `iced_image::Handle`, stored alongside the existing `previews` map.
+3. **Rich card layout** — replace the text label with an actual `image()` widget, add
+   max-width/height clamping (320 × 180 px), and add a play icon overlay for videos.
+4. **In-memory cache** — avoid re-fetching the same URL across conversations.
+5. **Fix multi-URL batch loop** — currently only the first URL per batch emits a
+   `LinkPreviewReady` message; fix the loop to emit one message per URL.
+
+### Architecture
+
+#### Data model changes — `src/xmpp/modules/link_preview.rs`
+
+Add one field to `LinkPreview`:
+```rust
+pub og_type: Option<String>,  // e.g. "video.other", "article", "website"
+```
+
+Add parsing for `og:type` alongside existing meta-tag parsing:
+```
+if lower.contains(r#"property="og:type""#) ...  -> og_type
+```
+
+Helper on `LinkPreview`:
+```rust
+pub fn is_video(&self) -> bool {
+    self.og_type.as_deref().map(|t| t.starts_with("video")).unwrap_or(false)
+}
+```
+
+#### Thumbnail fetch — `src/ui/chat.rs`
+
+New message variant in `src/ui/mod.rs` (or wherever `Message` is defined):
+```
+Message::PreviewThumbnailReady(jid, msg_id, iced_image::Handle)
+```
+
+After a `LinkPreviewReady` is emitted and `preview.image_url` is `Some`, spawn a second
+background task (same pattern as I4 `AttachmentLoaded`) that fetches the image bytes and
+emits `PreviewThumbnailReady`.
+
+Alternatively (simpler): fold both fetches into a single async block — fetch HTML, parse
+OGP, then if `image_url` is set fetch image bytes in the same future and return a combined
+`PreviewReadyWithThumb(msg_id, preview, Option<Handle>)` variant. This avoids two round-
+trips of message dispatch.
+
+**Recommended approach**: combined single-task variant — avoids an extra re-render cycle
+and keeps the fetch logic in one place.
+
+New message variant:
+```rust
+LinkPreviewReadyWithThumb(String, LinkPreview, Option<iced_image::Handle>),
+// (msg_id, preview, thumbnail_handle)
+```
+
+Keep the existing `LinkPreviewReady(String, LinkPreview)` variant alive and unchanged so
+the no-image fallback path still works — or consolidate to `WithThumb` only (thumb is
+`None` when fetch fails or there is no `og:image`).
+
+#### In-memory cache — `src/ui/chat.rs`
+
+Add a module-level or `ChatScreen`-level `HashMap<String, LinkPreview>` keyed on URL.
+Before spawning a fetch task, check the cache. On success, insert into cache then emit
+the message. The cache lives for the process lifetime (no persistence needed for R2 scope).
+
+```rust
+// In ChatScreen struct:
+preview_cache: HashMap<String, LinkPreview>,
+```
+
+Pass a clone of the relevant entries into the async task so the cache lookup happens
+synchronously before the task is spawned.
+
+#### State changes — `src/ui/conversation.rs`
+
+Add to `ConversationView`:
+```rust
+preview_thumbs: HashMap<String, iced_image::Handle>,  // msg_id -> thumbnail
+```
+
+Handle the new variant in `update()`:
+```rust
+Message::LinkPreviewReadyWithThumb(msg_id, preview, thumb) => {
+    if let Some(h) = thumb { self.preview_thumbs.insert(msg_id.clone(), h); }
+    self.previews.insert(msg_id, preview);
+    Task::none()
+}
+```
+
+#### Card layout — `render_preview_card()` in `src/ui/conversation.rs`
+
+Current layout (text-only):
+```
+[ site_name (grey, 10px) ]
+[ title (bold, 13px)     ]
+[ description (12px)     ]
+[ image_url (blue text)  ]  <-- replace this
+```
+
+New layout:
+```
++-----------------------------------+
+| [thumbnail 320x180, or 320x80]    |
+|  [▶ overlay if is_video()]        |
++-----------------------------------+
+| site_name  (grey, 10px)           |
+| Title      (bold, 13px)           |
+| Description truncated 150 chars   |
++-----------------------------------+
+```
+
+Thumbnail rendering (only when handle is available):
+```rust
+if let Some(handle) = thumb_handle {
+    let img = image(handle.clone()).width(320).height(180).content_fit(ContentFit::Cover);
+    // if preview.is_video():  overlay a "▶" text widget centered on the image
+    card_col = card_col.push(img_container);
+}
+```
+
+For the play icon, use `iced::widget::stack` to layer a centred `text("▶").size(32)`
+over the image widget (semi-transparent dark circle background via container style).
+
+If no handle is available (fetch failed or no `og:image`), render as before — title and
+description only.
+
+Card width: keep at 300px. Add `Length::Fill` image width so it adapts to card width.
+
+#### Fix multi-URL batch drop (bonus — low risk)
+
+In `chat.rs` link preview loop, change from:
+```rust
+// current — returns on first success, drops rest
+return Message::Conversation(jid, LinkPreviewReady(msg_id, preview));
+```
+to collecting all results and emitting them as a batch, or spawning one task per URL.
+Easiest fix: spawn one `Task::future` per `(msg_id, url)` pair using `Task::batch`.
+
+### Files touched
+| File | Change |
+|------|--------|
+| `src/xmpp/modules/link_preview.rs` | Add `og_type` field + parser + `is_video()` helper |
+| `src/ui/conversation.rs` | Add `preview_thumbs` map; new message variant handler; update `render_preview_card` for image + video overlay |
+| `src/ui/chat.rs` | Add `preview_cache` to `ChatScreen`; replace single-result loop with per-URL tasks; fetch thumbnail bytes in same async block |
+
+No new crate dependencies required — `reqwest` (bytes), `iced` (image widget), and the
+`image` crate are all already present.
+
+### Risks and constraints
+- **Image memory**: iced image handles hold raw decoded pixels. Large OGP images (some
+  sites serve 1200x630) should be resized before creating the handle. Use the `image`
+  crate (already in `Cargo.toml`) to decode + resize to max 320x180 before calling
+  `Handle::from_bytes`. This must happen inside the async task, not on the UI thread.
+- **HTTPS redirects**: `og:image` URLs sometimes resolve through CDN redirects.
+  `reqwest` follows them by default — no special handling needed.
+- **Missing thumbnail vs missing OGP**: if `og:image` is absent, fall back to text card
+  only. Do not show a broken-image placeholder.
+- **Video overlay**: iced has no built-in `stack` widget in 0.13. Use a `container` with
+  absolute positioning or overlay the play glyph as a `text` widget inside a
+  `container` with fixed size placed below the image. Confirm `iced::widget::stack` API
+  availability for version 0.13 before Builder starts.
+- **Duplicate fetch sites**: two nearly identical fetch blocks exist in `chat.rs` (lines
+  ~248 and ~773). Both must be updated consistently — or refactored into a shared helper
+  function to avoid drift. Refactor is preferred.
+
+### Done when
+- A link to an OGP page (e.g. a GitHub repo, a news article) shows a thumbnail image
+  above the title/description card.
+- A YouTube or Vimeo link (where `og:type = video.other`) shows the thumbnail with a
+  play icon overlay.
+- Re-opening a conversation does not re-fetch already-loaded previews (cache hit).
+- `cargo test --lib` still passes all tests.
+- `cargo clippy --all-targets` is clean.
 
 ---
 
@@ -2269,6 +2698,1370 @@ the `map()` call to be present.
 - [ ] Render invitation banners in `ChatScreen::view()`
 - [ ] Render invite dialog in `ChatScreen::view()` (conditional, same pattern as K1 config modal)
 - [ ] Handle `XmppEvent::RoomInvitationReceived` in `App::update` (`src/ui/mod.rs`)
+- [ ] `cargo test --lib` — all tests pass
+- [ ] `cargo clippy --all-targets` — no errors
+
+---
+
+---
+
+## L3: Message Moderation (XEP-0425)
+
+**Status**: Pending
+**Assigned To**: Builder
+**Last Updated**: 2026-03-23 by Architect
+
+---
+
+### What XEP-0425 says
+
+A moderator sends a `<message>` stanza (type="groupchat") addressed to the room
+JID. It carries an `<apply-to>` element (XEP-0297 fasten, namespace
+`urn:xmpp:fasten:0`) referencing the original message's `id` attribute, with a
+child `<moderated xmlns='urn:xmpp:message-moderate:0'>` that itself contains a
+`<retract xmlns='urn:xmpp:message-retract:1'/>` element. An optional `<reason>`
+text child may be present inside `<moderated>`.
+
+Wire format to send:
+```xml
+<message to="room@conference.example.com" type="groupchat" id="<uuid>">
+  <apply-to xmlns="urn:xmpp:fasten:0" id="<target-message-id>">
+    <moderated xmlns="urn:xmpp:message-moderate:0">
+      <retract xmlns="urn:xmpp:message-retract:1"/>
+      <reason>Spam</reason>
+    </moderated>
+  </apply-to>
+</message>
+```
+
+Wire format received from server (echoed to all room members):
+Same structure as above, but with `from="room@conference.example.com/<moderator-nick>"`.
+
+**Important**: XEP-0425 uses `urn:xmpp:message-moderate:0` (not the same
+namespace as the self-retraction `urn:xmpp:message-retract:0` from
+`message_mutations.rs`). The engine already uses `urn:xmpp:message-retract:1`
+for the retract child in `make_retraction_message()` — follow that same choice.
+
+---
+
+### Namespace constants (new)
+
+```rust
+const NS_MODERATION: &str = "urn:xmpp:message-moderate:0";
+const NS_FASTEN:     &str = "urn:xmpp:fasten:0";
+// NS_RETRACT_1 already defined as "urn:xmpp:message-retract:1" in engine.rs
+```
+
+---
+
+### Data flow
+
+```
+UI (hover button) --> chat::Message::Conversation(jid, conversation::Message::ModerateMessage(msg_id, reason))
+    --> chat.rs intercept: queues XmppCommand::ModerateMessage { room_jid, message_id, reason }
+                           calls convo.apply_retraction(&msg_id)  [reuses E2 tombstone]
+    --> engine.rs cmd arm: make_moderation_message(room_jid, message_id, reason) -> outbox
+
+Incoming (from room, echoed back to all members):
+server sends <message type="groupchat" from="room/nick">
+    --> dispatch_stanza -> "message" arm
+    --> before muc_mgr.on_groupchat_message():
+        detect <apply-to> + <moderated> -> parse target id
+        emit XmppEvent::MessageModerated { room_jid, message_id }
+    --> App::update -> ChatScreen::on_message_moderated(room_jid, msg_id)
+        -> convo.apply_retraction(&msg_id)
+```
+
+---
+
+### Key design decisions
+
+**1. Moderator check — where and how**
+
+The `view()` function in `conversation.rs` already receives `occupants:
+&[OccupantEntry]` and `own_nick: &str` (added for L2 @mention autocomplete).
+This is exactly what is needed. The "Moderate" button visibility gate:
+
+```rust
+let is_moderator = occupants
+    .iter()
+    .any(|o| o.nick == own_nick && o.role == "Moderator");
+```
+
+This check is done inside `ConversationView::view()`. The button is shown only
+when `is_moderator && !m.own && !m.retracted` (you don't moderate your own
+messages; use retract for that; and don't show on already-tombstoned messages).
+
+**2. Reason input — keep it simple**
+
+No inline text field per message. Follow the K3 invite dialog pattern: a small
+modal dialog stored as `Option<(String, String, String)>` — `(room_jid,
+message_id, reason_draft)` — in `ConversationView`. The "Moderate" hover button
+opens the dialog. User types optional reason, clicks Confirm or Cancel.
+
+Alternatively (simpler, and consistent with retract): no reason input for MVP.
+The reason field in `XmppCommand::ModerateMessage` is `Option<String>` = `None`.
+This avoids a modal entirely. The Builder may choose either; the `Option<String>`
+field must be present in the command regardless for future extension.
+
+**Recommended for MVP**: no reason dialog. Pass `reason: None`. Avoids extra
+state complexity. Reason support can be layered on later.
+
+**3. Reuse `apply_retraction()`**
+
+`ConversationView::apply_retraction(&str)` already exists and sets
+`m.retracted = true`, which shows the "(message retracted)" tombstone. The
+moderation path calls this same function — no new tombstone rendering needed.
+
+**4. Incoming detection — placement in dispatch_stanza**
+
+The incoming moderation stanza has `type="groupchat"` and is caught by
+`muc_mgr.on_groupchat_message()` first. That method currently looks for a
+`<body>` element to extract a chat message. A moderation stanza has no `<body>`,
+so `on_groupchat_message()` will return `None` — the code falls through to
+`handle_message()`.
+
+Detection must be inserted **before** the `muc_mgr.on_groupchat_message()` call
+in the `"message"` arm of `dispatch_stanza`. Check:
+- `el.attr("type") == Some("groupchat")`
+- has child `<apply-to xmlns="urn:xmpp:fasten:0">`
+- that child has a child `<moderated xmlns="urn:xmpp:message-moderate:0">`
+
+Extract `apply_to.attr("id")` as the target message id, and the room JID from
+`el.attr("from")` stripped to bare JID (before `/`).
+
+**5. MUC-only scope**
+
+This feature only applies to MUC rooms (groupchat). DMs do not have moderator
+roles. The "Moderate" button must only appear when the active conversation JID is
+in `muc_jids`.
+
+The `ConversationView::view()` already receives `occupants` as an empty slice for
+non-MUC conversations, so `is_moderator` will be `false` for DMs automatically —
+no additional guard needed.
+
+---
+
+### Files to touch
+
+| File | Change |
+|---|---|
+| `src/xmpp/mod.rs` | Add `XmppCommand::ModerateMessage` and `XmppEvent::MessageModerated` |
+| `src/xmpp/engine.rs` | Add `ModerateMessage` cmd arm + `make_moderation_message()` + incoming detection in `"message"` arm |
+| `src/ui/conversation.rs` | Add `conversation::Message::ModerateMessage(String, Option<String>)`, "Moderate" hover button (gated on `is_moderator`), `ModerateMessage` update arm (bubbled to ChatScreen) |
+| `src/ui/chat.rs` | Intercept `conversation::Message::ModerateMessage` in `Message::Conversation` arm; call `convo.apply_retraction()`; queue `XmppCommand::ModerateMessage` |
+| `src/ui/mod.rs` | Handle `XmppEvent::MessageModerated` → call `chat_screen.on_message_moderated()` |
+| `src/ui/chat.rs` | Add `on_message_moderated(room_jid, msg_id)` helper method |
+
+No new files needed. No changes to `message_mutations.rs` — that module handles
+DM-scope mutations (XEP-0424/0308/0444); MUC moderation lives in engine.rs as a
+free function (same pattern as `make_retraction_message`).
+
+---
+
+### New types
+
+**In `src/xmpp/mod.rs`**:
+```rust
+// L3: Send a moderation action (XEP-0425) in a MUC room.
+ModerateMessage {
+    room_jid: String,
+    message_id: String,
+    reason: Option<String>,
+},
+```
+
+```rust
+// L3: A message in a MUC room was moderated (tombstoned by a moderator).
+MessageModerated {
+    room_jid: String,
+    message_id: String,
+},
+```
+
+**In `src/ui/conversation.rs`**:
+```rust
+// L3: moderator requests moderation of another user's message
+ModerateMessage(String, Option<String>), // (msg_id, reason)
+```
+
+---
+
+### Engine stanza builder
+
+```rust
+/// L3: Build a XEP-0425 message moderation stanza for a MUC room.
+fn make_moderation_message(room_jid: &str, target_id: &str, reason: Option<&str>) -> Element {
+    let mut moderated = Element::builder("moderated", NS_MODERATION)
+        .append(Element::builder("retract", "urn:xmpp:message-retract:1").build());
+    if let Some(r) = reason {
+        moderated = moderated.append(
+            Element::builder("reason", NS_MODERATION).append(r).build()
+        );
+    }
+    let apply_to = Element::builder("apply-to", NS_FASTEN)
+        .attr("id", target_id)
+        .append(moderated.build())
+        .build();
+    Element::builder("message", "jabber:client")
+        .attr("to", room_jid)
+        .attr("type", "groupchat")
+        .attr("id", uuid::Uuid::new_v4().to_string())
+        .append(apply_to)
+        .build()
+}
+```
+
+---
+
+### Incoming detection snippet (in dispatch_stanza, "message" arm)
+
+```rust
+// L3: XEP-0425 moderation — detect before muc_mgr.on_groupchat_message()
+if el.attr("type") == Some("groupchat") {
+    if let Some(apply_to) = el.children()
+        .find(|c| c.name() == "apply-to" && c.ns() == NS_FASTEN)
+    {
+        let has_moderated = apply_to.children()
+            .any(|c| c.name() == "moderated" && c.ns() == NS_MODERATION);
+        if has_moderated {
+            if let Some(target_id) = apply_to.attr("id") {
+                let from = el.attr("from").unwrap_or("");
+                let room_jid = from.split('/').next().unwrap_or(from).to_string();
+                let _ = event_tx.send(XmppEvent::MessageModerated {
+                    room_jid,
+                    message_id: target_id.to_string(),
+                }).await;
+            }
+            return;
+        }
+    }
+}
+```
+
+`NS_FASTEN` and `NS_MODERATION` must be declared as constants near the top of
+`engine.rs` alongside the other `NS_*` constants.
+
+---
+
+### Hover button gate (in conversation.rs view())
+
+```rust
+let is_moderator = occupants
+    .iter()
+    .any(|o| o.nick == own_nick && o.role == "Moderator");
+
+// L3: moderate button — shown on hover, non-own messages, moderator only
+let moderate_btn: Option<Element<Message>> =
+    if is_hovered && is_moderator && !m.own && !m.retracted {
+        let mod_msg_id = m.id.clone();
+        Some(tooltip(
+            button(text("🛡").size(10))
+                .on_press(Message::ModerateMessage(mod_msg_id, None))
+                .padding([2, 4]),
+            "Moderate (remove) message",
+            tooltip::Position::Top,
+        ).into())
+    } else {
+        None
+    };
+```
+
+Include `moderate_btn` in the action row for incoming messages (the `!m.own`
+branch). The retract button already lives in the `m.own` branch — these two
+buttons are mutually exclusive by design.
+
+---
+
+### Tests to write (in engine.rs or a dedicated test module)
+
+1. `make_moderation_message` — verify `<apply-to>` has correct `id` attr and
+   namespace, and `<moderated>` child exists.
+2. `make_moderation_message` with reason — verify `<reason>` child text.
+3. `make_moderation_message` without reason — verify no `<reason>` child.
+4. Incoming detection — given a raw moderation `<message>` element, verify that
+   the detection block would correctly identify it (unit-test the condition
+   directly, without needing a full engine loop).
+
+---
+
+### Implementation checklist (for Builder)
+
+- [ ] Add `XmppCommand::ModerateMessage` to `src/xmpp/mod.rs`
+- [ ] Add `XmppEvent::MessageModerated` to `src/xmpp/mod.rs`
+- [ ] Add `NS_FASTEN` and `NS_MODERATION` constants in `src/xmpp/engine.rs`
+- [ ] Add `make_moderation_message()` free function in `src/xmpp/engine.rs`
+- [ ] Add `XmppCommand::ModerateMessage` arm in the command dispatch loop (`run_session`)
+- [ ] Add incoming detection block in `dispatch_stanza` "message" arm (before `muc_mgr.on_groupchat_message()`)
+- [ ] Handle `XmppEvent::MessageModerated` in `App::update` (`src/ui/mod.rs`) → call `chat_screen.on_message_moderated()`
+- [ ] Add `on_message_moderated(room_jid: &str, msg_id: &str)` to `ChatScreen` in `src/ui/chat.rs`
+- [ ] Add `conversation::Message::ModerateMessage(String, Option<String>)` to `src/ui/conversation.rs`
+- [ ] Compute `is_moderator` from `occupants` + `own_nick` in `ConversationView::view()`
+- [ ] Add "Moderate" hover button (gated: `is_moderator && !m.own && !m.retracted`) in the incoming-message branch
+- [ ] Add `Message::ModerateMessage` arm in `ConversationView::update()` → `Task::none()` (bubbled to ChatScreen)
+- [ ] Intercept `conversation::Message::ModerateMessage` in `ChatScreen::update()` `Message::Conversation` arm
+- [ ] `cargo test --lib` — all tests pass (296 + new tests)
+- [ ] `cargo clippy --all-targets` — no errors
+
+---
+
+## K2: Browse Public Rooms (XEP-0045 §6.3)
+
+**Goal**: User can open a panel that lists all public rooms on the MUC service,
+filter by name, and join any room with one click.
+
+**XEP reference**: https://xmpp.org/extensions/xep-0045.html#disco-rooms
+
+**Depends on**: K1 (done), D3 (done), C5 DiscoManager (done)
+
+---
+
+### Protocol flow
+
+```
+UI                    Engine                   Server
+ |                      |                         |
+ |--FetchRoomList------->|                         |
+ |  { service_jid }      |--disco#items IQ get---->|
+ |                       |                         | (returns list of room JIDs)
+ |                       |<--disco#items result----|
+ |                       |                         |
+ |                       | for each room JID:      |
+ |                       |--disco#info IQ get----->|
+ |                       |                         | (returns identity + features
+ |                       |<--disco#info result-----|  including occupant count via
+ |                       |                         |  x-muc#roominfo data form)
+ |<--RoomListReceived----|                         |
+ |  { rooms: Vec<RoomInfo> }                       |
+```
+
+**Occupant count note**: Prosody and ejabberd include occupant count in the
+disco#info result as a `x` data form field with var `muc#roominfo_occupants`
+(XEP-0045 §6.4). We parse it if present; if absent, store `None`. Do NOT
+send a separate presence join to count occupants — that is expensive and
+unnecessary.
+
+**Pagination strategy**: Send one disco#items to the MUC service. Cap the
+display at 50 rooms (first 50 items returned). No cursor-based pagination in
+v1. If a server returns more than 50, show the first 50 and a note "(showing
+first 50 rooms — use search to narrow)".
+
+**disco#info fan-out**: After receiving the items list, issue one disco#info
+per room JID (capped at 50). These responses arrive asynchronously. Emit
+`RoomListReceived` only after all 50 info responses are back — use a counter
+`pending_room_infos: usize` in engine session state. When it hits 0, fire the
+event.
+
+**Risk**: If a server times out or returns an error IQ for some rooms, the
+counter never reaches 0 and the event is never fired. Mitigation: use a
+10-second timeout task (not in v1 — track as follow-up). For v1, rely on
+server correctness.
+
+---
+
+### New domain type
+
+Add to `src/xmpp/mod.rs`:
+
+```rust
+/// K2: A MUC room discovered via disco#items + disco#info.
+#[derive(Debug, Clone)]
+pub struct RoomInfo {
+    /// Bare JID of the room: `room@conference.example.com`
+    pub jid: String,
+    /// Human-readable room name from the disco#info identity `name` attribute.
+    pub name: Option<String>,
+    /// Room description from `muc#roominfo_description` data form field, if present.
+    pub description: Option<String>,
+    /// Current occupant count from `muc#roominfo_occupants` data form field, if present.
+    pub occupant_count: Option<u32>,
+}
+```
+
+---
+
+### XmppCommand change
+
+Add to the `XmppCommand` enum in `src/xmpp/mod.rs`:
+
+```rust
+/// K2: Request the list of public rooms from a MUC service (XEP-0045 §6.3).
+FetchRoomList {
+    /// The MUC service JID, e.g. "conference.example.com".
+    service_jid: String,
+},
+```
+
+---
+
+### XmppEvent change
+
+Add to the `XmppEvent` enum in `src/xmpp/mod.rs`:
+
+```rust
+/// K2: Public room list received from the MUC service.
+RoomListReceived {
+    rooms: Vec<RoomInfo>,
+},
+```
+
+---
+
+### Engine changes (`src/xmpp/engine.rs`)
+
+**Session state** — add two fields alongside the existing managers:
+
+```rust
+// K2: pending room-list info fan-out
+let mut room_list_pending: Vec<super::RoomInfo> = Vec::new();
+let mut room_list_infos_remaining: usize = 0;
+```
+
+**Command handler** — add a new arm in the `run_session` command dispatch:
+
+```rust
+Some(XmppCommand::FetchRoomList { service_jid }) => {
+    let (_, iq) = disco_mgr.build_items_request(&service_jid);
+    outbox.push_back(iq);
+    tracing::info!("k2: fetching room list from {}", service_jid);
+}
+```
+
+**IQ result handler** (`dispatch_stanza` or the IQ block in the stanza loop):
+
+After the existing `disco_mgr.on_info_result()` call, add:
+
+```rust
+// K2: room list — disco#items result (service-level items query)
+if let Some((service_jid, items)) = disco_mgr.on_items_result(&el) {
+    // Filter to room-looking JIDs (contain '@') and cap at 50
+    let room_jids: Vec<String> = items
+        .iter()
+        .filter(|i| i.jid.contains('@'))
+        .take(50)
+        .map(|i| i.jid.clone())
+        .collect();
+
+    if room_jids.is_empty() {
+        let _ = event_tx.send(XmppEvent::RoomListReceived { rooms: vec![] }).await;
+    } else {
+        room_list_infos_remaining = room_jids.len();
+        room_list_pending.clear();
+        for jid in room_jids {
+            let (_, info_iq) = disco_mgr.build_info_request(&jid);
+            outbox.push_back(info_iq);
+        }
+    }
+    return; // stanza consumed
+}
+
+// K2: room list — disco#info result for an individual room
+if let Some((jid, info)) = disco_mgr.on_info_result(&el) {
+    // Only process if we are in a fan-out (remaining > 0)
+    if room_list_infos_remaining > 0 {
+        // Parse optional data form fields for description + occupant count
+        let description = parse_roominfo_field(&el, "muc#roominfo_description");
+        let occupant_count = parse_roominfo_field(&el, "muc#roominfo_occupants")
+            .and_then(|s| s.parse::<u32>().ok());
+        let name = info.identities.first().map(|id| id.name.clone())
+            .filter(|n| !n.is_empty());
+        room_list_pending.push(RoomInfo { jid, name, description, occupant_count });
+        room_list_infos_remaining -= 1;
+        if room_list_infos_remaining == 0 {
+            let rooms = std::mem::take(&mut room_list_pending);
+            let _ = event_tx.send(XmppEvent::RoomListReceived { rooms }).await;
+        }
+        return;
+    }
+}
+```
+
+**Helper function** (add as a free function in `engine.rs`):
+
+```rust
+/// K2: Extract a value from a XEP-0004 data form `<x>` embedded in a disco#info
+/// result IQ element. Returns the text of the first `<value>` child of the
+/// `<field var='...'>` element matching `field_var`.
+fn parse_roominfo_field(iq_el: &Element, field_var: &str) -> Option<String> {
+    const NS_DATA_FORMS: &str = "jabber:x:data";
+    for query in iq_el.children().filter(|c| c.name() == "query") {
+        for x in query.children().filter(|c| c.name() == "x" && c.ns() == NS_DATA_FORMS) {
+            for field in x.children().filter(|c| c.name() == "field") {
+                if field.attr("var") == Some(field_var) {
+                    return field.children()
+                        .find(|c| c.name() == "value")
+                        .map(|v| v.text())
+                        .filter(|s| !s.is_empty());
+                }
+            }
+        }
+    }
+    None
+}
+```
+
+**Order-of-operations risk**: `disco_mgr.on_items_result()` and
+`disco_mgr.on_info_result()` both consume pending entries from the manager by
+IQ id. The existing `on_info_result` call at engine line ~820 will fire first
+and consume the room's disco#info result before the K2 block can see it. This
+means the two calls cannot both be present as plain `if let Some(...)` — the
+first one will win. **Design decision**: wrap both in a single block; check
+items first, then info. Alternatively, add a secondary "room info" pending
+map to `DiscoManager` keyed by JID so K2 info results are distinguishable.
+
+Simpler approach (recommended): tag items requests differently. Instead of
+reusing `DiscoManager.build_items_request`, add a
+`DiscoManager.build_room_items_request(&service_jid) -> (String, Element)`
+that stores the IQ id in a separate `pending_room_list: HashMap<String, String>`
+map and add a corresponding `on_room_items_result`. This keeps K2 traffic
+completely decoupled from C5 disco. Similarly, add `build_room_info_request`
+and `on_room_info_result` with a `pending_room_infos` map in `DiscoManager`.
+
+This avoids any ordering conflict and keeps the existing C5 paths unchanged.
+
+---
+
+### DiscoManager changes (`src/xmpp/modules/disco.rs`)
+
+Add three new fields:
+
+```rust
+/// K2: Pending room-list disco#items requests: iq_id → service_jid.
+pending_room_list: HashMap<String, String>,
+/// K2: Pending per-room disco#info requests: iq_id → room_jid.
+pending_room_infos: HashMap<String, String>,
+```
+
+Add four new methods:
+
+```rust
+pub fn build_room_items_request(&mut self, service_jid: &str) -> (String, Element)
+pub fn on_room_items_result(&mut self, el: &Element) -> Option<(String, Vec<DiscoItem>)>
+pub fn build_room_info_request(&mut self, room_jid: &str) -> (String, Element)
+pub fn on_room_info_result(&mut self, el: &Element) -> Option<(String, DiscoInfo)>
+```
+
+These are structurally identical to the existing `build_items_request` /
+`on_items_result` / `build_info_request` / `on_info_result` but use the new
+pending maps. No changes to existing methods — C5 disco is unaffected.
+
+---
+
+### UI changes
+
+#### `src/ui/sidebar.rs`
+
+Add a "Browse" button (`@` glyph, consistent with `+` / `#` / `*` pattern)
+to the header row. Add state:
+
+```rust
+// K2: browse rooms state
+show_browse_rooms: bool,
+browse_rooms_service: String,  // pre-filled from conference domain
+```
+
+Add messages:
+
+```rust
+ToggleBrowseRooms,
+BrowseRoomsServiceChanged(String),
+SubmitBrowseRooms,
+```
+
+The form shows one `text_input` pre-filled with `conference.<own-domain>` and
+a "Browse" submit button. `SubmitBrowseRooms` is intercepted by `ChatScreen`
+(same pattern as `SubmitJoinRoom`).
+
+#### `src/ui/chat.rs`
+
+**State** — add two fields to `ChatScreen`:
+
+```rust
+// K2: room browser panel state
+room_browser: Option<RoomBrowserState>,
+```
+
+where `RoomBrowserState` is a local struct:
+
+```rust
+struct RoomBrowserState {
+    rooms: Vec<crate::xmpp::RoomInfo>,
+    filter: String,
+}
+```
+
+**Messages** — add to `chat::Message`:
+
+```rust
+// K2: room browser
+RoomListReceived(Vec<crate::xmpp::RoomInfo>),
+RoomBrowserFilterChanged(String),
+JoinRoomFromBrowser(String),   // room_jid
+CloseBrowser,
+```
+
+**`update()` additions**:
+
+- `Message::Sidebar(sidebar::Message::SubmitBrowseRooms)` — intercept, read
+  `sidebar.browse_rooms_service()`, push `XmppCommand::FetchRoomList` to
+  `pending_commands`.
+- `Message::RoomListReceived(rooms)` — store into `self.room_browser`.
+- `Message::RoomBrowserFilterChanged(v)` — update filter in
+  `self.room_browser`.
+- `Message::JoinRoomFromBrowser(jid)` — derive nick from `own_jid`, call
+  `on_join_room(&jid)`, push `XmppCommand::JoinRoom`, close the browser.
+- `Message::CloseBrowser` — set `self.room_browser = None`.
+
+**`view()` addition**:
+
+Add a new `else if` branch (before the default conversation area) for when
+`self.room_browser.is_some()`. Pattern mirrors the K1 room-config modal:
+
+```
+┌─────────────────────────────────┐
+│  Public Rooms on <service>   [X] │
+│  ┌───────────────────────────┐  │
+│  │ Filter rooms…             │  │
+│  └───────────────────────────┘  │
+│  ┌───────────────────────────┐  │
+│  │ general       5 members   │  │
+│  │ Random chat               │  │
+│  │ [Join]                    │  │
+│  ├───────────────────────────┤  │
+│  │ dev          12 members   │  │
+│  │ Development discussions   │  │
+│  │ [Join]                    │  │
+│  └───────────────────────────┘  │
+│  (showing N rooms)               │
+└─────────────────────────────────┘
+```
+
+Implementation: `column` with a header row, a filter `text_input`, then a
+`scrollable(column(room_rows))` where each `room_row` is a `container` with
+room name, description (if present), occupant count (if present), and a
+"Join" `button`.
+
+Filter is applied client-side: include rooms where JID or name contains the
+filter string (case-insensitive). Computed inline in `view()` — no state
+duplication.
+
+#### `src/ui/mod.rs` (App::update)
+
+Handle `XmppEvent::RoomListReceived { rooms }` → call
+`chat_screen.update(chat::Message::RoomListReceived(rooms))`.
+
+---
+
+### Files to touch (complete list)
+
+| File | Change |
+|---|---|
+| `src/xmpp/mod.rs` | Add `RoomInfo` struct, `XmppCommand::FetchRoomList`, `XmppEvent::RoomListReceived` |
+| `src/xmpp/modules/disco.rs` | Add `pending_room_list`, `pending_room_infos` fields + 4 methods |
+| `src/xmpp/engine.rs` | Add session-local `room_list_pending` + `room_list_infos_remaining`, command arm, IQ result handlers, `parse_roominfo_field()` helper |
+| `src/ui/sidebar.rs` | Add "Browse" button + `show_browse_rooms` state + messages |
+| `src/ui/chat.rs` | Add `RoomBrowserState`, messages, update arms, view branch |
+| `src/ui/mod.rs` | Handle `XmppEvent::RoomListReceived` in `App::update` |
+
+**Not touched**: `src/xmpp/modules/muc.rs`, `src/ui/conversation.rs`,
+`src/ui/muc_panel.rs`, any store/database layer.
+
+---
+
+### Tests to write (in `src/xmpp/modules/disco.rs`)
+
+1. `build_room_items_request_registers_pending` — verify IQ id stored in
+   `pending_room_list`, not `pending_items`.
+2. `on_room_items_result_parses_items` — mirrors existing `on_items_result_parses_items` test.
+3. `on_room_items_result_ignores_unknown_id` — returns `None` for non-pending IQ id.
+4. `build_room_info_request_registers_pending` — verify stored in
+   `pending_room_infos`, not `pending_info`.
+5. `on_room_info_result_parses_identity_and_features` — mirrors existing test.
+6. `parse_roominfo_field_extracts_occupant_count` — given a raw IQ element with
+   a data form containing `muc#roominfo_occupants`, returns the correct value.
+7. `parse_roominfo_field_returns_none_when_absent` — no data form → `None`.
+
+---
+
+### Implementation checklist (for Builder)
+
+- [ ] Add `RoomInfo` struct to `src/xmpp/mod.rs`
+- [ ] Add `XmppCommand::FetchRoomList { service_jid: String }` to `src/xmpp/mod.rs`
+- [ ] Add `XmppEvent::RoomListReceived { rooms: Vec<RoomInfo> }` to `src/xmpp/mod.rs`
+- [ ] Add `pending_room_list` and `pending_room_infos` fields to `DiscoManager` in `src/xmpp/modules/disco.rs`
+- [ ] Implement `build_room_items_request` and `on_room_items_result` in `DiscoManager`
+- [ ] Implement `build_room_info_request` and `on_room_info_result` in `DiscoManager`
+- [ ] Add `parse_roominfo_field(iq_el: &Element, field_var: &str) -> Option<String>` free function in `src/xmpp/engine.rs`
+- [ ] Add session locals `room_list_pending: Vec<RoomInfo>` and `room_list_infos_remaining: usize` in `run_session`
+- [ ] Add `XmppCommand::FetchRoomList` arm in command dispatch loop
+- [ ] Add disco#items result handler (K2 path) in the IQ dispatch block
+- [ ] Add disco#info result handler (K2 fan-out path) in the IQ dispatch block
+- [ ] Add `ToggleBrowseRooms` / `BrowseRoomsServiceChanged` / `SubmitBrowseRooms` to `sidebar::Message`
+- [ ] Add `show_browse_rooms: bool` and `browse_rooms_service: String` to `SidebarScreen`
+- [ ] Add "Browse" button (`@`) and collapsible service input row to `SidebarScreen::view_with_drafts()`
+- [ ] Add `browse_rooms_service()` accessor to `SidebarScreen`
+- [ ] Add `RoomBrowserState` struct (local to `chat.rs`) with `rooms` + `filter`
+- [ ] Add `room_browser: Option<RoomBrowserState>` to `ChatScreen`
+- [ ] Add `RoomListReceived`, `RoomBrowserFilterChanged`, `JoinRoomFromBrowser`, `CloseBrowser` to `chat::Message`
+- [ ] Intercept `sidebar::Message::SubmitBrowseRooms` in `ChatScreen::update()`
+- [ ] Handle `chat::Message::RoomListReceived` in `ChatScreen::update()`
+- [ ] Handle filter / join / close messages in `ChatScreen::update()`
+- [ ] Add room browser `else if` branch in `ChatScreen::view()`
+- [ ] Handle `XmppEvent::RoomListReceived` in `App::update` (`src/ui/mod.rs`)
+- [ ] Write 7 unit tests in `src/xmpp/modules/disco.rs`
+- [ ] `cargo test --lib` — all tests pass
+- [ ] `cargo clippy --all-targets` — no errors
+
+---
+
+## H2: Own Avatar Upload (XEP-0084 PEP)
+
+**Status**: Planned — 2026-03-23
+**Complexity**: Medium (2–3 hours)
+**Dependencies**: H1 (avatar fetch — done), `image` crate (already in Cargo.toml), `sha1` crate (already in Cargo.toml), `rfd` (already used in `conversation.rs`)
+
+---
+
+### Goal
+
+Allow the user to change their own avatar from within the app. The avatar is
+published to PubSub via XEP-0084 (data node + metadata node) so that contacts
+with modern clients will receive an automatic notification and update their
+cached copy. No vCard-temp write is needed for the initial implementation
+(vCard-temp write is a stretch goal and requires a separate IQ).
+
+---
+
+### Protocol outline (XEP-0084)
+
+Two sequential PubSub publish IQs are sent, both to the server (no `to`
+attribute, or `to` = own bare JID):
+
+**Step 1 — publish data node:**
+
+```xml
+<iq type="set" id="pub-data-1">
+  <pubsub xmlns="http://jabber.org/protocol/pubsub">
+    <publish node="urn:xmpp:avatar:data">
+      <item id="{sha1-hex}">
+        <data xmlns="urn:xmpp:avatar:data">{base64-encoded PNG}</data>
+      </item>
+    </publish>
+  </pubsub>
+</iq>
+```
+
+**Step 2 — publish metadata node (sent only after data IQ result arrives):**
+
+```xml
+<iq type="set" id="pub-meta-1">
+  <pubsub xmlns="http://jabber.org/protocol/pubsub">
+    <publish node="urn:xmpp:avatar:metadata">
+      <item id="{sha1-hex}">
+        <metadata xmlns="urn:xmpp:avatar:metadata">
+          <info id="{sha1-hex}"
+                type="image/png"
+                bytes="{byte-count}"
+                width="96"
+                height="96"/>
+        </metadata>
+      </item>
+    </publish>
+  </pubsub>
+</iq>
+```
+
+The SHA-1 is computed from the raw PNG bytes after resizing. It doubles as
+the PubSub item ID (XEP-0084 §3).
+
+The `sha1` crate (v0.10) is already in `Cargo.toml` — use
+`sha1::Sha1::digest(&bytes)` to produce the hex string.
+
+---
+
+### Image processing
+
+The `image` crate (v0.25) is already in `Cargo.toml` with `png`, `jpeg`,
+`gif`, `webp` features enabled.
+
+Pipeline (all synchronous, run inside `Task::future` on a blocking thread):
+1. Read file bytes from the path returned by `rfd`.
+2. `image::load_from_memory(&bytes)` → `DynamicImage`
+3. `.resize(96, 96, image::imageops::FilterType::Lanczos3)` → square-crop
+   via `.crop_imm(...)` to exactly 96×96 if aspect ratio differs.
+   Simpler alternative: `.thumbnail(96, 96)` (keeps aspect, may produce
+   non-square) — acceptable for v1; exact crop is a stretch goal.
+4. Encode back to PNG: write into a `Vec<u8>` via
+   `image::codecs::png::PngEncoder` + `write_image`.
+5. Compute SHA-1 hex of the PNG bytes.
+
+All of this is CPU-bound; wrap in `tokio::task::spawn_blocking` inside the
+`Task::future`.
+
+---
+
+### Data flow
+
+```
+[UI: Settings "Change Avatar" button]
+        |
+        | settings::Message::ChangeAvatar
+        v
+[App::update] → Task::future(rfd::AsyncFileDialog::pick_file())
+        |
+        | settings::Message::AvatarFilePicked(Option<PathBuf>)
+        v
+[App::update] → Task::future(spawn_blocking { load+resize+encode+sha1 })
+        |
+        | settings::Message::AvatarReady { png_bytes, sha1, byte_count }
+        v
+[App::update] → send XmppCommand::PublishAvatar { png_bytes, sha1, byte_count }
+        |
+        v
+[engine: XmppCommand::PublishAvatar arm]
+  → build data IQ → push to outbox
+  → store pending sha1/byte_count (for metadata IQ after result)
+        |
+  (IQ result arrives for data publish)
+        |
+        v
+[engine: on IQ result with matching id]
+  → build metadata IQ → push to outbox
+        |
+        v
+[engine] → emit XmppEvent::OwnAvatarPublished { sha1 }
+        |
+        v
+[App::update → Screen::Chat] → update own avatar cache entry
+  → (optional) re-render own avatar in status bar
+```
+
+---
+
+### UI placement
+
+The "Change Avatar" trigger lives in **`src/ui/settings.rs`** — not the
+sidebar. Rationale: the settings panel already owns personal-account controls
+(status, presence, privacy). Adding an avatar section at the top is natural
+and avoids cluttering the sidebar status bar further.
+
+A clickable avatar circle (96×96 rendered via iced `image::Handle`) with a
+"Change…" label beneath it sits at the top of the settings view. If no avatar
+is set, show the initials placeholder (reuse `jid_initial` / `jid_color` from
+`src/ui/avatar.rs`).
+
+The `SettingsScreen` needs to receive the current own avatar bytes (if any)
+from `ChatScreen`. `ChatScreen` already holds `own_jid`; it can also hold
+`own_avatar: Option<Vec<u8>>` populated when `XmppEvent::OwnAvatarPublished`
+(or an incoming `AvatarUpdated { jid == own_jid }`) arrives.
+
+---
+
+### New types and changes — exact files
+
+#### `src/xmpp/mod.rs`
+
+Add to `XmppCommand`:
+```rust
+/// H2: Publish own avatar via XEP-0084 PubSub.
+PublishAvatar {
+    png_bytes: Vec<u8>,
+    sha1: String,       // hex SHA-1 of png_bytes
+    byte_count: u32,
+},
+```
+
+Add to `XmppEvent`:
+```rust
+/// H2: Own avatar published successfully.
+OwnAvatarPublished {
+    sha1: String,
+},
+```
+
+#### `src/xmpp/modules/avatar.rs`
+
+Add two builder methods to `AvatarManager`:
+
+```rust
+/// Build the PubSub data publish IQ (step 1).
+pub fn build_avatar_data_publish(&self, iq_id: &str, sha1: &str, base64_data: &str) -> Element
+
+/// Build the PubSub metadata publish IQ (step 2).
+pub fn build_avatar_metadata_publish(&self, iq_id: &str, sha1: &str, byte_count: u32) -> Element
+```
+
+Both reuse the existing `NS_AVATAR_DATA`, `NS_AVATAR_META`, `NS_PUBSUB`, and
+`NS_CLIENT` constants — no new namespaces needed.
+
+Note: the data IQ has no `to` attribute (published to own server); the
+metadata IQ likewise.
+
+#### `src/xmpp/engine.rs`
+
+In `run_session` command dispatch, add arm for
+`XmppCommand::PublishAvatar { png_bytes, sha1, byte_count }`:
+- Base64-encode `png_bytes`.
+- Generate two IQ IDs (use `uuid::Uuid::new_v4()`).
+- Build data IQ via `avatar_mgr.build_avatar_data_publish(...)` → push to
+  outbox.
+- Store `(data_iq_id, sha1, byte_count)` in a local `pending_avatar_meta:
+  Option<(String, String, u32)>` field in `run_session`.
+
+In `handle_client_event` (or the IQ result dispatch block), when a `type=result`
+IQ arrives whose id matches `pending_avatar_meta`:
+- Build and push the metadata IQ.
+- Clear `pending_avatar_meta`.
+- Emit `XmppEvent::OwnAvatarPublished { sha1 }`.
+
+#### `src/ui/settings.rs`
+
+New `Message` variants:
+```rust
+ChangeAvatar,                               // button pressed
+AvatarFilePicked(Option<std::path::PathBuf>),
+AvatarReady { png_bytes: Vec<u8>, sha1: String, byte_count: u32 },
+```
+
+`SettingsScreen` gains:
+```rust
+own_avatar: Option<Vec<u8>>,   // passed in via new() or update method
+own_jid: String,
+```
+
+`update()` arms:
+- `ChangeAvatar` → `Task::future(rfd::AsyncFileDialog::new().pick_file()...)`
+  returning `AvatarFilePicked`.
+- `AvatarFilePicked(Some(path))` → `Task::future(spawn_blocking { ... })`
+  returning `AvatarReady`.
+- `AvatarReady { .. }` → bubble up to `App` (return `Task::none()` here;
+  `App` intercepts via the settings message mapping and forwards
+  `XmppCommand::PublishAvatar`).
+
+`view()`: add avatar section at the top of the column before existing rows.
+
+#### `src/ui/chat.rs`
+
+Add field:
+```rust
+own_avatar: Option<Vec<u8>>,
+```
+
+Handle in `update()`:
+- `Message::XmppEvent(XmppEvent::OwnAvatarPublished { sha1 })` — no-op beyond
+  updating a local avatar handle if needed for display.
+- `Message::XmppEvent(XmppEvent::AvatarUpdated { jid, data })` where
+  `jid == own_jid` — set `self.own_avatar = Some(data)`.
+
+Pass `own_avatar` down to `SettingsScreen` when opening settings
+(`Message::OpenSettings`).
+
+#### `src/ui/mod.rs`
+
+Map `settings::Message::AvatarReady` intercepted at the `App` level:
+- Extract `png_bytes`, `sha1`, `byte_count`.
+- `self.send_command(XmppCommand::PublishAvatar { png_bytes, sha1, byte_count })`.
+
+Handle `XmppEvent::OwnAvatarPublished` → show a toast "Avatar updated".
+
+---
+
+### Resize algorithm — exact steps for Builder
+
+```rust
+use image::{DynamicImage, GenericImageView, imageops::FilterType};
+
+fn resize_to_96(raw: &[u8]) -> Result<Vec<u8>, image::ImageError> {
+    let img = image::load_from_memory(raw)?;
+    // Scale down so the shorter side is 96px, then centre-crop to 96×96.
+    let (w, h) = img.dimensions();
+    let scale = 96.0 / w.min(h) as f32;
+    let nw = (w as f32 * scale).round() as u32;
+    let nh = (h as f32 * scale).round() as u32;
+    let scaled = img.resize(nw, nh, FilterType::Lanczos3);
+    let x = (nw.saturating_sub(96)) / 2;
+    let y = (nh.saturating_sub(96)) / 2;
+    let cropped = scaled.crop_imm(x, y, 96, 96);
+    let mut buf = Vec::new();
+    cropped.write_to(&mut std::io::Cursor::new(&mut buf),
+                     image::ImageFormat::Png)?;
+    Ok(buf)
+}
+```
+
+This keeps the image sharp and always produces a 96×96 PNG regardless of
+input aspect ratio.
+
+---
+
+### SHA-1 computation
+
+```rust
+use sha1::{Sha1, Digest};
+
+let hash = Sha1::digest(&png_bytes);
+let sha1_hex = format!("{:x}", hash);  // 40-char lowercase hex
+```
+
+`sha1` crate v0.10 with `oid` feature is already present; `Digest` trait is
+re-exported from the `digest` crate pulled in transitively.
+
+---
+
+### Risk notes
+
+- **Two-step publish ordering**: the metadata IQ *must* be sent only after the
+  server confirms the data item. Use the `pending_avatar_meta` slot in
+  `run_session` to gate this. Do not fire both IQs into the outbox
+  simultaneously — some servers reject metadata if data is not yet stored.
+- **Image crate blocking**: `image::load_from_memory` is CPU-bound and can
+  block the async executor for large images. Wrap in `tokio::task::spawn_blocking`.
+- **`sha1` crate API**: v0.10 uses the `digest` trait API, not the old
+  `.update()/.digest()` from v0.9. Use `Sha1::digest(&bytes)` (one-shot).
+- **No new files needed**: all changes fit into existing files. The avatar
+  module already has both NS constants and the Element builder pattern —
+  follow the same style.
+- **Settings ↔ App message boundary**: `SettingsScreen` cannot hold a direct
+  reference to the XMPP command sender. The pattern used everywhere else is
+  to return a `Task<settings::Message>` that resolves to `AvatarReady`, then
+  let `App::update` intercept it and call `send_command`. Follow this pattern
+  exactly.
+
+---
+
+### Tests to add (in `src/xmpp/modules/avatar.rs`)
+
+1. `build_avatar_data_publish_correct_node` — verify IQ has `type=set`, no
+   `to`, pubsub node = `urn:xmpp:avatar:data`, item id = sha1, data text =
+   expected base64.
+2. `build_avatar_metadata_publish_correct_info` — verify IQ has `type=set`,
+   metadata node = `urn:xmpp:avatar:metadata`, `<info>` attributes: `id`,
+   `type=image/png`, `bytes`, `width=96`, `height=96`.
+
+---
+
+### Implementation checklist (for Builder)
+
+- [ ] Add `XmppCommand::PublishAvatar { png_bytes, sha1, byte_count }` to `src/xmpp/mod.rs`
+- [ ] Add `XmppEvent::OwnAvatarPublished { sha1 }` to `src/xmpp/mod.rs`
+- [ ] Add `build_avatar_data_publish()` to `AvatarManager` in `src/xmpp/modules/avatar.rs`
+- [ ] Add `build_avatar_metadata_publish()` to `AvatarManager` in `src/xmpp/modules/avatar.rs`
+- [ ] Add 2 unit tests for the new builder methods in `avatar.rs`
+- [ ] Add `pending_avatar_meta: Option<(String, String, u32)>` local var in `run_session` in `src/xmpp/engine.rs`
+- [ ] Add `XmppCommand::PublishAvatar` dispatch arm in `run_session` (base64-encode, push data IQ, store pending)
+- [ ] Add IQ result detection in `handle_client_event` for pending metadata IQ (push meta IQ, emit `OwnAvatarPublished`)
+- [ ] Add `own_avatar: Option<Vec<u8>>` + `own_jid: String` fields to `SettingsScreen` in `src/ui/settings.rs`
+- [ ] Add `ChangeAvatar`, `AvatarFilePicked`, `AvatarReady` variants to `settings::Message`
+- [ ] Implement `ChangeAvatar` arm (rfd file picker task)
+- [ ] Implement `AvatarFilePicked` arm (spawn_blocking resize+sha1 task)
+- [ ] Implement `AvatarReady` arm (Task::none — bubbled by App)
+- [ ] Add avatar section to `SettingsScreen::view()` (96px circle or initials placeholder + "Change…" button)
+- [ ] Add `own_avatar: Option<Vec<u8>>` field to `ChatScreen` in `src/ui/chat.rs`
+- [ ] Populate `own_avatar` in `ChatScreen::update()` on `AvatarUpdated` where jid == own_jid
+- [ ] Pass `own_avatar` to `SettingsScreen::new()` in `Message::OpenSettings` arm
+- [ ] Intercept `settings::Message::AvatarReady` in `App::update` → `send_command(XmppCommand::PublishAvatar {...})`
+- [ ] Handle `XmppEvent::OwnAvatarPublished` in `App::update` → show toast "Avatar updated"
+- [ ] `cargo test --lib` — all tests pass
+- [ ] `cargo clippy --all-targets` — no errors
+
+---
+
+---
+
+## K6: Chat Preferences Panel
+
+**Task**: Extend the global settings panel (F3, `src/ui/settings.rs`) with a "Chat"
+section that exposes three new preferences:
+
+1. **Join/leave notification suppression** — hide system-line messages when MUC
+   occupants join or leave a room.
+2. **Contact sort order** — Alphabetical (current, implicit) vs. Last Activity
+   (conversations with most recent message rise to the top).
+3. **Per-conversation mute** — already partially implemented (J3); the new section
+   gives it a discoverable home in Settings in addition to the existing in-header
+   toggle.
+
+**Dependencies**: settings.rs (F3), config/mod.rs (Settings struct), sidebar.rs
+(contact rendering), chat.rs (on_muc_presence, on_message_received)
+
+---
+
+### State of play
+
+#### What already exists
+
+| Item | Location | Notes |
+|------|----------|-------|
+| `Settings` struct + JSON persistence | `src/config/mod.rs` | `serde_json` round-trip, `#[serde(default)]` guards on every field |
+| `muted_jids: HashSet<String>` | `config/mod.rs:34` | J3: per-JID notification mute, persisted |
+| `ToggleMute` in ConversationView header | `conversation.rs:1420` + `chat.rs:457` + `mod.rs:494` | Bubbles up to App, toggles `muted_jids` and persists |
+| `SidebarScreen.contacts: Vec<RosterContact>` | `sidebar.rs:18` | Rendered in insertion order — no sort applied |
+| `on_muc_presence(room_jid, nick, role, affiliation, available)` | `chat.rs:142` | Upserts/removes from `muc_occupants`; **does not inject any system message into the ConversationView** |
+| `settings::Message` enum | `settings.rs:17` | Flat enum, no tabs/accordion yet |
+
+#### What does NOT yet exist
+
+- No `mute_join_leave_notifications: bool` field in `Settings`.
+- No `sort_contacts_by: ContactSort` enum/field in `Settings`.
+- No system-message injection in the MUC occupant flow (join/leave are silent in
+  the chat view — occupant panel is the only indicator). This means K6 must also
+  **add** the join/leave system messages before it can suppress them.
+- No "Chat" labeled section in `settings.rs::view()`.
+
+---
+
+### Design decisions
+
+#### A. Join/leave system messages
+
+MUC presence flows through `ChatScreen::on_presence` → `on_muc_presence`. That
+function updates the occupant panel but never touches `ConversationView`. To show
+(and suppress) join/leave lines we must:
+
+1. In `on_muc_presence`, after the occupant upsert/removal, push a
+   `DisplayMessage` with a reserved `from` value (e.g. `"__system__"`) into the
+   corresponding `ConversationView`.
+2. In `ConversationView::view()`, render system messages in a visually distinct
+   style (italic, dimmed, centered) rather than as chat bubbles.
+3. Gate the injection on `Settings::mute_join_leave_notifications`: when `true`,
+   skip the push entirely.
+
+`ChatScreen::on_muc_presence` currently has no access to `Settings`. The cleanest
+approach is to pass the flag as a parameter:
+
+```rust
+// chat.rs
+pub fn on_muc_presence(
+    &mut self,
+    room_jid: &str,
+    nick: &str,
+    role: &str,
+    affiliation: &str,
+    available: bool,
+    show_join_leave: bool,   // NEW — derived from !settings.mute_join_leave_notifications
+) { ... }
+```
+
+The call site in `ChatScreen::on_presence` does not know about settings either.
+The call site in `App::update` (via `XmppEvent::PresenceUpdated`) passes the
+event to `chat.on_presence`. App owns `self.settings`, so it can pass the flag
+down at that point.
+
+Alternatively, `ChatScreen` could hold a `show_join_leave: bool` field kept in
+sync whenever settings change (similar to how `is_muted` lives on
+`ConversationView`). That avoids touching the function signature at every call
+site. **Recommended: store `show_join_leave: bool` on `ChatScreen`** and update
+it whenever `App` processes a settings change.
+
+#### B. Contact sort order
+
+`SidebarScreen.contacts` is a `Vec<RosterContact>` set once via `set_contacts`.
+There is no "last activity" timestamp on `RosterContact`. Two options:
+
+**Option 1 — Sort at render time in `view_with_drafts`.**
+`SidebarScreen` holds a `sort_order: ContactSort` field. It receives the setting
+from `ChatScreen` (which receives it from `App`). In `view_with_drafts`, before
+building `contact_rows`, clone and sort the slice.
+
+**Option 2 — Sort when `set_contacts` is called.**
+Simpler but sorting at render is more flexible and avoids re-sorting on every
+roster push.
+
+For "Last Activity" we need a timestamp per JID. `ChatScreen.conversations` is a
+`HashMap<String, ConversationView>`. `ConversationView` already has a message
+list with timestamps. A helper `fn last_message_ts(jid: &str) -> Option<i64>`
+can be derived from it. `SidebarScreen` does not have access to conversations,
+so `ChatScreen` must compute a `HashMap<String, i64>` ("last activity map") and
+pass it into `view_with_drafts`.
+
+**Recommended: Option 1 with a last-activity map passed from ChatScreen.**
+
+```rust
+// sidebar.rs
+pub fn view_with_drafts(
+    &self,
+    drafts: &[String],
+    default_conference_service: &str,
+    sort_order: ContactSort,            // NEW
+    last_activity: &HashMap<String, i64>, // NEW — jid → last msg timestamp millis
+) -> Element<'_, Message> { ... }
+```
+
+Sort logic:
+
+```
+Alphabetical  → sort by display_name.to_lowercase()
+LastActivity  → sort by last_activity.get(jid).copied().unwrap_or(0) DESC
+               (contacts with no messages fall to the bottom)
+```
+
+#### C. Per-conversation mute in Settings
+
+The existing `muted_jids: HashSet<String>` is already persisted. The only gap is
+discoverability: the toggle lives inside an open conversation, not in Settings.
+K6 adds a read-only display in the Settings panel listing currently muted JIDs
+with an "Unmute" button each. No new Settings fields needed for this sub-feature.
+
+---
+
+### New Settings fields
+
+```rust
+// src/config/mod.rs — add to Settings struct:
+
+/// K6: suppress join/leave system messages in MUC rooms.
+#[serde(default)]
+pub mute_join_leave_notifications: bool,
+
+/// K6: contact list sort order.
+#[serde(default)]
+pub sort_contacts_by: ContactSort,
+```
+
+```rust
+// src/config/mod.rs — new enum:
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
+pub enum ContactSort {
+    #[default]
+    Alphabetical,
+    LastActivity,
+}
+```
+
+Add to `Settings::default()`:
+```rust
+mute_join_leave_notifications: false,
+sort_contacts_by: ContactSort::Alphabetical,
+```
+
+Add to the `settings_round_trip_json` test: assert both new fields survive
+serialisation.
+
+---
+
+### New Settings UI (settings.rs)
+
+Add a "Chat" section header and three rows **below** the existing privacy section
+and **above** the MAM row (keeping the existing flat layout — no tabs needed):
+
+```
+── Chat ──────────────────────────────────────────
+  Hide join/leave notifications   [ toggle ]
+  Sort contacts by:  [Alphabetical]  [Last activity]
+  Muted conversations:
+    alice@example.com   [Unmute]
+    room@conf.example   [Unmute]
+  (none)               ← shown when muted_jids is empty
+──────────────────────────────────────────────────
+```
+
+New `settings::Message` variants:
+
+```rust
+// K6
+MuteJoinLeaveToggled(bool),
+SortContactsSelected(String),   // "alpha" | "activity"
+UnmuteJid(String),
+```
+
+`MuteJoinLeaveToggled` and `SortContactsSelected` write to `self.settings` and
+call `config::save`. `UnmuteJid` removes the JID from `self.settings.muted_jids`
+and saves.
+
+`App::update` must intercept `settings::Message::UnmuteJid` and mirror the
+removal into `ChatScreen` (mark the `ConversationView::is_muted = false`), the
+same way it currently mirrors `ToggleMute` in reverse.
+
+---
+
+### Data flow diagram
+
+```
+[User toggles setting in SettingsScreen]
+        │
+        ▼
+settings::Message::MuteJoinLeaveToggled(bool)
+        │
+        ▼  (App::update intercepts Settings(_) messages)
+App.settings.mute_join_leave_notifications = value
+config::save(&settings)
+        │
+        ▼
+App passes flag down to ChatScreen
+ChatScreen.show_join_leave = !settings.mute_join_leave_notifications
+        │
+        ▼  (next MUC presence event)
+on_muc_presence(…, show_join_leave)
+ ├── [show_join_leave == true]  → push system DisplayMessage to ConversationView
+ └── [show_join_leave == false] → skip push
+
+
+[User changes sort order]
+        │
+        ▼
+settings::Message::SortContactsSelected("activity")
+        │
+        ▼
+App.settings.sort_contacts_by = ContactSort::LastActivity
+config::save(&settings)
+        │
+        ▼  (next view() cycle)
+ChatScreen::view() computes last_activity map from conversations
+ChatScreen::view() calls sidebar.view_with_drafts(…, sort_order, &last_activity)
+SidebarScreen::view_with_drafts sorts contacts before rendering
+```
+
+---
+
+### Files to touch
+
+| File | Change |
+|------|--------|
+| `src/config/mod.rs` | Add `ContactSort` enum; add `mute_join_leave_notifications: bool` and `sort_contacts_by: ContactSort` to `Settings`; update `Default` impl; update round-trip test |
+| `src/ui/settings.rs` | Add `MuteJoinLeaveToggled`, `SortContactsSelected`, `UnmuteJid` to `Message`; handle them in `update()`; add "Chat" section to `view()` |
+| `src/ui/chat.rs` | Add `show_join_leave: bool` field to `ChatScreen`; update `on_muc_presence` to optionally push a system `DisplayMessage`; update `ChatScreen::new()` default; compute last-activity map in `view()`; thread `sort_order` + map to `sidebar.view_with_drafts` |
+| `src/ui/sidebar.rs` | Extend `view_with_drafts` signature with `sort_order: ContactSort` + `last_activity: &HashMap<String, i64>`; sort `contacts` slice before rendering |
+| `src/ui/conversation.rs` | Handle `from == "__system__"` in message rendering (italic/dimmed style, no avatar) |
+| `src/ui/mod.rs` | In `App::update` for `Message::Settings(settings::Message::MuteJoinLeaveToggled)`: sync `chat.show_join_leave`; intercept `UnmuteJid` to sync `ConversationView::is_muted`; pass updated `sort_contacts_by` to `ChatScreen` |
+
+No new files needed. No engine changes needed.
+
+---
+
+### Risks and constraints
+
+- **System message display style**: `ConversationView` currently distinguishes
+  own vs. peer messages by the `own: bool` flag. A `from == "__system__"` sentinel
+  avoids adding a new `DisplayMessage` variant but is fragile if JIDs could ever
+  match that string. A cleaner approach is adding `is_system: bool` to
+  `DisplayMessage` — weigh this against the minimal-impact principle.
+- **Last activity map cost**: computed on every `view()` call. With hundreds of
+  contacts this is negligible (HashMap iteration + sort of a small Vec), but it
+  should only sort when `sort_order == LastActivity`.
+- **UnmuteJid from Settings vs. ToggleMute from ConversationView**: both paths
+  must write through to `App.settings.muted_jids` and `ConversationView.is_muted`
+  to stay in sync. The existing J3 flow handles the toggle direction; UnmuteJid
+  only needs to handle the "remove" direction.
+
+---
+
+### Implementation checklist
+
+- [ ] Add `ContactSort` enum to `src/config/mod.rs`
+- [ ] Add `mute_join_leave_notifications` and `sort_contacts_by` fields to `Settings`
+- [ ] Update `Settings::default()` and round-trip test
+- [ ] Add `show_join_leave: bool` field to `ChatScreen`; initialise to `true`
+- [ ] Update `ChatScreen::on_muc_presence` signature + body to accept + honour `show_join_leave`
+- [ ] Update the call site in `ChatScreen::on_presence` to pass `self.show_join_leave`
+- [ ] Handle `from == "__system__"` in `ConversationView::view()` (system message style)
+- [ ] Add `ContactSort` import + `sort_order` + `last_activity` params to `sidebar.view_with_drafts`
+- [ ] Implement sort logic in `view_with_drafts`
+- [ ] Update call site in `ChatScreen::view()` to compute last-activity map and pass sort_order
+- [ ] Add `MuteJoinLeaveToggled`, `SortContactsSelected`, `UnmuteJid` to `settings::Message`
+- [ ] Handle them in `SettingsScreen::update()`
+- [ ] Add "Chat" section to `SettingsScreen::view()` (toggle, sort buttons, muted list)
+- [ ] Intercept new settings messages in `App::update` to sync `ChatScreen` fields
 - [ ] `cargo test --lib` — all tests pass
 - [ ] `cargo clippy --all-targets` — no errors
 

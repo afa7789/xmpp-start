@@ -91,6 +91,8 @@ pub enum Message {
     InviteReasonChanged(String),
     SubmitInvite,
     DismissInviteDialog,
+    // M4: periodic tick forwarded to the active conversation's voice state machine
+    VoiceTick,
 }
 
 impl ChatScreen {
@@ -705,6 +707,9 @@ impl ChatScreen {
                                     "image/jpeg"
                                 } else if att.name.ends_with(".gif") {
                                     "image/gif"
+                                } else if att.name.ends_with(".wav") {
+                                    // M4: voice message WAV file
+                                    "audio/wav"
                                 } else {
                                     "application/octet-stream"
                                 };
@@ -818,6 +823,18 @@ impl ChatScreen {
                 } else {
                     Task::none()
                 }
+            }
+
+            // M4: forward VoiceTick to the active conversation's voice state machine
+            Message::VoiceTick => {
+                if let Some(jid) = self.active_jid.clone() {
+                    if let Some(convo) = self.conversations.get_mut(&jid) {
+                        return convo
+                            .update(super::conversation::Message::VoiceTick)
+                            .map(move |m| Message::Conversation(jid.clone(), m));
+                    }
+                }
+                Task::none()
             }
         }
     }

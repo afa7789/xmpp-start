@@ -240,6 +240,16 @@ completed:
       Invite button in OccupantPanel header opens send-invite dialog (invitee JID, reason).
       Incoming invitations shown as banners with Accept/Decline.
       Accept joins the room via JoinRoom command.
+  - id: M4
+    name: "Audio recording (voice messages)"
+    completed: "2026-03-23"
+    notes: |
+      Mic button (🎤) in the composer triggers cpal audio capture via a dedicated thread.
+      PCM i16 samples streamed over mpsc to the UI. Stop encodes to WAV (hound) in
+      spawn_blocking, then reuses the existing XEP-0363 HTTP Upload flow to send.
+      Recording strip shows elapsed M:SS timer (VoiceTick subscription, 1s interval).
+      Cancel drops the buffer and returns to Idle. Auto-stop at 5 minutes.
+      Deps added: cpal 0.15, hound 3. audio/wav MIME added to upload MIME map.
 
 # Pending tasks organized by priority
 pending:
@@ -271,16 +281,6 @@ pending:
         Major architectural change. Estimate: 1-2 weeks
 
   high:
-    - id: M4
-      name: "Audio recording (voice messages)"
-      description: |
-        Holding mic button records audio; releasing sends as OGG/Opus via HTTP Upload.
-        Show waveform/duration preview while recording.
-      files:
-        - "src/ui/conversation.rs"
-        - "src/xmpp/engine.rs"
-      depends_on:
-        - "E4" # HTTP Upload
 
     - id: L3
       name: "Message moderation by moderators"
@@ -487,9 +487,9 @@ implemented_xeps:
 
 # Statistics
 stats:
-  completed: 61
+  completed: 62
   pending_critical: 2
-  pending_high: 2
+  pending_high: 1
   pending_medium: 7
   pending_low: 9
   total_xeps_implemented: 27

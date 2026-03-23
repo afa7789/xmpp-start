@@ -1203,6 +1203,9 @@ impl App {
             }
             None
         });
-        Subscription::batch([xmpp_sub, kb_sub, drop_sub, idle_sub])
+        // M4: periodic voice tick — fires every second to update the elapsed timer
+        let voice_tick_sub = iced::time::every(std::time::Duration::from_secs(1))
+            .map(|_| Message::Chat(chat::Message::VoiceTick));
+        Subscription::batch([xmpp_sub, kb_sub, drop_sub, idle_sub, voice_tick_sub])
     }
 }

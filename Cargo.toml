@@ -70,6 +70,10 @@ rfd = "0.14"
 # Clipboard image paste (I1)
 arboard = "3"
 
+# M4: Audio recording (voice messages)
+cpal = "0.15"
+hound = "3"
+
 # Utilities
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
