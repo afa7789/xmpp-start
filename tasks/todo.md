@@ -36,8 +36,8 @@
 - [ ] **D4**: Bookmarks autojoin on connect
 
 ## Phase E — Rich Features
-- [x] ✅ **E1**: Message corrections (XEP-0308) (2026-03-22) — SendCorrection command wired in engine, make_correction_message builder
-- [x] ✅ **E2**: Message retractions (XEP-0424) (2026-03-22) — SendRetraction command wired in engine, make_retraction_message builder
+- [x] ✅ **E1**: Message corrections (XEP-0308) — (2026-03-22) UI: edit button, edit-mode strip, apply_correction, SendCorrection XmppCommand
+- [x] ✅ **E2**: Message retractions (XEP-0424) — (2026-03-22) UI: retract button, tombstone rendering, apply_retraction, SendRetraction XmppCommand
 - [ ] **E4**: File upload (XEP-0363)
 
 ## Phase F — Polish
