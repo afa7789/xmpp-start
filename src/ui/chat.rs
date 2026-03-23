@@ -8,7 +8,7 @@ use iced::{
     Element, Length, Task,
 };
 
-use crate::xmpp::{IncomingMessage, RosterContact, XmppCommand};
+use crate::xmpp::{modules::presence_machine::PresenceStatus, IncomingMessage, RosterContact, XmppCommand};
 
 use super::{
     conversation::{ConversationView, DisplayMessage},
@@ -37,6 +37,7 @@ pub enum Message {
     PeerTyping(String, bool),  // G2: (jid, composing)
     OpenSettings,              // F3: open settings panel
     ToggleMute(String),        // J3: toggle mute for a JID
+    SetPresence(PresenceStatus), // C2: user changed their presence status
 }
 
 impl ChatScreen {
@@ -223,6 +224,12 @@ impl ChatScreen {
                     // Store mute state; App intercepts this message to persist
                     let _ = is_now_muted;
                 }
+                Task::none()
+            }
+
+            Message::SetPresence(status) => {
+                // C2: queue SetPresence command for the engine (App drains pending_commands)
+                self.pending_commands.push(XmppCommand::SetPresence(status));
                 Task::none()
             }
 
@@ -422,8 +429,18 @@ impl ChatScreen {
         let settings_btn = iced::widget::button(text("Settings").size(11))
             .on_press(Message::OpenSettings)
             .padding([2, 8]);
+        // C2: presence status picker buttons
+        let available_btn = iced::widget::button(text("● Available").size(11))
+            .on_press(Message::SetPresence(PresenceStatus::Available))
+            .padding([2, 8]);
+        let away_btn = iced::widget::button(text("◌ Away").size(11))
+            .on_press(Message::SetPresence(PresenceStatus::Away))
+            .padding([2, 8]);
+        let dnd_btn = iced::widget::button(text("⊘ DND").size(11))
+            .on_press(Message::SetPresence(PresenceStatus::DoNotDisturb))
+            .padding([2, 8]);
         let status_bar = container(
-            row![own_label, settings_btn]
+            row![own_label, available_btn, away_btn, dnd_btn, settings_btn]
                 .spacing(8)
                 .align_y(iced::Alignment::Center),
         )

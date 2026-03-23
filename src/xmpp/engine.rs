@@ -269,6 +269,13 @@ async fn run_session(
                             tracing::debug!("reactions: sent {} reaction(s) to {to_jid}", emojis.len());
                         }
                     }
+                    Some(XmppCommand::SetPresence(status)) => {
+                        // C2: Update user presence status and broadcast to server
+                        presence_machine.set_user_status(status);
+                        if let Some(stanza) = presence_machine.build_presence_stanza() {
+                            outbox.push_back(stanza);
+                        }
+                    }
                 }
             }
         }
