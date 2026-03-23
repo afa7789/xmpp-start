@@ -713,6 +713,26 @@ impl App {
                     XmppEvent::VCardReceived { jid, name, .. } => {
                         tracing::debug!("H4: vCard received for {jid}: name={:?}", name);
                     }
+                    // J6: XEP-0084 PubSub avatar — store alongside vCard avatar
+                    XmppEvent::AvatarUpdated { ref jid, ref data } => {
+                        tracing::debug!("J6: PubSub avatar updated for {jid} ({} bytes)", data.len());
+                        self.avatar_cache.insert(jid.clone(), data.clone());
+                        if let Screen::Chat(ref mut chat) = self.screen {
+                            chat.on_avatar_received(jid.clone(), data.clone());
+                        }
+                    }
+                    // K4: delivery receipt — log only for now
+                    XmppEvent::MessageDelivered { ref id, ref from } => {
+                        tracing::debug!("K4: delivery receipt from {from} for msg {id}");
+                    }
+                    // K5: read marker — log only for now
+                    XmppEvent::MessageRead { ref id, ref from } => {
+                        tracing::debug!("K5: read marker from {from} for msg {id}");
+                    }
+                    // J10: MAM prefs received — log only for now
+                    XmppEvent::MamPrefsReceived { ref default_mode } => {
+                        tracing::debug!("J10: MAM prefs default_mode={default_mode}");
+                    }
                     XmppEvent::BookmarksReceived(bookmarks) => {
                         tracing::info!("D4: {} bookmark(s) received", bookmarks.len());
                         // D4: autojoin rooms — send JoinRoom for each autojoin bookmark

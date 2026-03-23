@@ -109,3 +109,41 @@
 - [ ] **L3**: Location sharing (XEP-0080)
 - [ ] **L4**: Ad-hoc commands UI (XEP-0050)
 - [ ] **L5**: Spam reporting
+
+## Phase K — Security & Encryption (gap analysis)
+- [ ] **K1**: OMEMO end-to-end encryption (XEP-0384) — Critical; libsignal + device trust UI
+- [ ] **K2**: Device identity management + trust fingerprint verification UI
+
+## Phase L — Account Management (gap analysis)
+- [ ] **L1**: Multi-account support — scope DB + engine per JID; account switcher
+- [ ] **L2**: Account registration wizard (XEP-0077 In-Band Registration)
+
+## Phase M — Preferences & Settings gaps (gap analysis)
+- [ ] **M1**: System theme sync + 12h/24h time format + compact mode
+- [ ] **M2**: Per-room notification mute/mentions-only; DND suppresses notifications
+- [ ] **M3**: Blocklist search + add JID UI
+- [ ] **M4**: Account details panel (JID, resources, connection method, auth, server caps)
+- [ ] **M5**: Network settings: proxy SOCKS5/HTTP, manual SRV, TLS toggle
+- [ ] **M6**: Data & storage: MAM fetch limit, clear history, export conversations
+- [ ] **M7**: About modal: version, XEP count, license, GitHub link
+
+## Phase N — Delivery & Read Markers (gap analysis)
+- [ ] **N1**: Delivery receipts (XEP-0184) — ✓/✓✓ status indicators on sent messages
+- [ ] **N2**: Read markers (XEP-0333) — displayed double-check indicator
+
+## Phase O — Push Notifications (gap analysis)
+- [ ] **O1**: XEP-0357 push notifications + VAPID registration
+- [ ] **O2**: DND presence suppresses desktop notifications
+
+## Phase P — Admin & Moderation (gap analysis)
+- [ ] **P1**: Ad-Hoc Commands UI (XEP-0050 + XEP-0004 dynamic forms)
+- [ ] **P2**: Moderator retract button in MUC + reason in tombstone
+
+## Phase Q — Other XEPs (gap analysis)
+- [ ] **Q1**: Sticker packs
+- [ ] **Q2**: Bits of Binary (XEP-0231)
+
+## Phase R — UI/UX Polish (gap analysis)
+- [ ] **R1**: Reaction tooltips (who reacted), quick emoji bar, toggle on re-click
+- [ ] **R2**: Enhanced link previews + OGP image dimensions
+- [ ] **R3**: Composer markdown shortcuts (Ctrl+B/I), auto-grow, paste image
