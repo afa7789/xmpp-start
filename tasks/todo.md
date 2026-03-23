@@ -52,21 +52,21 @@
 - [x] ✅ **G4**: /me action messages (XEP-0245) — already implemented (2026-03-22)
 - [x] ✅ **G5** — (2026-03-22)
 - [x] ✅ **G7**: Copy message to clipboard — (2026-03-22)
-- [ ] **G8**: MAM lazy-load (scroll up for older history)
+- [x] ✅ **G8**: MAM lazy-load (scroll up for older history) — (2026-03-22)
 - [x] ✅ **G9**: Message search within conversation — (2026-03-22)
 
 ## Phase H — Avatars & Contact Management
 - [ ] **H1**: Show user avatars (XEP-0084 + XEP-0153)
 - [ ] **H2**: Own avatar upload (XEP-0084)
-- [ ] **H3**: Add/remove/rename contacts
-- [ ] **H4**: Contact profile popover (vCard)
+- [x] ✅ **H3**: Add/remove/rename contacts — (2026-03-22)
+- [x] ✅ **H4**: Contact profile popover (vCard) — (2026-03-22)
 - [x] ✅ **H5**: Consistent avatar colors (XEP-0392) — already implemented (2026-03-22)
 
 ## Phase I — File & Media
 - [ ] **I1**: Paste image from clipboard
 - [ ] **I2**: Drag & drop files onto composer
 - [ ] **I3**: File picker + multiple attachments + upload progress
-- [ ] **I4**: Attachment preview in received messages
+- [x] ✅ **I4**: Attachment preview in received messages — (2026-03-22)
 
 ---
 ## Orchestration Notes
