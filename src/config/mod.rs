@@ -50,6 +50,19 @@ pub struct Settings {
     /// J10: MAM archiving default mode ("roster", "always", or "never").
     #[serde(default)]
     pub mam_default_mode: Option<String>,
+    /// M1: use system theme instead of manual theme selection.
+    #[serde(default)]
+    pub use_system_theme: bool,
+    /// M1: time format for timestamps (12h or 24h).
+    #[serde(default)]
+    pub time_format: TimeFormat,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
+pub enum TimeFormat {
+    #[default]
+    TwentyFourHour,
+    TwelveHour,
 }
 
 fn default_true() -> bool {
@@ -84,6 +97,8 @@ impl Default for Settings {
             send_typing: true,
             send_read_markers: true,
             mam_default_mode: None,
+            use_system_theme: false,
+            time_format: TimeFormat::TwentyFourHour,
         }
     }
 }
@@ -196,6 +211,8 @@ mod tests {
             send_typing: false,
             send_read_markers: false,
             mam_default_mode: Some("roster".into()),
+            use_system_theme: true,
+            time_format: TimeFormat::TwelveHour,
         };
         let json = serde_json::to_string(&s).unwrap();
         let s2: Settings = serde_json::from_str(&json).unwrap();
@@ -207,6 +224,8 @@ mod tests {
         assert!(!s2.send_typing);
         assert!(!s2.send_read_markers);
         assert_eq!(s2.mam_default_mode, Some("roster".into()));
+        assert!(s2.use_system_theme);
+        assert_eq!(s2.time_format, TimeFormat::TwelveHour);
     }
 
     #[test]
@@ -223,5 +242,31 @@ mod tests {
         assert_eq!(s.theme, Theme::Dark);
         s.theme = Theme::Light;
         assert_eq!(s.theme, Theme::Light);
+    }
+}
+
+impl TimeFormat {
+    /// Format a unix timestamp (milliseconds) into a human-readable string.
+    pub fn format_timestamp(&self, ts_millis: i64) -> String {
+        let ts = chrono::DateTime::from_timestamp_millis(ts_millis);
+        match ts {
+            Some(dt) => match self {
+                TimeFormat::TwentyFourHour => dt.format("%H:%M").to_string(),
+                TimeFormat::TwelveHour => dt.format("%I:%M %p").to_string(),
+            },
+            None => String::new(),
+        }
+    }
+
+    /// Format a unix timestamp with date for date separators.
+    pub fn format_timestamp_full(&self, ts_millis: i64) -> String {
+        let ts = chrono::DateTime::from_timestamp_millis(ts_millis);
+        match ts {
+            Some(dt) => match self {
+                TimeFormat::TwentyFourHour => dt.format("%Y-%m-%d %H:%M").to_string(),
+                TimeFormat::TwelveHour => dt.format("%Y-%m-%d %I:%M %p").to_string(),
+            },
+            None => String::new(),
+        }
     }
 }

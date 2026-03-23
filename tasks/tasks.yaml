@@ -400,13 +400,6 @@ pending:
       depends_on:
         - "S10" # Data forms
 
-    - id: M1
-      name: "System theme sync + time format"
-      description: |
-        Sync with OS dark/light mode. 12h/24h toggle. Compact mode.
-      files:
-        - "src/ui/settings.rs"
-
     - id: M7
       name: "About modal"
       description: |

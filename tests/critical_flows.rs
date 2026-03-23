@@ -210,6 +210,8 @@ fn settings_json_round_trip() {
         send_typing: true,
         send_read_markers: true,
         mam_default_mode: None,
+        use_system_theme: false,
+        time_format: xmpp_start::config::TimeFormat::TwentyFourHour,
     };
 
     let json = serde_json::to_string(&original).unwrap();

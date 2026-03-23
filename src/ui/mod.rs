@@ -979,7 +979,7 @@ impl App {
         let screen_view: Element<Message> = match &self.screen {
             Screen::Login(login) => login.view().map(Message::Login),
             Screen::Benchmark(bench) => bench.view().map(Message::Benchmark),
-            Screen::Chat(chat) => chat.view().map(Message::Chat),
+            Screen::Chat(chat) => chat.view(self.settings.time_format).map(Message::Chat),
             Screen::Settings(ss, _) => ss.view().map(Message::Settings),
             Screen::About(about) => about.view().map(Message::About),
         };

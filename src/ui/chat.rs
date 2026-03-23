@@ -652,7 +652,7 @@ impl ChatScreen {
             .map_or("", |cv| cv.composer.as_str())
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
+    pub fn view(&self, time_format: crate::config::TimeFormat) -> Element<'_, Message> {
         // G6: collect JIDs that have a non-empty draft
         let drafts: Vec<String> = self
             .conversations
@@ -678,7 +678,7 @@ impl ChatScreen {
                         .get(jid)
                         .is_some_and(|t| t.elapsed().as_secs() < 5);
                     let conv_view = convo
-                        .view(&self.avatars)
+                        .view(&self.avatars, time_format)
                         .map(move |m| Message::Conversation(jid2.clone(), m));
                     if is_typing {
                         let indicator =

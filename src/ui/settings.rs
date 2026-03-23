@@ -27,6 +27,9 @@ pub enum Message {
     SendReadMarkersToggled(bool),
     // J10: MAM archiving default mode selector
     MamModeSelected(String),
+    // M1: system theme and time format
+    SystemThemeToggled(bool),
+    TimeFormatToggled(String),
     Back,
 }
 
@@ -106,6 +109,20 @@ impl SettingsScreen {
                 let _ = config::save(&self.settings);
                 Task::none()
             }
+            Message::SystemThemeToggled(enabled) => {
+                self.settings.use_system_theme = enabled;
+                let _ = config::save(&self.settings);
+                Task::none()
+            }
+            Message::TimeFormatToggled(fmt) => {
+                self.settings.time_format = if fmt == "12h" {
+                    crate::config::TimeFormat::TwelveHour
+                } else {
+                    crate::config::TimeFormat::TwentyFourHour
+                };
+                let _ = config::save(&self.settings);
+                Task::none()
+            }
             Message::Back => Task::none(),
         }
     }
@@ -120,6 +137,33 @@ impl SettingsScreen {
         ]
         .spacing(8)
         .align_y(Alignment::Center);
+
+        // M1: system theme toggle
+        let system_theme_row = row![
+            text("Use system theme").size(14).width(Length::Fill),
+            toggler(self.settings.use_system_theme).on_toggle(Message::SystemThemeToggled),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+
+        // M1: time format selector
+        let time_fmt = match self.settings.time_format {
+            crate::config::TimeFormat::TwentyFourHour => "24h",
+            crate::config::TimeFormat::TwelveHour => "12h",
+        };
+        let time_format_row: Element<Message> = row![
+            text("Time format:").size(14).width(Length::Fill),
+            button("24h")
+                .on_press(Message::TimeFormatToggled("24h".into()))
+                .padding([4, 8]),
+            button("12h")
+                .on_press(Message::TimeFormatToggled("12h".into()))
+                .padding([4, 8]),
+            text(time_fmt).size(14),
+        ]
+        .spacing(4)
+        .align_y(Alignment::Center)
+        .into();
 
         let notif_row = row![
             text("Notifications").size(14).width(Length::Fill),
@@ -207,6 +251,8 @@ impl SettingsScreen {
         let content = column![
             title,
             theme_row,
+            system_theme_row,
+            time_format_row,
             notif_row,
             sound_row,
             font_row,

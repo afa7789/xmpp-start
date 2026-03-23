@@ -497,7 +497,13 @@ impl ConversationView {
     pub fn view(
         &self,
         avatars: &std::collections::HashMap<String, Vec<u8>>,
+        time_format: crate::config::TimeFormat,
     ) -> Element<'_, Message> {
+        let ts_format = match time_format {
+            crate::config::TimeFormat::TwentyFourHour => "%H:%M",
+            crate::config::TimeFormat::TwelveHour => "%I:%M %p",
+        };
+
         // ---- Message list (G5: grouping + date separators) ----
         let mut rows: Vec<Element<Message>> = Vec::new();
         let mut prev_date: Option<chrono::NaiveDate> = None;
@@ -696,7 +702,7 @@ impl ConversationView {
                 let own_ts_label = if m.timestamp > 0 {
                     Utc.timestamp_millis_opt(m.timestamp)
                         .single()
-                        .map(|dt| dt.format("%H:%M").to_string())
+                        .map(|dt| dt.format(ts_format).to_string())
                         .unwrap_or_default()
                 } else {
                     String::new()
