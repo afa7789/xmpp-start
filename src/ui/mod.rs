@@ -284,13 +284,19 @@ impl App {
                             .discard();
                         }
                     }
+                    IdleState::AutoAway if elapsed >= EXTENDED_SECS => {
+                        self.idle_state = IdleState::AutoXa;
+                        if let Some(ref tx) = self.xmpp_tx {
+                            let tx = tx.clone();
+                            return Task::future(async move {
+                                let _ = tx.send(XmppCommand::UserExtendedIdle).await;
+                                Message::GoToBenchmark
+                            })
+                            .discard();
+                        }
+                    }
                     _ => {}
                 }
-                Task::none()
-            }
-
-            Message::PaletteQuery(q) => {
-                self.palette_query = q;
                 Task::none()
             }
 
