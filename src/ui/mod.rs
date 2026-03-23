@@ -199,6 +199,8 @@ impl App {
                                 own: r.from_jid == own_jid,
                                 timestamp: r.timestamp,
                                 reply_preview: None,
+                                edited: r.edited_body.is_some(),
+                                retracted: r.retracted != 0,
                             })
                             .collect();
                         convo.load_history(display);

@@ -73,6 +73,8 @@ impl ChatScreen {
             own: false,
             timestamp: chrono::Utc::now().timestamp_millis(),
             reply_preview: None,
+            edited: false,
+            retracted: false,
         });
 
         // B5: increment unread if not the currently active conversation
@@ -288,9 +290,38 @@ impl ChatScreen {
                     return Task::none();
                 }
 
+                // E2: intercept RetractMessage to send retraction to engine and apply tombstone
+                if let super::conversation::Message::RetractMessage(ref msg_id) = cmsg {
+                    let mid = msg_id.clone();
+                    if let Some(convo) = self.conversations.get_mut(&jid) {
+                        convo.apply_retraction(&mid);
+                    }
+                    self.pending_commands
+                        .push(crate::xmpp::XmppCommand::SendRetraction {
+                            to: jid.clone(),
+                            origin_id: mid,
+                        });
+                    return Task::none();
+                }
+
                 // Intercept Send to queue a command for the engine.
                 if let super::conversation::Message::Send = cmsg {
                     if let Some(convo) = self.conversations.get_mut(&jid) {
+                        // E1: if in edit mode, send correction instead
+                        if let Some((original_id, _)) = convo.take_edit_mode() {
+                            let new_body = convo.take_draft();
+                            if !new_body.trim().is_empty() {
+                                convo.apply_correction(&original_id, &new_body);
+                                self.pending_commands
+                                    .push(crate::xmpp::XmppCommand::SendCorrection {
+                                        to: jid.clone(),
+                                        original_id,
+                                        new_body,
+                                    });
+                            }
+                            return Task::none();
+                        }
+
                         let body = convo.take_draft();
                         if !body.trim().is_empty() {
                             // Also push the message to our own view optimistically.
@@ -302,6 +333,8 @@ impl ChatScreen {
                                 own: true,
                                 timestamp: chrono::Utc::now().timestamp_millis(),
                                 reply_preview: None,
+                                edited: false,
+                                retracted: false,
                             });
 
                             // E5: spawn link preview fetch tasks for any URLs in the message

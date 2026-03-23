@@ -67,6 +67,10 @@ pub struct DisplayMessage {
     pub timestamp: i64, // unix milliseconds (G5)
     /// G3: quoted message preview (id, preview text)
     pub reply_preview: Option<String>,
+    /// E1: true if the message body has been corrected
+    pub edited: bool,
+    /// E2: true if the message has been retracted
+    pub retracted: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -97,6 +101,8 @@ pub struct ConversationView {
     previews: std::collections::HashMap<String, LinkPreview>,
     /// E5: pending URL previews to fetch — msg_id → url
     pending_previews: std::collections::HashMap<String, String>,
+    /// E1: currently editing — (msg_id, original_body)
+    edit_mode: Option<(String, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -120,6 +126,9 @@ pub enum Message {
     EmojiSelected(String),        // M3: insert emoji into composer
     SendReaction(String, String), // E3: (msg_id, emoji)
     LinkPreviewReady(String, LinkPreview), // E5: (msg_id, preview)
+    StartEdit(String, String),    // E1: (msg_id, current_body) — populate composer for edit
+    CancelEdit,                   // E1: cancel edit mode
+    RetractMessage(String),       // E2: (msg_id) — retract own message
 }
 
 impl ConversationView {
@@ -141,6 +150,7 @@ impl ConversationView {
             reactions: std::collections::HashMap::new(),
             previews: std::collections::HashMap::new(),
             pending_previews: std::collections::HashMap::new(),
+            edit_mode: None,
         }
     }
 
@@ -169,6 +179,26 @@ impl ConversationView {
         std::mem::take(&mut self.composer)
     }
 
+    /// E1: returns the current edit mode (msg_id, original_body) if active.
+    pub fn take_edit_mode(&mut self) -> Option<(String, String)> {
+        self.edit_mode.take()
+    }
+
+    /// E1: apply an in-place correction to a message body (by msg_id).
+    pub fn apply_correction(&mut self, msg_id: &str, new_body: &str) {
+        if let Some(m) = self.messages.iter_mut().find(|m| m.id == msg_id) {
+            m.body = new_body.to_string();
+            m.edited = true;
+        }
+    }
+
+    /// E2: mark a message as retracted (tombstone display).
+    pub fn apply_retraction(&mut self, msg_id: &str) {
+        if let Some(m) = self.messages.iter_mut().find(|m| m.id == msg_id) {
+            m.retracted = true;
+        }
+    }
+
     pub fn messages(&self) -> &[DisplayMessage] {
         &self.messages
     }
@@ -188,6 +218,7 @@ impl ConversationView {
             Message::Send => {
                 self.composer.clear();
                 self.reply_to = None;
+                self.edit_mode = None;
                 Task::none()
             }
             Message::Scrolled(offset) => {
@@ -241,6 +272,18 @@ impl ConversationView {
                 self.previews.insert(msg_id, preview);
                 Task::none()
             }
+            Message::StartEdit(id, body) => {
+                self.composer = body.clone();
+                self.edit_mode = Some((id, body));
+                self.reply_to = None;
+                Task::none()
+            }
+            Message::CancelEdit => {
+                self.composer.clear();
+                self.edit_mode = None;
+                Task::none()
+            }
+            Message::RetractMessage(_) => Task::none(), // bubbled to ChatScreen
         }
     }
 
@@ -295,6 +338,17 @@ impl ConversationView {
             let within_120s = prev_ts.is_some_and(|pt| (m.timestamp - pt).abs() < 120_000);
             let show_sender = !(same_sender && within_120s);
 
+            // E2: retracted messages show a tombstone
+            if m.retracted {
+                let tombstone = container(text("(message retracted)").size(12))
+                    .width(Length::Fill)
+                    .padding([2, 8]);
+                rows.push(tombstone.into());
+                prev_sender = Some(sender);
+                prev_ts = Some(m.timestamp);
+                continue;
+            }
+
             // G4: /me action rendering
             let body_widget: Element<Message> = if is_me_action(&m.body) {
                 let action_text = &m.body[ME_PREFIX.len()..];
@@ -334,6 +388,25 @@ impl ConversationView {
                     .on_press(Message::SendReaction(react_msg_id, "👍".to_string()))
                     .padding([2, 4]),
                 "React",
+                tooltip::Position::Top,
+            );
+            // E1: edit button (own messages only)
+            let edit_msg_id = m.id.clone();
+            let edit_body = m.body.clone();
+            let edit_btn = tooltip(
+                button(text("✏").size(10))
+                    .on_press(Message::StartEdit(edit_msg_id, edit_body))
+                    .padding([2, 4]),
+                "Edit message",
+                tooltip::Position::Top,
+            );
+            // E2: retract button (own messages only)
+            let retract_msg_id = m.id.clone();
+            let retract_btn = tooltip(
+                button(text("🗑").size(10))
+                    .on_press(Message::RetractMessage(retract_msg_id))
+                    .padding([2, 4]),
+                "Retract message",
                 tooltip::Position::Top,
             );
 
@@ -409,25 +482,37 @@ impl ConversationView {
                 } else {
                     String::new()
                 };
+                let edited_label: Option<Element<Message>> = if m.edited {
+                    Some(text("(edited)").size(10).into())
+                } else {
+                    None
+                };
                 let text_col = if show_sender {
-                    column![
+                    let mut col = column![
                         row![
                             text(sender.clone()).size(11),
                             copy_btn,
                             reply_btn,
-                            react_btn
+                            react_btn,
+                            edit_btn,
+                            retract_btn
                         ]
                         .spacing(8)
                         .align_y(Alignment::Center),
                         body_widget,
-                        text(own_ts_label).size(10),
                     ]
                     .spacing(2)
-                    .padding([6, 10])
+                    .padding([6, 10]);
+                    if let Some(lbl) = edited_label {
+                        col = col.push(lbl);
+                    }
+                    col.push(text(own_ts_label).size(10))
                 } else {
-                    column![body_widget, text(own_ts_label).size(10)]
-                        .spacing(2)
-                        .padding([2, 10])
+                    let mut col = column![body_widget].spacing(2).padding([2, 10]);
+                    if let Some(lbl) = edited_label {
+                        col = col.push(lbl);
+                    }
+                    col.push(text(own_ts_label).size(10))
                 };
                 container(text_col)
                     .width(Length::Fill)
@@ -518,11 +603,27 @@ impl ConversationView {
             container(strip).width(Length::Fill).into()
         });
 
+        // E1: edit-mode strip above composer
+        let edit_strip: Option<Element<Message>> = self.edit_mode.as_ref().map(|(_id, _orig)| {
+            let cancel_btn = button(text("✕").size(10))
+                .on_press(Message::CancelEdit)
+                .padding([2, 4]);
+            let strip = row![
+                text("✏ Editing message").size(11).width(Length::Fill),
+                cancel_btn,
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center)
+            .padding([4, 8]);
+            container(strip).width(Length::Fill).into()
+        });
+
         let can_send = !self.composer.trim().is_empty();
+        let send_label = if self.edit_mode.is_some() { "Save" } else { "Send" };
         let send_btn = if can_send {
-            button("Send").on_press(Message::Send)
+            button(send_label).on_press(Message::Send)
         } else {
-            button("Send")
+            button(send_label)
         };
 
         // M3: emoji picker panel (rendered above composer when open)
@@ -662,6 +763,9 @@ impl ConversationView {
         if let Some(strip) = reply_strip {
             col = col.push(strip);
         }
+        if let Some(strip) = edit_strip {
+            col = col.push(strip);
+        }
         if let Some(panel) = emoji_panel {
             col = col.push(panel);
         }
@@ -762,6 +866,8 @@ mod tests {
             own,
             timestamp: 0,
             reply_preview: None,
+            edited: false,
+            retracted: false,
         }
     }
 

@@ -125,4 +125,8 @@ pub enum XmppCommand {
     UnblockJid(String),
     /// E3: Send an emoji reaction (XEP-0444).
     SendReaction { to: String, msg_id: String, emojis: Vec<String> },
+    /// E1: Send a message correction (XEP-0308).
+    SendCorrection { to: String, original_id: String, new_body: String },
+    /// E2: Send a message retraction (XEP-0424).
+    SendRetraction { to: String, origin_id: String },
 }
