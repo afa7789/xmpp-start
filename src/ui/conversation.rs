@@ -4,12 +4,14 @@
 //                   apps/fluux/src/components/MessageComposer.tsx
 // Scroll strategy: docs/SCROLL_STRATEGY.md
 
+use iced::widget::image as iced_image;
 use iced::widget::scrollable::{AbsoluteOffset, Id};
 use iced::widget::text::Span as IcedSpan;
 use iced::{
     font,
     widget::{
-        button, column, container, rich_text, row, scrollable, span, text, text_input, tooltip,
+        button, column, container, image, rich_text, row, scrollable, span, text, text_input,
+        tooltip,
     },
     Alignment, Color, Element, Font, Length, Task,
 };
@@ -25,6 +27,26 @@ fn extract_first_url(text: &str) -> Option<String> {
     for word in text.split_whitespace() {
         if word.starts_with("http://") || word.starts_with("https://") {
             return Some(word.to_string());
+        }
+    }
+    None
+}
+
+/// I4: Returns Some(url) if the body is a bare image URL (jpg/png/gif/webp).
+fn extract_image_url(body: &str) -> Option<String> {
+    let trimmed = body.trim();
+    // Only treat the body as an image if it's a single URL (no surrounding text)
+    let words: Vec<&str> = trimmed.split_whitespace().collect();
+    if words.len() == 1 {
+        let w = words[0].to_lowercase();
+        if (w.starts_with("http://") || w.starts_with("https://"))
+            && (w.ends_with(".jpg")
+                || w.ends_with(".jpeg")
+                || w.ends_with(".png")
+                || w.ends_with(".gif")
+                || w.ends_with(".webp"))
+        {
+            return Some(trimmed.to_string());
         }
     }
     None
@@ -103,6 +125,12 @@ pub struct ConversationView {
     pending_previews: std::collections::HashMap<String, String>,
     /// E1: currently editing — (msg_id, original_body)
     edit_mode: Option<(String, String)>,
+    /// G8: true while waiting for older MAM history to arrive
+    pub loading_older: bool,
+    /// I4: loaded image attachment handles — msg_id → image handle
+    attachments: std::collections::HashMap<String, iced_image::Handle>,
+    /// I4: pending image URLs to fetch — msg_id → url
+    pending_images: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -129,6 +157,8 @@ pub enum Message {
     StartEdit(String, String),    // E1: (msg_id, current_body) — populate composer for edit
     CancelEdit,                   // E1: cancel edit mode
     RetractMessage(String),       // E2: (msg_id) — retract own message
+    RequestOlderHistory,          // G8: emitted on scroll to top to request older MAM history
+    AttachmentLoaded(String, iced_image::Handle), // I4: (msg_id, image_handle)
 }
 
 impl ConversationView {
@@ -151,23 +181,41 @@ impl ConversationView {
             previews: std::collections::HashMap::new(),
             pending_previews: std::collections::HashMap::new(),
             edit_mode: None,
+            loading_older: false,
+            attachments: std::collections::HashMap::new(),
+            pending_images: std::collections::HashMap::new(),
         }
     }
 
     pub fn push_message(&mut self, msg: DisplayMessage) {
-        self.messages.push(msg.clone());
-        if let Some(url) = extract_first_url(&msg.body) {
+        // I4: detect image URLs before moving msg
+        if let Some(url) = extract_image_url(&msg.body) {
+            self.pending_images.insert(msg.id.clone(), url);
+        } else if let Some(url) = extract_first_url(&msg.body) {
             self.pending_previews.insert(msg.id.clone(), url);
         }
+        self.messages.push(msg);
     }
 
     pub fn take_pending_previews(&mut self) -> std::collections::HashMap<String, String> {
         std::mem::take(&mut self.pending_previews)
     }
 
+    /// I4: take pending image URLs for spawning fetch tasks.
+    pub fn take_pending_images(&mut self) -> std::collections::HashMap<String, String> {
+        std::mem::take(&mut self.pending_images)
+    }
+
     /// B4: Replace all messages with history loaded from DB.
     pub fn load_history(&mut self, msgs: Vec<DisplayMessage>) {
         self.messages = msgs;
+    }
+
+    /// G8: Prepend older messages at the front of the message list.
+    pub fn prepend_messages(&mut self, mut older: Vec<DisplayMessage>) {
+        older.append(&mut self.messages);
+        self.messages = older;
+        self.loading_older = false;
     }
 
     /// L1: record how many messages existed when the conversation was opened.
@@ -223,6 +271,11 @@ impl ConversationView {
             }
             Message::Scrolled(offset) => {
                 self.scroll_offset = offset;
+                // G8: if scrolled to (or near) the top, request older history
+                if offset.y < 20.0 && !self.loading_older && !self.messages.is_empty() {
+                    self.loading_older = true;
+                    return Task::done(Message::RequestOlderHistory);
+                }
                 Task::none()
             }
             Message::ScrollToBottom => {
@@ -284,6 +337,11 @@ impl ConversationView {
                 Task::none()
             }
             Message::RetractMessage(_) => Task::none(), // bubbled to ChatScreen
+            Message::RequestOlderHistory => Task::none(), // bubbled to ChatScreen
+            Message::AttachmentLoaded(msg_id, handle) => {
+                self.attachments.insert(msg_id, handle);
+                Task::none()
+            }
         }
     }
 
@@ -358,6 +416,9 @@ impl ConversationView {
                     ..Font::DEFAULT
                 });
                 rich_text([italic_span]).size(14).into()
+            } else if let Some(handle) = self.attachments.get(&m.id) {
+                // I4: render inline image thumbnail (max 320px wide)
+                image(handle.clone()).width(320).into()
             } else {
                 let styled_spans = styling::parse(&m.body);
                 build_styled_text(&styled_spans)
