@@ -33,7 +33,7 @@
 - [ ] **D1**: Render OccupantPanel in MUC conversations
 - [x] ✅ **D2** — (2026-03-22)
 - [x] ✅ **D3**: MUC join/leave UI flow — (2026-03-22) JoinRoom/LeaveRoom commands, MucManager wired into engine, join-room input row in sidebar
-- [ ] **D4**: Bookmarks autojoin on connect
+- [x] ✅ **D4**: Bookmarks autojoin on connect — (2026-03-22) private XML get on Online, IQ result parse via BookmarkManager, BookmarksReceived event, JoinRoom commands for autojoin rooms
 
 ## Phase E — Rich Features
 - [x] ✅ **E1**: Message corrections (XEP-0308) — (2026-03-22) UI: edit button, edit-mode strip, apply_correction, SendCorrection XmppCommand

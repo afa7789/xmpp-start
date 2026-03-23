@@ -473,8 +473,23 @@ impl App {
                         // A3: persist roster to DB
                         let pool = self.db.clone();
                         let contacts = contacts.clone();
+                        // H1: fetch avatars for all roster contacts
+                        let avatar_task: Task<Message> = if let Some(ref tx) = self.xmpp_tx {
+                            let tx = tx.clone();
+                            let jids: Vec<String> = contacts.iter().map(|c| c.jid.clone()).collect();
+                            Task::future(async move {
+                                for jid in jids {
+                                    let _ = tx.send(XmppCommand::FetchAvatar(jid)).await;
+                                }
+                                Message::GoToBenchmark
+                            })
+                            .discard()
+                        } else {
+                            Task::none()
+                        };
                         return Task::batch([
                             toast,
+                            avatar_task,
                             Task::future(async move {
                                 for c in &contacts {
                                     let _ = crate::store::roster_repo::upsert(
@@ -579,6 +594,9 @@ impl App {
                             png_bytes.len()
                         );
                         self.avatar_cache.insert(jid.clone(), png_bytes.clone());
+                        if let Screen::Chat(ref mut chat) = self.screen {
+                            chat.on_avatar_received(jid.clone(), png_bytes.clone());
+                        }
                     }
                     XmppEvent::CatchupFinished {
                         ref conversation_jid,
@@ -613,6 +631,36 @@ impl App {
                     }
                     XmppEvent::VCardReceived { jid, name, .. } => {
                         tracing::debug!("H4: vCard received for {jid}: name={:?}", name);
+                    }
+                    XmppEvent::BookmarksReceived(bookmarks) => {
+                        tracing::info!("D4: {} bookmark(s) received", bookmarks.len());
+                        // D4: autojoin rooms — send JoinRoom for each autojoin bookmark
+                        let autojoin: Vec<_> = bookmarks
+                            .iter()
+                            .filter(|b| b.autojoin)
+                            .collect();
+                        if !autojoin.is_empty() {
+                            if let Some(ref tx) = self.xmpp_tx {
+                                let tx = tx.clone();
+                                let cmds: Vec<XmppCommand> = autojoin
+                                    .into_iter()
+                                    .map(|b| XmppCommand::JoinRoom {
+                                        jid: b.jid.clone(),
+                                        nick: b.nick.clone().unwrap_or_else(|| {
+                                            // Default nick: local part of our JID
+                                            "me".to_string()
+                                        }),
+                                    })
+                                    .collect();
+                                return Task::future(async move {
+                                    for cmd in cmds {
+                                        let _ = tx.send(cmd).await;
+                                    }
+                                    Message::GoToBenchmark
+                                })
+                                .discard();
+                            }
+                        }
                     }
                 }
                 Task::none()

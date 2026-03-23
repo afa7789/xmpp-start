@@ -27,6 +27,7 @@ use super::{
     connection::ConnectConfig,
     modules::avatar::AvatarManager,
     modules::blocking::BlockingManager,
+    modules::bookmarks::BookmarkManager,
     modules::catchup::CatchupManager,
     modules::disco::{DiscoIdentity, DiscoManager},
     modules::file_upload::FileUploadManager,
@@ -162,6 +163,8 @@ async fn run_session(
     let mut avatar_mgr = AvatarManager::new();
     // D3: XEP-0045 multi-user chat manager
     let mut muc_mgr = MucManager::new();
+    // D4: XEP-0048 bookmarks manager
+    let mut bookmark_mgr = BookmarkManager::new();
 
     loop {
         // Drain outbox before blocking on the next event.
@@ -201,7 +204,7 @@ async fn run_session(
                     }
                     Some(ev) => {
 
-                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut own_jid_str, &mut mam_mgr, &mut catchup_mgr, &mut presence_machine, &mut disco_mgr, &mut file_upload_mgr, &mut avatar_mgr, &mut muc_mgr).await;
+                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut own_jid_str, &mut mam_mgr, &mut catchup_mgr, &mut presence_machine, &mut disco_mgr, &mut file_upload_mgr, &mut avatar_mgr, &mut muc_mgr, &mut bookmark_mgr).await;
                     }
                 }
             }
@@ -341,6 +344,7 @@ async fn handle_client_event(
     file_upload_mgr: &mut FileUploadManager,
     avatar_mgr: &mut AvatarManager,
     muc_mgr: &mut MucManager,
+    bookmark_mgr: &mut BookmarkManager,
 ) {
     match ev {
         tokio_xmpp::Event::Online { bound_jid, .. } => {
@@ -381,6 +385,10 @@ async fn handle_client_event(
             };
             outbox.push_back(mam_mgr.build_query_iq(catchup_query));
             tracing::info!("mam: triggered post-connect catchup (query_id={server_query_id})");
+
+            // D4: fetch bookmarks from private XML storage (XEP-0048)
+            outbox.push_back(make_bookmarks_get_iq());
+            tracing::debug!("bookmarks: requested private XML storage");
 
             let _ = event_tx
                 .send(XmppEvent::Connected {
@@ -425,6 +433,7 @@ async fn handle_client_event(
                 file_upload_mgr,
                 avatar_mgr,
                 muc_mgr,
+                bookmark_mgr,
             )
             .await;
         }
@@ -445,6 +454,7 @@ async fn dispatch_stanza(
     file_upload_mgr: &mut FileUploadManager,
     avatar_mgr: &mut AvatarManager,
     muc_mgr: &mut MucManager,
+    bookmark_mgr: &mut BookmarkManager,
 ) {
     // F1: emit received stanza to debug console before routing
     let xml_str = String::from(&el);
@@ -481,6 +491,7 @@ async fn dispatch_stanza(
                 disco_mgr,
                 file_upload_mgr,
                 avatar_mgr,
+                bookmark_mgr,
             )
             .await
         }
@@ -569,6 +580,7 @@ async fn handle_iq(
     disco_mgr: &mut DiscoManager,
     file_upload_mgr: &mut FileUploadManager,
     avatar_mgr: &mut AvatarManager,
+    bookmark_mgr: &mut BookmarkManager,
 ) {
     // C5: respond to disco#info get requests with our feature list
     if el.attr("type") == Some("get") {
@@ -643,6 +655,24 @@ async fn handle_iq(
                 "blocking: loaded {} blocked JIDs",
                 blocking_mgr.blocked_list().len()
             );
+            return;
+        }
+    }
+
+    // D4: detect bookmarks result (private XML storage, XEP-0048)
+    if el.attr("type") == Some("result") {
+        let has_private = el
+            .children()
+            .any(|c| c.name() == "query" && c.ns() == "jabber:iq:private");
+        if has_private {
+            let bookmarks = BookmarkManager::parse_bookmarks_from_iq(&el);
+            if !bookmarks.is_empty() || el.children().any(|_| true) {
+                bookmark_mgr.set_bookmarks(bookmarks.clone());
+                tracing::info!("bookmarks: loaded {} bookmark(s)", bookmarks.len());
+                let _ = event_tx
+                    .send(XmppEvent::BookmarksReceived(bookmarks))
+                    .await;
+            }
             return;
         }
     }
@@ -943,6 +973,19 @@ fn make_retraction_message(to: Jid, origin_id: &str) -> Element {
         .build();
     raw.append_child(apply_to_el);
     raw
+}
+
+/// D4: Build a private-XML-get IQ to fetch bookmarks (XEP-0048).
+fn make_bookmarks_get_iq() -> Element {
+    let storage = Element::builder("storage", "storage:bookmarks").build();
+    let query = Element::builder("query", "jabber:iq:private")
+        .append(storage)
+        .build();
+    Element::builder("iq", "jabber:client")
+        .attr("type", "get")
+        .attr("id", "bookmarks-get")
+        .append(query)
+        .build()
 }
 
 // ---------------------------------------------------------------------------

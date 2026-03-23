@@ -107,6 +107,9 @@ pub enum XmppEvent {
         name: Option<String>,
         email: Option<String>,
     },
+
+    // D4: bookmarks loaded from server (XEP-0048)
+    BookmarksReceived(Vec<modules::bookmarks::Bookmark>),
 }
 
 /// Commands sent from the UI to the XMPP engine.
