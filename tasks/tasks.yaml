@@ -175,6 +175,9 @@ completed:
   - id: M3
     name: "Emoji picker"
     completed: "2026-03-22"
+  - id: M7
+    name: "About modal"
+    completed: "2026-03-22"
   - id: AUTH-1
     name: "Remember me"
     completed: "2026-03-22"
