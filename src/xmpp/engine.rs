@@ -245,6 +245,13 @@ async fn run_session(
                         outbox.push_back(blocking_mgr.build_unblock_iq(&[jid.as_str()]));
                         tracing::info!("blocking: sent unblock IQ for {jid}");
                     }
+                    Some(XmppCommand::SendRoomInvitation { room, user, reason }) => {
+                        // K3: Send a room invitation
+                        if let (Ok(room_jid), Ok(user_jid)) = (room.parse::<Jid>(), user.parse::<Jid>()) {
+                            outbox.push_back(MucManager::build_invitation(&room_jid, &user_jid, reason.as_deref()));
+                            tracing::info!("muc: sent invitation to {user} for room {room}");
+                        }
+                    }
                     Some(XmppCommand::SendChatState { to, composing }) => {
                         // S6: respect user's privacy preference for typing indicators
                         if PRIVACY_FLAGS.load(std::sync::atomic::Ordering::SeqCst) & 0b010 != 0 {

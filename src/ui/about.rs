@@ -1,7 +1,7 @@
 // M7: About modal — version, XEPs, license, GitHub link
 
 use iced::{
-    widget::{button, column, container, row, text, Column},
+    widget::{button, column, container, row, text},
     Element, Length,
 };
 

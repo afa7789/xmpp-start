@@ -186,45 +186,9 @@ impl App {
                     self.idle_state = IdleState::Active;
                     if let Some(ref tx) = self.xmpp_tx {
                         let tx = tx.clone();
-                        return Task::batch([
-                            Task::future(async move {
-                                let _ = tx.send(XmppCommand::UserActive).await;
-                                Message::GoToBenchmark
-                            })
-                            .discard(),
-                            {
-                                let filtered: Vec<&str> = PALETTE_COMMANDS
-                                    .iter()
-                                    .copied()
-                                    .filter(|cmd| {
-                                        cmd.to_lowercase()
-                                            .contains(&self.palette_query.to_lowercase())
-                                    })
-                                    .collect();
-                                if let Some(&label) = filtered.get(i) {
-                                    match label {
-                                        "Open Settings" => {
-                                            return self.update(Message::GoToSettings)
-                                        }
-                                        "Disconnect" => {
-                                            if let Some(ref tx) = self.xmpp_tx {
-                                                let tx = tx.clone();
-                                                return Task::future(async move {
-                                                    let _ = tx
-                                                        .send(crate::xmpp::XmppCommand::Disconnect)
-                                                        .await;
-                                                    Message::GoToBenchmark
-                                                })
-                                                .discard();
-                                            }
-                                        }
-                                        _ => {}
-                                    }
-                                }
-                                self.palette_query.clear();
-                                Task::none()
-                            },
-                        ]);
+                        tokio::spawn(async move {
+                            let _ = tx.send(XmppCommand::UserActive).await;
+                        });
                     }
                 }
                 let filtered: Vec<&str> = PALETTE_COMMANDS
@@ -242,11 +206,9 @@ impl App {
                         "Disconnect" => {
                             if let Some(ref tx) = self.xmpp_tx {
                                 let tx = tx.clone();
-                                return Task::future(async move {
+                                tokio::spawn(async move {
                                     let _ = tx.send(crate::xmpp::XmppCommand::Disconnect).await;
-                                    Message::GoToBenchmark
-                                })
-                                .discard();
+                                });
                             }
                         }
                         _ => {}
@@ -266,33 +228,27 @@ impl App {
                         self.idle_state = IdleState::AutoXa;
                         if let Some(ref tx) = self.xmpp_tx {
                             let tx = tx.clone();
-                            return Task::future(async move {
+                            tokio::spawn(async move {
                                 let _ = tx.send(XmppCommand::UserExtendedIdle).await;
-                                Message::GoToBenchmark
-                            })
-                            .discard();
+                            });
                         }
                     }
                     IdleState::Active if elapsed >= IDLE_SECS => {
                         self.idle_state = IdleState::AutoAway;
                         if let Some(ref tx) = self.xmpp_tx {
                             let tx = tx.clone();
-                            return Task::future(async move {
+                            tokio::spawn(async move {
                                 let _ = tx.send(XmppCommand::UserIdle).await;
-                                Message::GoToBenchmark
-                            })
-                            .discard();
+                            });
                         }
                     }
                     IdleState::AutoAway if elapsed >= EXTENDED_SECS => {
                         self.idle_state = IdleState::AutoXa;
                         if let Some(ref tx) = self.xmpp_tx {
                             let tx = tx.clone();
-                            return Task::future(async move {
+                            tokio::spawn(async move {
                                 let _ = tx.send(XmppCommand::UserExtendedIdle).await;
-                                Message::GoToBenchmark
-                            })
-                            .discard();
+                            });
                         }
                     }
                     _ => {}
@@ -507,11 +463,9 @@ impl App {
                 self.screen = Screen::Login(login);
                 if let Some(ref tx) = self.xmpp_tx {
                     let tx = tx.clone();
-                    return Task::future(async move {
+                    tokio::spawn(async move {
                         let _ = tx.send(XmppCommand::Disconnect).await;
-                        Message::GoToBenchmark
-                    })
-                    .discard();
+                    });
                 }
                 Task::none()
             }
@@ -523,14 +477,9 @@ impl App {
                     self.idle_state = IdleState::Active;
                     if let Some(ref tx) = self.xmpp_tx {
                         let tx = tx.clone();
-                        return Task::batch([
-                            Task::future(async move {
-                                let _ = tx.send(XmppCommand::UserActive).await;
-                                Message::GoToBenchmark
-                            })
-                            .discard(),
-                            self.update(Message::Chat(msg)),
-                        ]);
+                        tokio::spawn(async move {
+                            let _ = tx.send(XmppCommand::UserActive).await;
+                        });
                     }
                 }
                 // F3: intercept OpenSettings before delegating
@@ -578,14 +527,13 @@ impl App {
                         if let Some(last_id) = chat.last_message_id(jid) {
                             let jid = jid.clone();
                             let pool = self.db.clone();
-                            Task::future(async move {
+                            tokio::spawn(async move {
                                 let _ = crate::store::conversation_repo::mark_read(
                                     &pool, &jid, &last_id,
                                 )
                                 .await;
-                                Message::GoToBenchmark
-                            })
-                            .discard()
+                            });
+                            Task::none()
                         } else {
                             Task::none()
                         }
@@ -605,18 +553,11 @@ impl App {
                     if !cmds.is_empty() {
                         if let Some(ref tx) = self.xmpp_tx {
                             let tx = tx.clone();
-                            return Task::batch([
-                                history_task,
-                                mark_read_task,
-                                task,
-                                Task::future(async move {
-                                    for cmd in cmds {
-                                        let _ = tx.send(cmd).await;
-                                    }
-                                    Message::GoToBenchmark
-                                })
-                                .discard(),
-                            ]);
+                            tokio::spawn(async move {
+                                for cmd in cmds {
+                                    let _ = tx.send(cmd).await;
+                                }
+                            });
                         }
                     }
                     Task::batch([history_task, mark_read_task, task])
@@ -707,41 +648,33 @@ impl App {
                         // A3: persist roster to DB
                         let pool = self.db.clone();
                         let contacts = contacts.clone();
-                        // H1: fetch avatars for all roster contacts
-                        let avatar_task: Task<Message> = if let Some(ref tx) = self.xmpp_tx {
+                        // H1: fetch avatars for all roster contacts (fire-and-forget)
+                        if let Some(ref tx) = self.xmpp_tx {
                             let tx = tx.clone();
                             let jids: Vec<String> =
                                 contacts.iter().map(|c| c.jid.clone()).collect();
-                            Task::future(async move {
+                            tokio::spawn(async move {
                                 for jid in jids {
                                     let _ = tx.send(XmppCommand::FetchAvatar(jid)).await;
                                 }
-                                Message::GoToBenchmark
-                            })
-                            .discard()
-                        } else {
-                            Task::none()
-                        };
-                        return Task::batch([
-                            toast,
-                            avatar_task,
-                            Task::future(async move {
-                                for c in &contacts {
-                                    let _ = crate::store::roster_repo::upsert(
-                                        &pool,
-                                        &crate::store::roster_repo::RosterContact {
-                                            jid: c.jid.clone(),
-                                            name: c.name.clone(),
-                                            subscription: c.subscription.clone(),
-                                            groups: None,
-                                        },
-                                    )
-                                    .await;
-                                }
-                                Message::GoToBenchmark
-                            })
-                            .discard(),
-                        ]);
+                            });
+                        }
+                        // A3: persist roster to DB (fire-and-forget)
+                        tokio::spawn(async move {
+                            for c in &contacts {
+                                let _ = crate::store::roster_repo::upsert(
+                                    &pool,
+                                    &crate::store::roster_repo::RosterContact {
+                                        jid: c.jid.clone(),
+                                        name: c.name.clone(),
+                                        subscription: c.subscription.clone(),
+                                        groups: None,
+                                    },
+                                )
+                                .await;
+                            }
+                        });
+                        return toast;
                     }
                     XmppEvent::MessageReceived(ref msg) => {
                         tracing::info!("XMPP: message from {}", msg.from);
@@ -761,22 +694,22 @@ impl App {
                         {
                             let notif_from = bare_from.clone();
                             let notif_body: String = msg.body.chars().take(100).collect();
-                            Task::future(async move {
+                            tokio::spawn(async move {
                                 let _ =
                                     crate::notifications::notify_message(&notif_from, &notif_body);
-                                Message::GoToBenchmark
-                            })
+                            });
+                            Task::none()
                         } else {
                             Task::none()
                         };
-                        // A2: persist message + conversation to DB
+                        // A2: persist message + conversation to DB (fire-and-forget)
                         let pool = self.db.clone();
                         let from_jid = msg.from.clone();
                         let bare_jid = from_jid.split('/').next().unwrap_or(&from_jid).to_string();
                         let msg_id = msg.id.clone();
                         let body = msg.body.clone();
                         let ts = chrono::Utc::now().timestamp_millis();
-                        let db_task: Task<Message> = Task::future(async move {
+                        tokio::spawn(async move {
                             let _ = crate::store::conversation_repo::upsert(&pool, &bare_jid).await;
                             let _ = crate::store::message_repo::insert(
                                 &pool,
@@ -794,20 +727,15 @@ impl App {
                                 },
                             )
                             .await;
-                            Message::GoToBenchmark
                         });
 
                         if let Screen::Chat(ref mut chat) = self.screen {
                             if let Some(preview_task) = chat.on_message_received(msg.clone()) {
-                                return Task::batch([
-                                    notif_task,
-                                    db_task,
-                                    preview_task.map(Message::Chat),
-                                ]);
+                                return Task::batch([notif_task, preview_task.map(Message::Chat)]);
                             }
-                            return Task::batch([notif_task, db_task]);
+                            return notif_task;
                         }
-                        return Task::batch([notif_task, db_task]);
+                        return notif_task;
                     }
                     XmppEvent::PresenceUpdated { ref jid, available } => {
                         tracing::debug!("XMPP: presence {jid} available={available}");
@@ -848,11 +776,11 @@ impl App {
                         headers,
                     } => {
                         tracing::info!("E4: upload slot received put={put_url} get={get_url}");
-                        // E4: perform HTTP PUT and send get_url as message
+                        // E4: perform HTTP PUT and send get_url as message (fire-and-forget)
                         if let Some((target_jid, file_path)) = self.pending_upload.take() {
                             if let Some(ref tx) = self.xmpp_tx {
                                 let tx = tx.clone();
-                                return Task::future(async move {
+                                tokio::spawn(async move {
                                     let file_bytes = tokio::fs::read(&file_path).await;
                                     match file_bytes {
                                         Ok(bytes) => {
@@ -888,9 +816,7 @@ impl App {
                                             );
                                         }
                                     }
-                                    Message::GoToBenchmark
-                                })
-                                .discard();
+                                });
                             }
                         }
                     }
@@ -960,13 +886,11 @@ impl App {
                                         }),
                                     })
                                     .collect();
-                                return Task::future(async move {
+                                tokio::spawn(async move {
                                     for cmd in cmds {
                                         let _ = tx.send(cmd).await;
                                     }
-                                    Message::GoToBenchmark
-                                })
-                                .discard();
+                                });
                             }
                         }
                     }

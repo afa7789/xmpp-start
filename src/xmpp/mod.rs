@@ -202,4 +202,10 @@ pub enum XmppCommand {
     UserExtendedIdle,
     /// S1: User is active again — restore pre-idle presence.
     UserActive,
+    /// K3: Send a room invitation (XEP-0045 + XEP-0249).
+    SendRoomInvitation {
+        room: String,
+        user: String,
+        reason: Option<String>,
+    },
 }

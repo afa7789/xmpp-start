@@ -11,12 +11,14 @@
 
 use std::collections::HashMap;
 
+use tokio_xmpp::jid::Jid;
 use tokio_xmpp::minidom::Element;
 use uuid::Uuid;
 
 const NS_MUC: &str = "http://jabber.org/protocol/muc";
 const NS_MUC_ADMIN: &str = "http://jabber.org/protocol/muc#admin";
 const NS_CLIENT: &str = "jabber:client";
+const NS_X_CONFERENCE: &str = "jabber:x:conference";
 
 // ---------------------------------------------------------------------------
 // Domain types
@@ -275,6 +277,19 @@ impl MucManager {
     /// Returns a reference to a specific room by bare JID.
     pub fn get_room(&self, jid: &str) -> Option<&MucRoom> {
         self.rooms.get(jid)
+    }
+
+    /// K3: Build a direct room invitation (XEP-0249).
+    pub fn build_invitation(room: &Jid, user: &Jid, reason: Option<&str>) -> Element {
+        let mut x_builder = Element::builder("x", NS_X_CONFERENCE).attr("jid", room.as_str());
+        if let Some(r) = reason.filter(|r| !r.is_empty()) {
+            x_builder = x_builder.append(Element::builder("reason", NS_CLIENT).append(r).build());
+        }
+
+        Element::builder("message", NS_CLIENT)
+            .attr("to", user.as_str())
+            .append(x_builder.build())
+            .build()
     }
 }
 

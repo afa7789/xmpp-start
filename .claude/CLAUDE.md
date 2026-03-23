@@ -74,3 +74,9 @@ make test       # cargo test --lib
 make lint       # cargo clippy --all-targets
 make run        # cargo run
 ```
+
+## Rules
+- Update the Yaml, and describe better the roadmap only in the markdown, so we keep track of the tasks in yaml, but have descriptions more data somewhere else so it is easier to track/parse read,update.
+
+## Rules
+- Update the Yaml, and describe better the roadmap only in the markdown, so we keep track of the tasks in yaml, but have descriptions more data somewhere else so it is easier to track/parse read,update.

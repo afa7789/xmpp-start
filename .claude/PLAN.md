@@ -1133,4 +1133,37 @@ F1–F5 independent of each other (depend on B1 only)
 
 ---
 
+## Recent Completions (2026-03-22)
+
+- **M7** ✅ About modal — version, XEP count, license, GitHub link
+- **M1** ✅ System theme sync + time format settings — `use_system_theme` toggle, `TimeFormat` enum (24h/12h), wired through App → ChatScreen → ConversationView for timestamp rendering
+
+## Priority Queue (as of 2026-03-22)
+
+### Bugs (fix first)
+1. Auto-away not escalating to XA after 15 min
+2. Duplicate `PaletteQuery` arm in `App::update`
+
+### High Priority
+1. **M6**: Reaction hover bar (hover shows quick-react emojis)
+2. **L2**: @mention autocomplete in MUC
+3. **L3**: Message moderation by moderators
+4. **M4**: Audio recording (voice messages)
+5. **K3**: Room invitations
+6. **K1**: Room creation UI
+
+### Medium Priority
+1. **K6**: Chat preferences panel
+2. **R2**: Enhanced link previews
+3. **H2**: Own avatar upload (XEP-0084 PEP)
+4. **K2**: Browse public rooms
+5. **J9**: Account registration wizard
+6. **K7**: Push notifications
+
+### Critical (architectural)
+1. **OMEMO**: OMEMO E2E encryption — ~2-3 weeks
+2. **MULTI**: Multi-account support — ~1-2 weeks
+
+---
+
 *Last updated: 2026-03-22*
