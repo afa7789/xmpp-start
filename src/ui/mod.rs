@@ -885,6 +885,18 @@ impl App {
                                 .map(Message::Chat);
                         }
                     }
+                    // K3: incoming room invitation received
+                    XmppEvent::RoomInvitationReceived { room_jid, from_jid, reason } => {
+                        if let Screen::Chat(ref mut chat) = self.screen {
+                            let _ = chat.update(chat::Message::RoomInvitationReceived {
+                                room_jid: room_jid.clone(),
+                                from_jid: from_jid.clone(),
+                                reason: reason.clone(),
+                            });
+                        }
+                        let body = format!("{} invited you to {}", from_jid, room_jid);
+                        return self.update(Message::ShowToast(body, ToastKind::Info));
+                    }
                     XmppEvent::BookmarksReceived(bookmarks) => {
                         tracing::info!("D4: {} bookmark(s) received", bookmarks.len());
                         // D4: autojoin rooms — send JoinRoom for each autojoin bookmark

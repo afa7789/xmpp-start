@@ -3,7 +3,7 @@
 // XEP reference: https://xmpp.org/extensions/xep-0045.html
 
 use iced::{
-    widget::{column, container, row, scrollable, text},
+    widget::{button, column, container, row, scrollable, text},
     Element, Length,
 };
 
@@ -27,10 +27,11 @@ pub struct OccupantEntry {
 // ---------------------------------------------------------------------------
 
 /// Messages produced by the occupant panel.
-///
-/// Currently empty — future kick/ban actions will be added here.
 #[derive(Debug, Clone)]
-pub enum Message {}
+pub enum Message {
+    /// K3: user clicked the "Invite" button — carries the room JID.
+    OpenInviteDialog(String),
+}
 
 // ---------------------------------------------------------------------------
 // OccupantPanel
@@ -78,7 +79,13 @@ impl OccupantPanel {
     ///   plus `"[Mod]"` or `"[Admin]"` badge if applicable.
     /// - Fixed width 180 px, scrollable.
     pub fn view(&self) -> Element<'_, Message> {
-        let header = text(format!("Occupants ({})", self.occupants.len())).size(15);
+        let header_label = text(format!("Occupants ({})", self.occupants.len())).size(15);
+        let invite_btn = button(text("Invite").size(11))
+            .on_press(Message::OpenInviteDialog(self.room_jid.clone()))
+            .padding([2, 6]);
+        let header = row![header_label, invite_btn]
+            .spacing(8)
+            .align_y(iced::Alignment::Center);
 
         let groups: [(&str, &str); 3] = [
             ("Moderator", "Moderators"),

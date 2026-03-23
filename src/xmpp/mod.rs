@@ -144,6 +144,12 @@ pub enum XmppEvent {
     RoomConfigured {
         room_jid: String,
     },
+    // K3: Incoming room invitation (XEP-0249 direct or XEP-0045 mediated)
+    RoomInvitationReceived {
+        room_jid: String,
+        from_jid: String,
+        reason: Option<String>,
+    },
 }
 
 /// Commands sent from the UI to the XMPP engine.

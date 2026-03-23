@@ -889,7 +889,7 @@ counts and lets the user join one.
 3. Render a scrollable modal with room JID, name, occupant count; "Join" button.
 **Done when**: opening the dialog shows public rooms; clicking Join opens the room.
 
-### K3: Room invitations — send & receive (XEP-0045 mediated + XEP-0249 direct)
+### K3: Room invitations — send & receive (XEP-0045 mediated + XEP-0249 direct) ✅ 2026-03-23
 **Goal**: User can invite a contact to a room; incoming invitations appear in an
 events panel.
 **Files touched**: `src/ui/chat.rs`, `src/ui/sidebar.rs`, `src/xmpp/engine.rs`
@@ -1884,6 +1884,393 @@ it minimal. Those fields can be added in a follow-up advanced config panel.
    `create_room_service` with `"conference.example.com"`. The user can edit it.
    `ChatScreen::own_jid()` already exposes this. Pass it down to `SidebarScreen` as a
    parameter to `view_with_drafts()` or a separate method.
+
+---
+
+## K3: Room Invitations — Send & Receive (XEP-0249 direct + XEP-0045 mediated)
+
+### Goal
+
+A user in a MUC room can invite a contact to join; incoming invitations appear as
+a banner/badge with Accept and Decline actions.
+
+### Protocol summary
+
+**Sending — XEP-0249 direct invitation** (preferred):
+```xml
+<message to="invitee@example.com">
+  <x xmlns="jabber:x:conference" jid="room@conference.example.com">
+    <reason>Come join us!</reason>
+  </x>
+</message>
+```
+Sent directly to the invitee's JID (not via the room). This is what
+`MucManager::build_invitation` already builds.
+
+**Sending — XEP-0045 §7.8 mediated invitation** (fallback, not required for v1):
+```xml
+<message to="room@conference.example.com">
+  <x xmlns="http://jabber.org/protocol/muc#user">
+    <invite to="invitee@example.com">
+      <reason>Come join us!</reason>
+    </invite>
+  </x>
+</message>
+```
+Plan: implement direct only (XEP-0249). Mediated is out of scope for K3 v1.
+
+**Receiving — XEP-0249**:
+A `<message>` arrives at our JID containing `<x xmlns="jabber:x:conference">`.
+The `jid` attribute is the room to join. An optional `<reason>` child has text.
+
+**Receiving — XEP-0045 mediated** (must also handle inbound):
+A `<message from="room@conf">` containing `<x xmlns="http://jabber.org/protocol/muc#user">`
+with `<invite from="inviter@example.com">` inside.
+
+---
+
+### Current state of the codebase
+
+Already done:
+- `XmppCommand::SendRoomInvitation { room, user, reason }` — variant exists in `src/xmpp/mod.rs:217`.
+- `MucManager::build_invitation(room, user, reason)` — builds the XEP-0249 stanza (`src/xmpp/modules/muc.rs:283`).
+- Engine arm `Some(XmppCommand::SendRoomInvitation { .. })` — sends it via the outbox (`src/xmpp/engine.rs:254`).
+
+Not yet done:
+- `XmppEvent::RoomInvitationReceived` — variant missing from `XmppEvent` enum.
+- Detection of incoming `<x xmlns="jabber:x:conference">` in `dispatch_stanza` / `handle_message`.
+- Detection of incoming mediated invite `<x xmlns="muc#user"><invite ...>`.
+- UI: Invite button + JID-input dialog in the MUC chat panel.
+- UI: Incoming invitation banner in `ChatScreen` with Accept / Decline actions.
+- `ChatScreen::Message` variants for invitation flow.
+
+---
+
+### Data flow — Sending
+
+```
+User clicks "Invite" button (OccupantPanel or chat header)
+  │
+  ▼
+muc_panel::Message::OpenInviteDialog (new variant)
+  │  routed via ChatScreen::update → intercept before panel delegate
+  ▼
+ChatScreen: set pending_invite: Option<(room_jid, draft_jid, draft_reason)>
+  │  re-render shows invite dialog in right pane / overlay
+  ▼
+User types invitee JID + optional reason, clicks Send
+  │
+  ▼
+chat::Message::SubmitInvite (new variant)
+  │  ChatScreen::update intercepts
+  ▼
+pending_commands.push(XmppCommand::SendRoomInvitation { room, user, reason })
+  │  drained by App, sent to engine
+  ▼
+engine: MucManager::build_invitation() → outbox → server → invitee
+```
+
+### Data flow — Receiving
+
+```
+Server delivers <message to="us">
+  <x xmlns="jabber:x:conference" jid="room@conf"/>
+  </message>
+  │  arrives in dispatch_stanza → "message" arm → handle_message (or intercept earlier)
+  ▼
+detect <x xmlns="jabber:x:conference"> child
+  │  extract jid attr = room_jid; from attr of <message> = inviter; <reason> text
+  ▼
+event_tx.send(XmppEvent::RoomInvitationReceived { room_jid, from_jid, reason })
+  │  returned early (no further handling of this stanza needed)
+  ▼
+App::update → XmppEvent::RoomInvitationReceived
+  │  forward to ChatScreen via chat::Message::RoomInvitationReceived
+  ▼
+ChatScreen: push to pending_invitations: Vec<PendingInvitation>
+  │  re-render shows invitation banner at top of chat area
+  ▼
+User clicks Accept
+  │  chat::Message::AcceptInvitation(room_jid)
+  ▼
+pending_commands.push(XmppCommand::JoinRoom { jid: room_jid, nick: own_nick })
+  │  also: on_join_room, muc_own_nicks insert
+  ▼
+User clicks Decline → just removes from pending_invitations (no XMPP needed)
+```
+
+---
+
+### Files to touch
+
+| File | Change |
+|---|---|
+| `src/xmpp/mod.rs` | Add `XmppEvent::RoomInvitationReceived { room_jid, from_jid, reason }` |
+| `src/xmpp/engine.rs` | In `handle_message`: detect `<x xmlns="jabber:x:conference">` and `<x xmlns="muc#user"><invite>`, emit event |
+| `src/ui/chat.rs` | Add `ChatScreen::pending_invitations`, `Message::RoomInvitationReceived`, `Message::AcceptInvitation`, `Message::DeclineInvitation`, `Message::OpenInviteDialog`, `Message::InviteJidChanged`, `Message::InviteReasonChanged`, `Message::SubmitInvite`, `Message::DismissInviteDialog`; update `update()` and `view()` |
+| `src/ui/muc_panel.rs` | Add `Message::OpenInviteDialog` variant; add "Invite" button to `view()` |
+| `src/ui/mod.rs` | Handle `XmppEvent::RoomInvitationReceived` → forward to `ChatScreen`; handle `XmppEvent::RoomInvitationReceived` → show toast notification |
+
+No new modules needed. All changes are additive.
+
+---
+
+### New types
+
+**`src/xmpp/mod.rs`** — add to `XmppEvent`:
+```rust
+// K3: Incoming room invitation (XEP-0249 direct or XEP-0045 mediated)
+RoomInvitationReceived {
+    room_jid: String,
+    from_jid: String,
+    reason: Option<String>,
+},
+```
+
+**`src/ui/chat.rs`** — add to `ChatScreen` struct:
+```rust
+/// K3: incoming invitations pending user action
+pending_invitations: Vec<PendingInvitation>,
+/// K3: invite dialog state (room_jid we're inviting into, draft invitee JID, draft reason)
+pending_invite_dialog: Option<(String, String, String)>,
+```
+
+New private struct in `chat.rs` (or inline as tuple):
+```rust
+#[derive(Debug, Clone)]
+struct PendingInvitation {
+    room_jid: String,
+    from_jid: String,
+    reason: Option<String>,
+}
+```
+
+**`src/ui/chat.rs`** — add to `Message` enum:
+```rust
+// K3: incoming invitation
+RoomInvitationReceived { room_jid: String, from_jid: String, reason: Option<String> },
+AcceptInvitation(String),   // room_jid
+DeclineInvitation(String),  // room_jid
+// K3: outgoing invite dialog
+OpenInviteDialog(String),   // room_jid we want to invite someone into
+InviteJidChanged(String),
+InviteReasonChanged(String),
+SubmitInvite,
+DismissInviteDialog,
+```
+
+**`src/ui/muc_panel.rs`** — add to `Message` enum:
+```rust
+OpenInviteDialog(String),  // room_jid — triggers the invite flow in ChatScreen
+```
+
+---
+
+### Detection logic in `handle_message` (engine)
+
+Insert before the existing G2/body parsing block. The detection must check for
+`<x xmlns="jabber:x:conference">` (XEP-0249) and for `<x xmlns="muc#user"><invite>` (XEP-0045).
+
+```rust
+const NS_X_CONFERENCE: &str = "jabber:x:conference";
+const NS_MUC_USER: &str = "http://jabber.org/protocol/muc#user";
+
+// K3: XEP-0249 direct invitation
+if let Some(x_el) = el.children().find(|c| c.name() == "x" && c.ns() == NS_X_CONFERENCE) {
+    if let Some(room_jid) = x_el.attr("jid") {
+        let from_jid = el.attr("from").unwrap_or("").to_string();
+        let bare_from = from_jid.split('/').next().unwrap_or(&from_jid).to_string();
+        let reason = x_el.children().find(|c| c.name() == "reason").map(|r| r.text());
+        let _ = event_tx.send(XmppEvent::RoomInvitationReceived {
+            room_jid: room_jid.to_string(),
+            from_jid: bare_from,
+            reason,
+        }).await;
+    }
+    return;
+}
+
+// K3: XEP-0045 §7.8 mediated invitation
+if let Some(x_muc) = el.children().find(|c| c.name() == "x" && c.ns() == NS_MUC_USER) {
+    if let Some(invite_el) = x_muc.children().find(|c| c.name() == "invite") {
+        let from_jid = invite_el.attr("from").unwrap_or("").to_string();
+        let room_jid = el.attr("from").unwrap_or("").to_string();
+        let bare_room = room_jid.split('/').next().unwrap_or(&room_jid).to_string();
+        let reason = invite_el.children().find(|c| c.name() == "reason").map(|r| r.text());
+        let _ = event_tx.send(XmppEvent::RoomInvitationReceived {
+            room_jid: bare_room,
+            from_jid,
+            reason,
+        }).await;
+    }
+    return;
+}
+```
+
+Note: place this block at the top of `handle_message`, before the reaction and
+receipt checks, since an invitation `<message>` has no `<body>` and should not be
+forwarded to normal message handling.
+
+---
+
+### UI rendering — Invite dialog
+
+The invite dialog follows the same pattern as the K1 room-config modal: when
+`pending_invite_dialog.is_some()`, replace the right-pane content with the form.
+
+Layout:
+```
+┌─────────────────────────────┐
+│ Invite to <room_jid>        │
+│                             │
+│ Invitee JID: [____________] │
+│ Reason:      [____________] │
+│                             │
+│        [Cancel]  [Invite]   │
+└─────────────────────────────┘
+```
+
+Where to render: inside `ChatScreen::view()`, as a conditional column that
+replaces the `ConversationView` area when `pending_invite_dialog.is_some()`.
+
+### UI rendering — Incoming invitation banner
+
+Rendered at the top of the conversation area (or as a toast-style overlay). One
+banner per pending invitation. Layout:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ alice@example.com invited you to room@conference.example.com │
+│ Reason: "Come join us!"              [Accept]  [Decline]     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Implementation: in `ChatScreen::view()`, before rendering the active conversation,
+render a `column![]` of invitation banners. Each banner is a `container` row.
+
+Alternatively: a single toast via `App::ShowToast` for the notification, and a
+persistent list item in a sidebar "Invitations" section. The banner approach is
+simpler and consistent with in-app prompts.
+
+---
+
+### Routing in `ChatScreen::update`
+
+In the `Message::RoomInvitationReceived` arm:
+```rust
+self.pending_invitations.push(PendingInvitation { room_jid, from_jid, reason });
+```
+
+In the `Message::AcceptInvitation(room_jid)` arm:
+```rust
+self.pending_invitations.retain(|i| i.room_jid != room_jid);
+// Derive nick from own_jid local part
+let nick = self.own_jid.split('@').next().unwrap_or("me").to_string();
+self.on_join_room(&room_jid);
+self.muc_own_nicks.insert(room_jid.clone(), nick.clone());
+self.pending_commands.push(XmppCommand::JoinRoom { jid: room_jid, nick });
+```
+
+In the `Message::DeclineInvitation(room_jid)` arm:
+```rust
+self.pending_invitations.retain(|i| i.room_jid != room_jid);
+// No XMPP stanza needed for XEP-0249 decline
+```
+
+---
+
+### Routing in `App::update`
+
+In the `XmppEvent::RoomInvitationReceived { room_jid, from_jid, reason }` arm:
+```rust
+if let Screen::Chat(ref mut chat) = self.screen {
+    let _ = chat.update(chat::Message::RoomInvitationReceived {
+        room_jid: room_jid.clone(), from_jid: from_jid.clone(), reason: reason.clone()
+    });
+}
+// Also fire a toast so the user sees it even if the chat panel is not focused
+let body = format!("{} invited you to {}", from_jid, room_jid);
+return self.update(Message::ShowToast(body, ToastKind::Info));
+```
+
+---
+
+### Invite button in `OccupantPanel`
+
+Add `Message::OpenInviteDialog(String)` to `muc_panel::Message`. Add an "Invite"
+button to the panel header row (next to the "Occupants (n)" label). The button
+emits this message, carrying the `room_jid`.
+
+The button is always shown (not role-gated for v1; server will reject unauthorized
+invites server-side).
+
+In `ChatScreen::update`, the `OccupantPanel` message is currently mapped nowhere
+(the enum is empty). Add the mapping once the variant exists:
+```rust
+// route OccupantPanel messages through ChatScreen
+if let super::muc_panel::Message::OpenInviteDialog(room_jid) = panel_msg {
+    return self.update(Message::OpenInviteDialog(room_jid));
+}
+```
+
+Note: `OccupantPanel::view()` currently returns `Element<'_, muc_panel::Message>`.
+The `ChatScreen::view()` must `map()` this into `chat::Message`. How this is
+currently done (or not done) needs to be verified in the view code before
+implementation — if `muc_panel::Message` is an empty enum, mapping currently
+compiles only because it is never instantiated. Adding a variant will require
+the `map()` call to be present.
+
+---
+
+### Risks & constraints
+
+1. **`handle_message` insertion point**: The XEP-0249 detection must come before
+   the receipt (`NS_RECEIPTS`) check because an invite has no `<received>` child;
+   however both use `return` so order does not cause double-emission — but placing
+   it first avoids spuriously falling through to body parsing if future checks are
+   added. Place it at the very top of `handle_message`.
+
+2. **`dispatch_stanza` vs `handle_message`**: The XEP-0249 `<message>` arrives
+   with `type` unset or `type="normal"`. It is not a `groupchat` message, not a
+   carbon, not a MAM result, so it will naturally fall through to `handle_message`.
+   The mediated invite arrives from the room JID (type unset), same path. No
+   changes needed to `dispatch_stanza`.
+
+3. **`muc_panel::Message` currently empty**: `OccupantPanel::view()` returns
+   `Element<'_, Message>` where `Message` is an uninhabited enum. Adding
+   `OpenInviteDialog(String)` makes it inhabited. The `view()` call in ChatScreen
+   that currently ignores the return type will need a `.map()` to convert
+   `muc_panel::Message` to `chat::Message`. Verify exactly how/where the panel is
+   rendered in `ChatScreen::view()` before implementing.
+
+4. **Nick derivation on Accept**: When the user accepts an invitation, a default
+   nick must be chosen. Use the local part of `own_jid` (e.g. `"alice"` from
+   `"alice@example.com"`). Do not block on a UI nick picker for v1.
+
+5. **`dispatch_stanza` parameter list**: No new parameters are needed. The
+   invitation detection lives entirely in `handle_message` which already receives
+   `event_tx` and `blocking_mgr`.
+
+6. **Duplicate invitations**: If the same room sends multiple invites, the
+   `pending_invitations` list will accumulate. De-duplicate by `room_jid` on
+   insert (`retain` then `push`, or check before push).
+
+---
+
+### Implementation checklist (for Builder)
+
+- [ ] Add `XmppEvent::RoomInvitationReceived` to `src/xmpp/mod.rs`
+- [ ] Add detection block in `handle_message` (`src/xmpp/engine.rs`) — top of function
+- [ ] Add `PendingInvitation` struct + `pending_invitations` + `pending_invite_dialog` to `ChatScreen`
+- [ ] Add all new `chat::Message` variants
+- [ ] Implement `update()` arms for all new `chat::Message` variants
+- [ ] Add `muc_panel::Message::OpenInviteDialog(String)` and "Invite" button to panel view
+- [ ] Map `muc_panel::Message` → `chat::Message` in `ChatScreen::view()`
+- [ ] Render invitation banners in `ChatScreen::view()`
+- [ ] Render invite dialog in `ChatScreen::view()` (conditional, same pattern as K1 config modal)
+- [ ] Handle `XmppEvent::RoomInvitationReceived` in `App::update` (`src/ui/mod.rs`)
+- [ ] `cargo test --lib` — all tests pass
+- [ ] `cargo clippy --all-targets` — no errors
 
 ---
 

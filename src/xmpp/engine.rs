@@ -963,6 +963,8 @@ fn extract_carbon(el: &Element, direction: &str) -> Option<Element> {
 // ---------------------------------------------------------------------------
 
 const NS_REACTIONS: &str = "urn:xmpp:reactions:0";
+const NS_X_CONFERENCE: &str = "jabber:x:conference";
+const NS_MUC_USER: &str = "http://jabber.org/protocol/muc#user";
 
 async fn handle_message(
     el: Element,
@@ -970,6 +972,57 @@ async fn handle_message(
     blocking_mgr: &BlockingManager,
     outbox: &mut VecDeque<Element>,
 ) {
+    // K3: XEP-0249 direct invitation
+    if let Some(x_el) = el
+        .children()
+        .find(|c| c.name() == "x" && c.ns() == NS_X_CONFERENCE)
+    {
+        if let Some(room_jid) = x_el.attr("jid") {
+            let from_jid = el.attr("from").unwrap_or("").to_string();
+            let bare_from = from_jid.split('/').next().unwrap_or(&from_jid).to_string();
+            let reason = x_el
+                .children()
+                .find(|c| c.name() == "reason")
+                .map(|r| r.text());
+            let _ = event_tx
+                .send(XmppEvent::RoomInvitationReceived {
+                    room_jid: room_jid.to_string(),
+                    from_jid: bare_from,
+                    reason,
+                })
+                .await;
+        }
+        return;
+    }
+
+    // K3: XEP-0045 §7.8 mediated invitation
+    if let Some(x_muc) = el
+        .children()
+        .find(|c| c.name() == "x" && c.ns() == NS_MUC_USER)
+    {
+        if let Some(invite_el) = x_muc.children().find(|c| c.name() == "invite") {
+            let from_jid = invite_el.attr("from").unwrap_or("").to_string();
+            let room_jid_full = el.attr("from").unwrap_or("").to_string();
+            let bare_room = room_jid_full
+                .split('/')
+                .next()
+                .unwrap_or(&room_jid_full)
+                .to_string();
+            let reason = invite_el
+                .children()
+                .find(|c| c.name() == "reason")
+                .map(|r| r.text());
+            let _ = event_tx
+                .send(XmppEvent::RoomInvitationReceived {
+                    room_jid: bare_room,
+                    from_jid,
+                    reason,
+                })
+                .await;
+        }
+        return;
+    }
+
     // E3: detect XEP-0444 reaction stanza before consuming el
     if let Some(reactions_el) = el
         .children()

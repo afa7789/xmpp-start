@@ -18,6 +18,14 @@ use super::{
     sidebar::{self, SidebarScreen},
 };
 
+/// K3: An incoming room invitation pending user action.
+#[derive(Debug, Clone)]
+struct PendingInvitation {
+    room_jid: String,
+    from_jid: String,
+    reason: Option<String>,
+}
+
 /// Top-level chat screen state.
 pub struct ChatScreen {
     own_jid: String,
@@ -44,6 +52,10 @@ pub struct ChatScreen {
     pending_room_config: Option<(String, crate::xmpp::modules::muc_config::MucRoomConfig)>,
     /// L2: user's own nick per MUC room (room_jid → nick)
     muc_own_nicks: HashMap<String, String>,
+    /// K3: incoming invitations pending user action
+    pending_invitations: Vec<PendingInvitation>,
+    /// K3: invite dialog state: (room_jid, draft invitee JID, draft reason)
+    pending_invite_dialog: Option<(String, String, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -65,6 +77,20 @@ pub enum Message {
     RoomConfigPersistentChanged(bool),
     SubmitRoomConfig,
     DismissRoomConfig,
+    // K3: incoming invitation
+    RoomInvitationReceived {
+        room_jid: String,
+        from_jid: String,
+        reason: Option<String>,
+    },
+    AcceptInvitation(String),   // room_jid
+    DeclineInvitation(String),  // room_jid
+    // K3: outgoing invite dialog
+    OpenInviteDialog(String),   // room_jid we want to invite someone into
+    InviteJidChanged(String),
+    InviteReasonChanged(String),
+    SubmitInvite,
+    DismissInviteDialog,
 }
 
 impl ChatScreen {
@@ -83,6 +109,8 @@ impl ChatScreen {
             muc_occupants: HashMap::new(),
             pending_room_config: None,
             muc_own_nicks: HashMap::new(),
+            pending_invitations: Vec::new(),
+            pending_invite_dialog: None,
         }
     }
 
@@ -501,6 +529,74 @@ impl ChatScreen {
                 Task::none()
             }
 
+            // K3: incoming invitation received from engine event
+            Message::RoomInvitationReceived { room_jid, from_jid, reason } => {
+                // De-duplicate by room_jid
+                self.pending_invitations.retain(|i| i.room_jid != room_jid);
+                self.pending_invitations.push(PendingInvitation { room_jid, from_jid, reason });
+                Task::none()
+            }
+
+            // K3: user accepted an incoming invitation — join the room
+            Message::AcceptInvitation(room_jid) => {
+                self.pending_invitations.retain(|i| i.room_jid != room_jid);
+                let nick = self.own_jid.split('@').next().unwrap_or("me").to_string();
+                self.on_join_room(&room_jid);
+                self.muc_own_nicks.insert(room_jid.clone(), nick.clone());
+                self.pending_commands.push(XmppCommand::JoinRoom { jid: room_jid, nick });
+                Task::none()
+            }
+
+            // K3: user declined an incoming invitation — just remove it, no XMPP stanza needed
+            Message::DeclineInvitation(room_jid) => {
+                self.pending_invitations.retain(|i| i.room_jid != room_jid);
+                Task::none()
+            }
+
+            // K3: open the outgoing invite dialog for a given room
+            Message::OpenInviteDialog(room_jid) => {
+                self.pending_invite_dialog = Some((room_jid, String::new(), String::new()));
+                Task::none()
+            }
+
+            Message::InviteJidChanged(v) => {
+                if let Some((_, ref mut invitee, _)) = self.pending_invite_dialog {
+                    *invitee = v;
+                }
+                Task::none()
+            }
+
+            Message::InviteReasonChanged(v) => {
+                if let Some((_, _, ref mut reason)) = self.pending_invite_dialog {
+                    *reason = v;
+                }
+                Task::none()
+            }
+
+            // K3: send the invitation and close the dialog
+            Message::SubmitInvite => {
+                if let Some((room_jid, invitee, reason)) = self.pending_invite_dialog.take() {
+                    if !invitee.trim().is_empty() {
+                        let reason_opt = if reason.trim().is_empty() {
+                            None
+                        } else {
+                            Some(reason)
+                        };
+                        self.pending_commands.push(XmppCommand::SendRoomInvitation {
+                            room: room_jid,
+                            user: invitee,
+                            reason: reason_opt,
+                        });
+                    }
+                }
+                Task::none()
+            }
+
+            Message::DismissInviteDialog => {
+                self.pending_invite_dialog = None;
+                Task::none()
+            }
+
             Message::Conversation(jid, cmsg) => {
                 // J3: intercept ToggleMute to bubble up to App
                 if let super::conversation::Message::ToggleMute = cmsg {
@@ -750,8 +846,43 @@ impl ChatScreen {
             .unwrap_or_default();
         let sidebar_view = self.sidebar.view_with_drafts(&drafts, &conference_service).map(Message::Sidebar);
 
+        // K3: if there is a pending invite dialog, show it instead of the conversation
+        let main_area: Element<Message> = if let Some((ref room_jid, ref invitee, ref reason)) =
+            self.pending_invite_dialog
+        {
+            let invitee_input = text_input("Invitee JID", invitee)
+                .on_input(Message::InviteJidChanged)
+                .padding(6);
+            let reason_input = text_input("Reason (optional)", reason)
+                .on_input(Message::InviteReasonChanged)
+                .padding(6);
+            let cancel_btn = button(text("Cancel").size(13))
+                .on_press(Message::DismissInviteDialog)
+                .padding([4, 12]);
+            let invite_btn = button(text("Invite").size(13))
+                .on_press(Message::SubmitInvite)
+                .padding([4, 12]);
+            let btn_row = row![cancel_btn, invite_btn]
+                .spacing(8)
+                .align_y(Alignment::Center);
+            let modal_col = column![
+                text(format!("Invite to {}", room_jid)).size(16),
+                text("Invitee JID:").size(12),
+                invitee_input,
+                text("Reason:").size(12),
+                reason_input,
+                btn_row,
+            ]
+            .spacing(12)
+            .padding(24)
+            .width(Length::Fill);
+            container(modal_col)
+                .center(Length::Fill)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
         // K1: if there is a pending room config, show the config modal instead of the conversation
-        let main_area: Element<Message> = if let Some((ref room_jid, ref cfg)) = self.pending_room_config {
+        } else if let Some((ref room_jid, ref cfg)) = self.pending_room_config {
             let name_val = cfg.room_name.clone().unwrap_or_default();
             let public_val = cfg.public.unwrap_or(true);
             let persistent_val = cfg.persistent_room.unwrap_or(true);
@@ -788,7 +919,37 @@ impl ChatScreen {
                 .height(Length::Fill)
                 .into()
         } else {
-            match &self.active_jid {
+            // K3: render incoming invitation banners at the top of the main area
+            let invite_banners: Vec<Element<Message>> = self
+                .pending_invitations
+                .iter()
+                .map(|inv| {
+                    let label = if let Some(ref r) = inv.reason {
+                        format!(
+                            "{} invited you to {} — \"{}\"",
+                            inv.from_jid, inv.room_jid, r
+                        )
+                    } else {
+                        format!("{} invited you to {}", inv.from_jid, inv.room_jid)
+                    };
+                    let accept_btn = button(text("Accept").size(11))
+                        .on_press(Message::AcceptInvitation(inv.room_jid.clone()))
+                        .padding([2, 8]);
+                    let decline_btn = button(text("Decline").size(11))
+                        .on_press(Message::DeclineInvitation(inv.room_jid.clone()))
+                        .padding([2, 8]);
+                    container(
+                        row![text(label).size(12), accept_btn, decline_btn]
+                            .spacing(8)
+                            .align_y(iced::Alignment::Center),
+                    )
+                    .padding([4, 8])
+                    .width(Length::Fill)
+                    .into()
+                })
+                .collect();
+
+            let conversation_area: Element<Message> = match &self.active_jid {
                 None => container(text("Select a contact to start chatting").size(14))
                     .center(Length::Fill)
                     .width(Length::Fill)
@@ -837,6 +998,15 @@ impl ChatScreen {
                         container(text("Loading…")).center(Length::Fill).into()
                     }
                 }
+            };
+
+            // K3: prepend invitation banners above the conversation area
+            if invite_banners.is_empty() {
+                conversation_area
+            } else {
+                let mut col = column(invite_banners).spacing(4);
+                col = col.push(conversation_area);
+                col.height(Length::Fill).width(Length::Fill).into()
             }
         };
 
@@ -866,9 +1036,11 @@ impl ChatScreen {
         let content_row: Element<Message> = if let Some(ref jid) = self.active_jid {
             if self.muc_jids.contains(jid.as_str()) {
                 if let Some(panel) = self.muc_panels.get(jid) {
-                    let panel_view = panel.view().map(|_msg| {
-                        // muc_panel::Message is empty — this branch is unreachable
-                        unreachable!()
+                    // K3: map OccupantPanel messages into ChatScreen messages
+                    let panel_view = panel.view().map(|msg| match msg {
+                        super::muc_panel::Message::OpenInviteDialog(room_jid) => {
+                            Message::OpenInviteDialog(room_jid)
+                        }
                     });
                     row![sidebar_view, main_area, panel_view]
                         .height(Length::Fill)
