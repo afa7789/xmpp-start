@@ -88,18 +88,18 @@
 
 ## Phase J — High Priority (from gap analysis)
 - [ ] **J5**: OMEMO end-to-end encryption (XEP-0384) — Critical
-- [ ] **J6**: Avatar fetch + display (XEP-0084 + XEP-0153) — wire AvatarManager in engine
+- [x] ✅ **J6** engine side — wire AvatarManager into engine (XEP-0084) — (2026-03-22)
 - [ ] **J7**: File upload full UI flow (XEP-0363) — picker + paste + drag-drop + progress
 - [ ] **J8**: Multi-account support — account switcher, per-account state
 - [ ] **J9**: Account registration wizard (XEP-0077)
-- [ ] **J10**: MAM preferences dialog (All/Contacts/None archiving mode)
+- [x] ✅ **J10** MAM preferences get/set — (2026-03-22)
 
 ## Phase K — Medium Priority (from gap analysis)
 - [ ] **K1**: Proxy settings per-account (SOCKS5 + HTTP)
 - [ ] **K2**: vCard editing (XEP-0054 + XEP-0292) — nickname, org, email, avatar
 - [ ] **K3**: Per-contact notification muting (right-click → Mute)
-- [ ] **K4**: Delivery receipts (XEP-0184) — sent/delivered checkmarks
-- [ ] **K5**: Read markers / displayed (XEP-0333) — double checkmark on read
+- [x] ✅ **K4** Delivery receipts (XEP-0184) — (2026-03-22)
+- [x] ✅ **K5** Read markers / displayed (XEP-0333) — (2026-03-22)
 - [ ] **K6**: Chat preferences panel — join/leave notifications, contact sorting
 - [ ] **K7**: Push notifications (XEP-0357)
 
@@ -147,3 +147,7 @@
 - [ ] **R1**: Reaction tooltips (who reacted), quick emoji bar, toggle on re-click
 - [ ] **R2**: Enhanced link previews + OGP image dimensions
 - [ ] **R3**: Composer markdown shortcuts (Ctrl+B/I), auto-grow, paste image
+
+## Quick Wins — Auth UX
+- [ ] **AUTH-1**: "Remember me" / auto-login — se credenciais já estão no keychain, conectar automaticamente ao abrir sem mostrar tela de login. Adicionar toggle "Remember me" no login screen.
+- [ ] **AUTH-2**: Logout button — no settings ou header; limpa a sessão ativa, volta pra tela de login, opcionalmente apaga credenciais do keychain.
