@@ -12,6 +12,9 @@ pub mod stream_mgmt; // Task P1.6 — XEP-0198 stream management
 // Phase 3 (MUC)
 pub mod bookmarks;
 pub mod muc; // Task P3.1 — XEP-0045 multi-user chat // Task P3.4 — XEP-0048 bookmarks
+pub mod muc_admin; // S3: XEP-0045 §10 affiliations, §11 moderation
+pub mod muc_config; // S3: XEP-0045 §6 room configuration
+pub mod muc_voice; // S3: XEP-0045 §5.2 voice requests
 
 // Phase 4 (History)
 pub mod catchup; // Task P4.3 — MAM catchup state machine
