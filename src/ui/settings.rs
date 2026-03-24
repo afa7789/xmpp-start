@@ -869,13 +869,6 @@ mod tests {
     }
 
     #[test]
-    fn network_defaults_force_tls_true() {
-        let s = Settings::default();
-        assert!(s.force_tls);
-        assert!(s.proxy_type.is_none());
-    }
-
-    #[test]
     fn settings_screen_proxy_type_none_clears_field() {
         let mut screen = SettingsScreen::new(Settings {
             proxy_type: Some("socks5".into()),

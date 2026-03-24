@@ -218,6 +218,12 @@ fn settings_json_round_trip() {
         show_join_leave: true,
         show_typing_indicators: true,
         compact_layout: false,
+        accounts: vec![],
+        proxy_type: None,
+        proxy_host: None,
+        proxy_port: None,
+        manual_srv: None,
+        force_tls: true,
     };
 
     let json = serde_json::to_string(&original).unwrap();
