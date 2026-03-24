@@ -345,17 +345,18 @@ impl App {
             }
 
             Message::About(msg) => {
+                let is_back = matches!(msg, about::Message::Back);
                 if let Screen::About(ref mut about) = self.screen {
                     about.update(msg);
-                    if let about::Message::Back = msg {
-                        // For now, go back to the last active chat or login
-                        if let Screen::Chat(_) = &self.screen {
-                            // Already on chat, do nothing
-                        } else {
-                            self.screen = Screen::Chat(Box::new(ChatScreen::new(
-                                "user@server".to_string(), // placeholder until connected
-                            )));
-                        }
+                }
+                if is_back {
+                    // Go back to login (or wherever we came from)
+                    if !matches!(self.screen, Screen::Chat(_)) {
+                        self.screen = Screen::Login(LoginScreen::with_saved(
+                            self.settings.last_jid.clone(),
+                            config::load_password(&self.settings.last_jid).unwrap_or_default(),
+                            self.settings.last_server.clone(),
+                        ));
                     }
                 }
                 Task::none()
