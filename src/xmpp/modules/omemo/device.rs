@@ -8,13 +8,12 @@
 use tokio_xmpp::minidom::Element;
 
 use crate::xmpp::modules::{find_child_recursive, NS_CLIENT, NS_PUBSUB};
-
-const NS_OMEMO: &str = "urn:xmpp:omemo:2";
+use super::{NS_OMEMO, NS_OMEMO_BUNDLES, NS_OMEMO_DEVICELIST};
 
 /// XEP-0384 device list node name.
-pub const OMEMO_DEVICES_NODE: &str = "urn:xmpp:omemo:2:devices";
+pub const OMEMO_DEVICES_NODE: &str = NS_OMEMO_DEVICELIST;
 /// XEP-0384 bundle node prefix — append `/{device_id}`.
-pub const OMEMO_BUNDLE_NODE_PREFIX: &str = "urn:xmpp:omemo:2:bundles";
+pub const OMEMO_BUNDLE_NODE_PREFIX: &str = NS_OMEMO_BUNDLES;
 
 // ---------------------------------------------------------------------------
 // DeviceManager
@@ -321,7 +320,7 @@ mod tests {
         let mgr = DeviceManager::new();
         let (_id, iq) = mgr.build_bundle_fetch("bob@example.com", 42);
         let xml_str = String::from(&iq);
-        assert!(xml_str.contains("urn:xmpp:omemo:2:bundles/42"));
+        assert!(xml_str.contains(&format!("{}/42", OMEMO_BUNDLE_NODE_PREFIX)));
     }
 
     #[test]
