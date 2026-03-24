@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Task P1.2 — SASL authentication (PLAIN + SCRAM-SHA-256)
 //
 // Source reference: packages/fluux-sdk/src/core/modules/Connection.ts
