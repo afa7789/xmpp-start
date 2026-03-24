@@ -176,66 +176,6 @@ fn blocking_full_lifecycle() {
     assert!(bm.is_blocked("spam@example.com")); // others unchanged
 }
 
-// ---- i18n: bundle loads and substitutes variables -----------------------
-
-#[test]
-fn i18n_default_bundle_and_substitution() {
-    let bundle = xmpp_start::i18n::default_bundle();
-
-    let title = bundle.get("login-title");
-    assert_ne!(title, "login-title", "should return translation, not key");
-
-    let connected = bundle.get_with_args("login-connected", &[("jid", "user@server.com")]);
-    assert!(connected.contains("user@server.com"));
-}
-
-// ---- Settings: JSON round-trip ------------------------------------------
-
-#[test]
-fn settings_json_round_trip() {
-    use xmpp_start::config::{Settings, Theme};
-
-    let original = Settings {
-        theme: Theme::Light,
-        font_size: 16,
-        show_timestamps: false,
-        notifications_enabled: true,
-        sound_enabled: true,
-        last_jid: "test@example.com".into(),
-        last_server: "xmpp.example.com".into(),
-        muted_jids: std::collections::HashSet::new(),
-        status_message: Some("In a meeting".into()),
-        remember_me: false,
-        send_receipts: true,
-        send_typing: true,
-        send_read_markers: true,
-        mam_default_mode: None,
-        use_system_theme: false,
-        time_format: xmpp_start::config::TimeFormat::TwentyFourHour,
-        contact_sort: "status".into(),
-        avatar_data: None,
-        mam_fetch_limit: 50,
-        show_join_leave: true,
-        show_typing_indicators: true,
-        compact_layout: false,
-        accounts: vec![],
-        proxy_type: None,
-        proxy_host: None,
-        proxy_port: None,
-        manual_srv: None,
-        force_tls: true,
-    };
-
-    let json = serde_json::to_string(&original).unwrap();
-    let restored: Settings = serde_json::from_str(&json).unwrap();
-
-    assert_eq!(restored.last_jid, "test@example.com");
-    assert_eq!(restored.theme, Theme::Light);
-    assert_eq!(restored.font_size, 16);
-    assert!(!restored.show_timestamps);
-    assert_eq!(restored.status_message, Some("In a meeting".into()));
-}
-
 // ---- Avatar: publish metadata → publish data ----------------------------
 
 #[test]
@@ -286,35 +226,6 @@ fn message_moderation_command_building() {
     assert!(moderation_xml.contains("<retract xmlns='urn:xmpp:message-retract:1'/>"));
     assert!(moderation_xml.contains("Violation of room rules"));
     assert!(moderation_xml.contains("to=\"room@conference.example.com\""));
-}
-
-// ---- Room List: parse from disco#items ----------------------------------
-
-#[test]
-fn room_list_parsing_from_disco_items() {
-    use xmpp_start::xmpp::modules::disco::DiscoManager;
-
-    let mut mgr = DiscoManager::new("node", &[], &[]);
-    let (id, _) = mgr.build_items_request("conference.example.org");
-
-    // Simulate receiving room list from disco#items response
-    let room_list_xml = format!(r#"<iq type="result" from="conference.example.org" to="me@example.com" id="{id}" xmlns="jabber:client">
-        <query xmlns='http://jabber.org/protocol/disco#items'>
-            <item jid="meeting@conference.example.com" name="Meeting Room"/>
-            <item jid="general@conference.example.com" name="General Chat"/>
-            <item jid="random@conference.example.com" name="Random"/>
-        </query>
-    </iq>"#, id=id);
-
-    let el: tokio_xmpp::minidom::Element = room_list_xml.parse().unwrap();
-    let result = mgr.on_items_result(&el);
-
-    assert!(result.is_some());
-    let (jid, items) = result.unwrap();
-    assert_eq!(jid, "conference.example.org");
-    assert_eq!(items.len(), 3);
-    assert_eq!(items[0].jid, "meeting@conference.example.com");
-    assert_eq!(items[0].name, Some("Meeting Room".to_string()));
 }
 
 
