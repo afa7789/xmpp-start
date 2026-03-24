@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Task L1 — XEP-0449 Sticker Packs (placeholder)
 // XEP reference: https://xmpp.org/extensions/xep-0449.html
 //

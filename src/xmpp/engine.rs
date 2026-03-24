@@ -619,9 +619,12 @@ async fn run_session(
                         let iq = build_spam_report(&jid, reason.as_deref());
                         outbox.push_back(iq);
                     }
-                    Some(XmppCommand::RequestBob { .. })
-                    | Some(XmppCommand::SendSticker { .. }) => {
+                    Some(XmppCommand::RequestBob { .. }) => {
                         // Not yet wired.
+                    }
+                    Some(XmppCommand::SendSticker { to, pack_id, sticker }) => {
+                        let msg = stickers::build_sticker_message(&to, &pack_id, &sticker);
+                        outbox.push_back(msg);
                     }
                     // MEMO: Enable OMEMO — generate keys and publish device list + bundle.
                     Some(XmppCommand::OmemoEnable) => {
