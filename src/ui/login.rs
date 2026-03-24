@@ -2,7 +2,7 @@
 // Source reference: apps/fluux/src/components/LoginScreen.tsx
 
 use iced::{
-    widget::{button, column, container, text, text_input},
+    widget::{button, checkbox, column, container, text, text_input},
     Alignment, Element, Length, Task,
 };
 
@@ -14,6 +14,8 @@ pub struct LoginScreen {
     password: String,
     server: String,
     state: LoginState,
+    /// AUTH-1: remember me — if true, password stays in keychain and we auto-connect next launch.
+    pub remember_me: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +40,8 @@ pub enum Message {
     /// Sent by App::update after dispatching the Register command.
     Registering,
     GoToBenchmark,
+    /// AUTH-1: toggled by the Remember Me checkbox.
+    RememberMeToggled(bool),
 }
 
 impl Default for LoginScreen {
@@ -53,16 +57,18 @@ impl LoginScreen {
             password: String::new(),
             server: String::new(),
             state: LoginState::Idle,
+            remember_me: true,
         }
     }
 
     /// Pre-fill fields from saved settings + keychain.
-    pub fn with_saved(jid: String, password: String, server: String) -> Self {
+    pub fn with_saved(jid: String, password: String, server: String, remember_me: bool) -> Self {
         Self {
             jid,
             password,
             server,
             state: LoginState::Idle,
+            remember_me,
         }
     }
 
@@ -113,6 +119,9 @@ impl LoginScreen {
             Message::GoToBenchmark => {
                 // Handled by App::update; nothing to mutate here.
             }
+            Message::RememberMeToggled(v) => {
+                self.remember_me = v;
+            }
         }
         Task::none()
     }
@@ -139,6 +148,9 @@ impl LoginScreen {
             button("Register")
         };
 
+        let remember_me_row = checkbox("Remember me", self.remember_me)
+            .on_toggle(Message::RememberMeToggled);
+
         let form = column![
             text("XMPP Messenger").size(28),
             text_input("JID (user@server.tld)", &self.jid)
@@ -151,6 +163,7 @@ impl LoginScreen {
             text_input("Server (optional)", &self.server)
                 .on_input(Message::ServerChanged)
                 .padding(10),
+            remember_me_row,
             iced::widget::row![connect_btn.padding([10, 24]), register_btn.padding([10, 24])]
                 .spacing(10),
             status,

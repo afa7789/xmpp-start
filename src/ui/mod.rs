@@ -9,8 +9,10 @@ use sqlx::SqlitePool;
 use tokio::sync::mpsc;
 
 pub mod about;
+pub mod account_details;
 pub mod avatar;
 pub mod benchmark;
+pub mod blocklist;
 pub mod chat;
 pub mod conversation;
 pub mod data_forms;
@@ -67,6 +69,8 @@ pub struct App {
     idle_state: IdleState,
     // J10: MAM archiving default mode ("roster", "always", or "never")
     mam_default_mode: Option<String>,
+    // AUTH-1: pending auto-connect config — consumed when XmppReady fires
+    auto_connect_cfg: Option<crate::xmpp::ConnectConfig>,
 }
 
 /// S1: tracks which auto-away stage has been sent to the engine.
@@ -127,11 +131,25 @@ impl App {
     pub fn new_with_settings(settings: Settings, db: Arc<SqlitePool>) -> (Self, Task<Message>) {
         let mam_mode = settings.mam_default_mode.clone();
         let password = config::load_password(&settings.last_jid).unwrap_or_default();
+
+        // AUTH-1: auto-connect if remember_me is set and stored credentials exist.
+        let auto_connect = settings.remember_me
+            && !settings.last_jid.is_empty()
+            && !password.is_empty();
+
         let login = LoginScreen::with_saved(
             settings.last_jid.clone(),
-            password,
+            password.clone(),
             settings.last_server.clone(),
+            settings.remember_me,
         );
+
+        let auto_connect_cfg = if auto_connect {
+            Some(login.connect_config())
+        } else {
+            None
+        };
+
         (
             App {
                 screen: Screen::Login(login),
@@ -152,6 +170,7 @@ impl App {
                 last_activity: std::time::Instant::now(),
                 idle_state: IdleState::Active,
                 mam_default_mode: mam_mode,
+                auto_connect_cfg,
             },
             Task::none(),
         )
@@ -356,6 +375,7 @@ impl App {
                             self.settings.last_jid.clone(),
                             config::load_password(&self.settings.last_jid).unwrap_or_default(),
                             self.settings.last_server.clone(),
+                            self.settings.remember_me,
                         ));
                     }
                 }
@@ -455,6 +475,12 @@ impl App {
                     return Task::none();
                 }
 
+                // AUTH-1: persist remember_me preference when toggled on login screen.
+                if let login::Message::RememberMeToggled(v) = msg {
+                    self.settings.remember_me = v;
+                    let _ = config::save(&self.settings);
+                }
+
                 if let Screen::Login(login) = &mut self.screen {
                     login.update(msg).map(Message::Login)
                 } else {
@@ -486,6 +512,7 @@ impl App {
                     self.settings.last_jid.clone(),
                     String::new(),
                     self.settings.last_server.clone(),
+                    self.settings.remember_me,
                 );
                 self.screen = Screen::Login(login);
                 if let Some(ref tx) = self.xmpp_tx {
@@ -596,6 +623,16 @@ impl App {
             Message::XmppReady(tx) => {
                 tracing::debug!("xmpp command channel ready");
                 self.xmpp_tx = Some(tx);
+                // AUTH-1: if we have a pending auto-connect config, connect now.
+                if let Some(cfg) = self.auto_connect_cfg.take() {
+                    let tx = self.xmpp_tx.as_ref().unwrap().clone();
+                    self.last_connect_cfg = Some(cfg.clone());
+                    self.reconnect_attempt = 0;
+                    return Task::future(async move {
+                        let _ = tx.send(XmppCommand::Connect(cfg)).await;
+                        Message::Login(login::Message::Connecting)
+                    });
+                }
                 Task::none()
             }
 
@@ -992,6 +1029,11 @@ impl App {
                             chat.on_message_moderated(room_jid, message_id);
                         }
                     }
+                    // Not yet handled in UI — silently ignore.
+                    XmppEvent::OwnVCardReceived(_)
+                    | XmppEvent::OwnVCardSaved
+                    | XmppEvent::AdhocCommandResult(_)
+                    | XmppEvent::AdhocCommandsDiscovered { .. } => {}
                 }
                 Task::none()
             }

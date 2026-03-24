@@ -39,6 +39,8 @@ use super::{
     modules::push::PushManager,
     modules::registration::RegistrationManager,
     modules::stream_mgmt::StreamMgmt,
+    modules::vcard_edit::VCardEditManager,
+    modules::adhoc::AdhocManager,
     IncomingMessage, RosterContact, XmppCommand, XmppEvent,
 };
 
@@ -182,6 +184,13 @@ async fn run_session(
     let mut bookmark_mgr = BookmarkManager::new();
     // K7: XEP-0357 push notifications manager
     let mut push_mgr = PushManager::new();
+    // K2: XEP-0054 own vCard editing manager
+    let mut vcard_edit_mgr = VCardEditManager::new();
+    // L4: XEP-0050 ad-hoc commands manager
+    let mut adhoc_mgr = AdhocManager::new();
+    // K2/L4: vCard edit and ad-hoc commands managers
+    let mut vcard_edit_mgr = VCardEditManager::new();
+    let mut adhoc_mgr = AdhocManager::new();
 
     // S6: privacy settings — control whether we send receipts, typing, read markers
     let flags = (config.send_receipts as u8)
@@ -227,7 +236,7 @@ async fn run_session(
                     }
                     Some(ev) => {
 
-                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut own_jid_str, &mut mam_mgr, &mut catchup_mgr, &mut presence_machine, &mut disco_mgr, &mut file_upload_mgr, &mut avatar_mgr, &mut muc_mgr, &mut muc_config_mgr, &mut bookmark_mgr, &mut push_mgr).await;
+                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut own_jid_str, &mut mam_mgr, &mut catchup_mgr, &mut presence_machine, &mut disco_mgr, &mut file_upload_mgr, &mut avatar_mgr, &mut muc_mgr, &mut muc_config_mgr, &mut bookmark_mgr, &mut push_mgr, &mut vcard_edit_mgr, &mut adhoc_mgr).await;
                     }
                 }
             }
@@ -393,6 +402,60 @@ async fn run_session(
                         outbox.push_back(make_mam_prefs_set(&default_mode));
                         tracing::debug!("mam: sent prefs-set default={default_mode}");
                     }
+                    // K2: Fetch own vCard
+                    Some(XmppCommand::FetchOwnVCard) => {
+                        let (_, iq) = vcard_edit_mgr.build_get();
+                        outbox.push_back(iq);
+                        tracing::debug!("vcard_edit: fetching own vCard");
+                    }
+                    // K2: Publish own vCard
+                    Some(XmppCommand::SetOwnVCard(fields)) => {
+                        let (_, iq) = vcard_edit_mgr.build_set(&fields);
+                        outbox.push_back(iq);
+                        tracing::info!("vcard_edit: publishing own vCard");
+                    }
+                    // L4: Execute an ad-hoc command
+                    Some(XmppCommand::ExecuteAdhocCommand { to_jid, node }) => {
+                        let (_, iq) = adhoc_mgr.build_execute(&to_jid, &node);
+                        outbox.push_back(iq);
+                        tracing::info!("adhoc: executing command {} on {}", node, to_jid);
+                    }
+                    // L4: Continue an in-progress ad-hoc command
+                    Some(XmppCommand::ContinueAdhocCommand {
+                        to_jid,
+                        node,
+                        session_id,
+                        fields,
+                    }) => {
+                        let (_, iq) =
+                            adhoc_mgr.build_continue(&to_jid, &node, &session_id, &fields);
+                        outbox.push_back(iq);
+                        tracing::info!(
+                            "adhoc: continuing command {} session {}",
+                            node,
+                            session_id
+                        );
+                    }
+                    // L4: Cancel an in-progress ad-hoc command
+                    Some(XmppCommand::CancelAdhocCommand {
+                        to_jid,
+                        node,
+                        session_id,
+                    }) => {
+                        let (_, iq) = adhoc_mgr.build_cancel(&to_jid, &node, &session_id);
+                        outbox.push_back(iq);
+                        tracing::info!(
+                            "adhoc: cancelling command {} session {}",
+                            node,
+                            session_id
+                        );
+                    }
+                    // L4: Discover ad-hoc commands on a target JID
+                    Some(XmppCommand::DiscoverAdhocCommands { target_jid }) => {
+                        let (_, iq) = disco_mgr.build_items_request(&target_jid);
+                        outbox.push_back(iq);
+                        tracing::info!("adhoc: discovering commands on {}", target_jid);
+                    }
                     Some(XmppCommand::RemoveContact(_))
                     | Some(XmppCommand::RenameContact { .. })
                     | Some(XmppCommand::FetchVCard(_))
@@ -487,6 +550,8 @@ async fn handle_client_event(
     muc_config_mgr: &mut MucConfigManager,
     bookmark_mgr: &mut BookmarkManager,
     push_mgr: &mut PushManager,
+    vcard_edit_mgr: &mut VCardEditManager,
+    adhoc_mgr: &mut AdhocManager,
 ) {
     match ev {
         tokio_xmpp::Event::Online { bound_jid, .. } => {
@@ -581,6 +646,8 @@ async fn handle_client_event(
                 muc_mgr,
                 muc_config_mgr,
                 bookmark_mgr,
+                vcard_edit_mgr,
+                adhoc_mgr,
             )
             .await;
         }
@@ -603,6 +670,8 @@ async fn dispatch_stanza(
     muc_mgr: &mut MucManager,
     muc_config_mgr: &mut MucConfigManager,
     bookmark_mgr: &mut BookmarkManager,
+    vcard_edit_mgr: &mut VCardEditManager,
+    adhoc_mgr: &mut AdhocManager,
 ) {
     // F1: emit received stanza to debug console before routing
     let xml_str = String::from(&el);
@@ -641,6 +710,8 @@ async fn dispatch_stanza(
                 avatar_mgr,
                 muc_config_mgr,
                 bookmark_mgr,
+                vcard_edit_mgr,
+                adhoc_mgr,
             )
             .await
         }
@@ -795,6 +866,8 @@ async fn handle_iq(
     avatar_mgr: &mut AvatarManager,
     muc_config_mgr: &mut MucConfigManager,
     bookmark_mgr: &mut BookmarkManager,
+    vcard_edit_mgr: &mut VCardEditManager,
+    adhoc_mgr: &mut AdhocManager,
 ) {
     // C5: respond to disco#info get requests with our feature list
     if el.attr("type") == Some("get") {
@@ -866,6 +939,18 @@ async fn handle_iq(
             return;
         }
     }
+    // K2: detect own-vCard get result (must check before avatar manager to avoid consuming it)
+    if let Some(fields) = vcard_edit_mgr.on_get_result(&el) {
+        let _ = event_tx
+            .send(XmppEvent::OwnVCardReceived(fields))
+            .await;
+        return;
+    }
+    // K2: detect own-vCard set result
+    if vcard_edit_mgr.on_set_result(&el) {
+        let _ = event_tx.send(XmppEvent::OwnVCardSaved).await;
+        return;
+    }
     // H1: detect vCard result and extract PHOTO/BINVAL
     if let Some(avatar_info) = avatar_mgr.on_vcard_result(&el) {
         if !avatar_info.data.is_empty() {
@@ -878,15 +963,38 @@ async fn handle_iq(
         }
         return;
     }
+    // L4: detect ad-hoc command result
+    if let Some(cmd_response) = adhoc_mgr.on_result(&el) {
+        let _ = event_tx
+            .send(XmppEvent::AdhocCommandResult(cmd_response))
+            .await;
+        return;
+    }
     // C5: parse disco#info results into cache
     if disco_mgr.on_info_result(&el).is_some() {
         return;
     }
-    // K2: parse disco#items results (room list from MUC service)
+    // K2/L4: parse disco#items results (room list or adhoc command list)
     if let Some((service_jid, items)) = disco_mgr.on_items_result(&el) {
         let count = items.len();
-        let _ = event_tx.send(XmppEvent::RoomListReceived(items)).await;
-        tracing::info!("k2: received {} rooms from {}", count, service_jid);
+        // L4: if any item has a node resembling commands, treat as adhoc discovery result
+        let has_adhoc_nodes = items.iter().any(|i| i.node.is_some());
+        if has_adhoc_nodes {
+            let commands: Vec<(String, String)> = items
+                .into_iter()
+                .filter_map(|i| i.node.map(|node| (node, i.name.unwrap_or_default())))
+                .collect();
+            let _ = event_tx
+                .send(XmppEvent::AdhocCommandsDiscovered {
+                    from_jid: service_jid.clone(),
+                    commands,
+                })
+                .await;
+            tracing::info!("l4: received {} adhoc commands from {}", count, service_jid);
+        } else {
+            let _ = event_tx.send(XmppEvent::RoomListReceived(items)).await;
+            tracing::info!("k2: received {} rooms from {}", count, service_jid);
+        }
         return;
     }
     // C4: blocklist result (initial fetch)
