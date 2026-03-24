@@ -238,6 +238,7 @@ impl ChatScreen {
             reply_preview: None,
             edited: false,
             retracted: false,
+            is_encrypted: false,
         });
 
         // B5: increment unread if not the currently active conversation
@@ -876,6 +877,7 @@ impl ChatScreen {
                                 reply_preview: None,
                                 edited: false,
                                 retracted: false,
+                                is_encrypted: false,
                             });
 
                             // E5: spawn link preview fetch tasks for any URLs in the message

@@ -161,6 +161,7 @@ fn is_me_action(body: &str) -> bool {
 }
 
 use crate::ui::avatar::{jid_color, jid_initial};
+use crate::ui::omemo_trust::encryption_badge;
 use crate::ui::styling::{self, SpanStyle};
 
 /// A single message shown in the conversation view.
@@ -177,6 +178,8 @@ pub struct DisplayMessage {
     pub edited: bool,
     /// E2: true if the message has been retracted
     pub retracted: bool,
+    /// OMEMO: true if the message was decrypted via OMEMO (XEP-0384)
+    pub is_encrypted: bool,
 }
 
 /// M2/K5: message delivery/read state for own messages (shown as ✓ indicators)
@@ -303,6 +306,8 @@ pub enum Message {
     ModerateReasonChanged(String),
     SubmitModerate,
     DismissModerateDialog,
+    /// OMEMO: open the trust/fingerprint dialog for the sender of a message
+    OpenOmemoTrust(String), // peer_jid
 }
 
 impl ConversationView {
@@ -550,6 +555,7 @@ impl ConversationView {
                 self.moderate_reason_input.clear();
                 Task::none()
             }
+            Message::OpenOmemoTrust(_) => Task::none(), // bubbled to ChatScreen
             Message::RequestOlderHistory => Task::none(), // bubbled to ChatScreen
             Message::AttachmentLoaded(msg_id, handle) => {
                 self.attachments.insert(msg_id, handle);
@@ -984,6 +990,24 @@ impl ConversationView {
             } else {
                 let styled_spans = styling::parse(&m.body);
                 build_styled_text(&styled_spans)
+            };
+
+            // OMEMO: wrap body with lock icon when the message was decrypted via OMEMO
+            let body_widget: Element<Message> = if m.is_encrypted {
+                let peer_jid_for_trust = m.from.split('/').next().unwrap_or(&m.from).to_string();
+                let lock_badge = tooltip(
+                    button(encryption_badge::<Message>(true))
+                        .on_press(Message::OpenOmemoTrust(peer_jid_for_trust))
+                        .padding([0, 4]),
+                    "OMEMO encrypted — click to view fingerprints",
+                    tooltip::Position::Top,
+                );
+                row![lock_badge, body_widget]
+                    .spacing(4)
+                    .align_y(Alignment::Center)
+                    .into()
+            } else {
+                body_widget
             };
 
             // G7: copy button with tooltip
@@ -1751,6 +1775,7 @@ mod tests {
             reply_preview: None,
             edited: false,
             retracted: false,
+            is_encrypted: false,
         }
     }
 

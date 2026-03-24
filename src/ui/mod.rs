@@ -22,6 +22,7 @@ pub mod data_forms;
 pub mod link_preview;
 mod login;
 pub mod muc_panel;
+pub mod omemo_trust;
 pub mod settings;
 pub mod sidebar;
 pub mod spam_report;
@@ -463,6 +464,7 @@ impl App {
                                 reply_preview: None,
                                 edited: r.edited_body.is_some(),
                                 retracted: r.retracted != 0,
+                                is_encrypted: false,
                             })
                             .collect();
                         convo.load_history(display);
@@ -1032,6 +1034,12 @@ impl App {
                     msg
                 {
                     return self.update(Message::GoToAccountSwitcher);
+                }
+                // OMEMO: open trust dialog when user clicks a lock badge
+                if let chat::Message::OpenOmemoTrust(ref peer_jid) = msg {
+                    let _peer = peer_jid.clone();
+                    tracing::info!("OMEMO: opening trust dialog for {_peer}");
+                    return Task::none();
                 }
                 // O2: intercept SetPresence to track own presence for DND notification suppression
                 if let chat::Message::SetPresence(ref status) = msg {
