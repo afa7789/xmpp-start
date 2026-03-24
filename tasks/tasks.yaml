@@ -47,16 +47,8 @@ pending:
   low: []
     # L1: completed 2026-03-23 (sticker packs placeholder)
 
-  critical:
-    - id: OMEMO
-      title: "OMEMO E2E encryption (XEP-0384)"
-      priority: critical
-      notes: "Wave 5 complete (2026-03-24): OmemoManager, session mgr, message stanzas, trust UI, bundle helpers, engine wiring (OmemoEnable, OmemoEncryptMessage, OmemoTrustDevice, omemo_try_decrypt). Remaining: PEP bundle auto-publish on connect, key exchange flow (fetch peer bundles, create outbound sessions), TrustState UI feedback."
-
-    - id: MULTI
-      title: "Multi-account support"
-      priority: critical
-      notes: "Wave 5 complete (2026-03-24): MultiEngineManager, AccountState, AccountStateManager, account switcher UI, sidebar indicator. Remaining: replace single engine in App with MultiEngineManager, route all XmppEvent to per-account state, full UI account switcher wiring."
+  critical: []
+    # OMEMO + MULTI: engine wiring complete 2026-03-24
 
 completed:
   - { id: B1, title: "rustls CryptoProvider", completed: "2026-03-22" }
@@ -145,3 +137,5 @@ completed:
   - { id: MULTI-foundation, title: "Multi-account foundation (config, DB scoping, switcher skeleton)", completed: "2026-03-23" }
   - { id: OMEMO-foundation, title: "OMEMO foundation (vodozemac, key store, device manager, architecture)", completed: "2026-03-23" }
   - { id: L1, title: "Sticker packs placeholder (XEP stickers:0)", completed: "2026-03-23" }
+  - { id: OMEMO, title: "OMEMO E2E encryption — full engine wiring (XEP-0384)", completed: "2026-03-24" }
+  - { id: MULTI, title: "Multi-account support — full App integration", completed: "2026-03-24" }
