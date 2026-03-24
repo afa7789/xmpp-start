@@ -19,6 +19,18 @@
 - ✅ **K1** (PLAN.md): Room creation UI + config modal (2026-03-23)
 - ✅ **L2** (PLAN.md): @mention autocomplete in MUC (2026-03-23) — dropdown above composer, amber highlight for mentioned messages
 
+- ✅ **BUG-5**: Fix duplicate PaletteQuery match arm (2026-03-23)
+- ✅ **BUG-4**: Auto-away escalation to XA (2026-03-23)
+- ✅ **BUG-6**: Voice message composer fix (2026-03-23)
+- ✅ **AUTH-1**: Auto-login / Remember me + auto-connect (2026-03-23)
+- ✅ **AUTH-2**: Logout button in settings (2026-03-23)
+- ✅ **M7**: About modal (2026-03-23)
+- ✅ **M3**: Blocklist search + add JID UI (2026-03-23)
+- ✅ **M4**: Account details panel (2026-03-23)
+- ✅ **M6**: Data & storage settings (2026-03-23)
+- ✅ **K6**: Chat preferences panel (2026-03-23)
+- ✅ **M1**: System theme sync + 12h/24h (2026-03-23)
+
 ## Phase B — Storage Layer
 - [x] ✅ **B4**: Load message history on conversation open (50 most recent) — (2026-03-22)
 - [x] ✅ **B5**: Unread badge count in sidebar — (2026-03-22)
@@ -160,6 +172,25 @@
 - [ ] **R1**: Reaction tooltips (who reacted), quick emoji bar, toggle on re-click
 - [ ] **R2**: Enhanced link previews + OGP image dimensions
 - [ ] **R3**: Composer markdown shortcuts (Ctrl+B/I), auto-grow, paste image
+
+## UNICODE — Emoji & Unicode Rendering (High Priority)
+- [ ] **UNICODE**: Unicode & Emoji Rendering Support
+  - **Problem**: Emojis and complex Unicode characters not rendering in app
+  - **Root cause**: Iced requires explicit font config + `Shaping::Advanced` for Unicode
+  - **Solution**:
+    1. Add Noto Color Emoji font to project assets (`fonts/NotoColorEmoji-Regular.ttf`)
+    2. Configure `iced::Settings` with `default_font` + `fonts` vector including emoji font
+    3. Apply `.shaping(Shaping::Advanced)` to ALL text widgets displaying user content
+    4. Platform fallback: macOS=Apple Color Emoji, Windows=Segoe UI Emoji, Linux=Noto
+  - **Checklist**:
+    - [ ] Download NotoColorEmoji-Regular.ttf from Google Fonts
+    - [ ] Place font in `fonts/` or `assets/` directory
+    - [ ] Configure Settings: `default_font` + load font bytes in `fonts` vector
+    - [ ] Add `.shaping(Shaping::Advanced)` to all Text widgets (conversation, sidebar, composer)
+    - [ ] Test emoji combinations: simple (😀), skin tones (👋🏽), ZWJ sequences (👨‍👩‍👧‍👦)
+    - [ ] Verify cross-platform (Windows/macOS/Linux)
+  - **Notes**: Iced uses cosmic-text internally; Noto Color Emoji ~5-10MB. Iced 0.10+ recommended.
+  - **Effort**: 0.5–1 day
 
 ## Quick Wins — Auth UX
 - [ ] **AUTH-1**: "Remember me" / auto-login — se credenciais já estão no keychain, conectar automaticamente ao abrir sem mostrar tela de login. Adicionar toggle "Remember me" no login screen.
