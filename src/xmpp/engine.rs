@@ -2463,10 +2463,6 @@ fn make_presence_with_caps(disco_mgr: &DiscoManager, status_message: Option<&str
     raw
 }
 
-fn make_presence() -> Element {
-    Presence::new(PresenceType::None).into()
-}
-
 fn make_message(to: Jid, body: &str) -> Element {
     let mut msg = XmppMessage::new(Some(to));
     msg.type_ = MessageType::Chat;
