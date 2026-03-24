@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Task P6.4 — XEP-0223 Conversation Sync (PubSub private storage)
 // XEP reference: https://xmpp.org/extensions/xep-0223.html
 //

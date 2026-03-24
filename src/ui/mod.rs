@@ -1534,7 +1534,9 @@ impl App {
                     | XmppEvent::OmemoKeyExchangeNeeded { .. }
                     | XmppEvent::StickerPackReceived(_)
                     | XmppEvent::IgnoreListReceived { .. }
-                    | XmppEvent::ConversationsReceived(_) => {}
+                    | XmppEvent::ConversationsReceived(_)
+                    | XmppEvent::CorrectionReceived { .. }
+                    | XmppEvent::RetractionReceived { .. } => {}
                 }
                 Task::none()
             }

@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Task P6.4 — Per-room ignore lists (PubSub private storage)
 //
 // Pure data module — no I/O, no async.
@@ -104,6 +103,24 @@ impl IgnoreManager {
 
         Element::builder("iq", NS_CLIENT)
             .attr("type", "set")
+            .append(Node::Element(pubsub))
+            .build()
+    }
+
+    /// Build a PubSub items request to fetch the ignore list for `room_jid`.
+    pub fn build_fetch_iq(room_jid: &str) -> Element {
+        let node_name = format!("{}{}", IGNORE_NODE_PREFIX, room_jid);
+
+        let items = Element::builder("items", NS_PUBSUB)
+            .attr("node", node_name.as_str())
+            .build();
+
+        let pubsub = Element::builder("pubsub", NS_PUBSUB)
+            .append(Node::Element(items))
+            .build();
+
+        Element::builder("iq", NS_CLIENT)
+            .attr("type", "get")
             .append(Node::Element(pubsub))
             .build()
     }

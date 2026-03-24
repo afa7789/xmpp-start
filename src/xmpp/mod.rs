@@ -205,6 +205,21 @@ pub enum XmppEvent {
     RoomConfigured {
         room_jid: String,
     },
+    // E1: Incoming XEP-0308 last message correction.
+    CorrectionReceived {
+        /// The original message ID being replaced.
+        original_id: String,
+        from_jid: String,
+        new_body: String,
+    },
+
+    // E2: Incoming XEP-0424 message retraction.
+    RetractionReceived {
+        /// The origin-id of the retracted message.
+        origin_id: String,
+        from_jid: String,
+    },
+
     // L3: A message in a MUC room was moderated (tombstoned by a moderator).
     MessageModerated {
         room_jid: String,
@@ -276,6 +291,15 @@ pub enum XmppEvent {
     // L1: Sticker packs (XEP-0449)
     /// A sticker pack was received from PubSub.
     StickerPackReceived(modules::stickers::StickerPack),
+
+    // DC-10: Per-room ignore list received from PubSub.
+    IgnoreListReceived {
+        room_jid: String,
+        ignored: Vec<String>,
+    },
+
+    // DC-10: Conversation list received from PubSub private storage.
+    ConversationsReceived(Vec<modules::conversation_sync::SyncedConversation>),
 }
 
 /// Commands sent from the UI to the XMPP engine.
@@ -521,4 +545,26 @@ pub enum XmppCommand {
         pack_id: String,
         sticker: modules::stickers::Sticker,
     },
+
+    // DC-10: Per-room ignore lists (PubSub private storage).
+    /// Add a user to the per-room ignore list and persist to PubSub.
+    IgnoreUser {
+        room_jid: String,
+        user_jid: String,
+    },
+    /// Remove a user from the per-room ignore list and persist to PubSub.
+    UnignoreUser {
+        room_jid: String,
+        user_jid: String,
+    },
+    /// Fetch the ignore list for a given room from PubSub.
+    FetchIgnoreList {
+        room_jid: String,
+    },
+
+    // DC-10: Conversation sync (PubSub private storage, XEP-0223).
+    /// Persist the current conversation list to PubSub private storage.
+    SyncConversations(Vec<modules::conversation_sync::SyncedConversation>),
+    /// Fetch the conversation list from PubSub private storage.
+    FetchConversations,
 }

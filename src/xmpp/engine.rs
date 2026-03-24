@@ -153,6 +153,37 @@ async fn run_session(
         }
     };
 
+    // DC-18: drive the proxy lifecycle state machine when a proxy is configured.
+    // ProxyLifecycle is a pure state machine — it does not open sockets itself.
+    // Here we transition it through Starting → Running so that the transport-kind
+    // logic (TCP → WebSocket fallback after 3 failures) is exercised on every
+    // connection attempt.  Real SOCKS5/HTTP tunnel injection is deferred to a
+    // future task.
+    let mut proxy_lifecycle = ProxyLifecycle::new(5_000);
+    if let Some((proxy_type, proxy_host, proxy_port)) = config.proxy_config() {
+        tracing::info!(
+            "engine: proxy configured — type={} host={} port={}",
+            proxy_type,
+            proxy_host,
+            proxy_port
+        );
+        match proxy_lifecycle.start() {
+            Ok(()) => {
+                proxy_lifecycle.on_started();
+                tracing::debug!(
+                    "engine: proxy lifecycle → Running (transport={:?})",
+                    proxy_lifecycle.transport()
+                );
+            }
+            Err(e) => {
+                tracing::warn!("engine: proxy lifecycle start error: {e}");
+            }
+        }
+        if proxy_lifecycle.transport() == TransportKind::WebSocket {
+            tracing::info!("engine: proxy transport fell back to WebSocket after repeated failures");
+        }
+    }
+
     // Build the server connector.
     //   1. Explicit host in `server` field → use it directly.
     //   2. `manual_srv` set → resolve that SRV record via dns::resolve_with_override.
