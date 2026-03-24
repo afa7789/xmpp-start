@@ -79,15 +79,6 @@ pending:
       title: "Network settings — proxy SOCKS5/HTTP, manual SRV"
       priority: medium
 
-    - id: R2
-      title: "Enhanced link previews + OGP image dimensions"
-      priority: medium
-      files: ["src/ui/conversation.rs"]
-
-    - id: R3
-      title: "Composer markdown shortcuts (Ctrl+B/I), auto-grow"
-      priority: medium
-
   low:
     - id: L1-new
       title: "Sticker packs support"
@@ -188,3 +179,6 @@ completed:
   - { id: AUTH-1, title: "Auto-login / Remember me checkbox and auto-connect on startup", completed: "2026-03-23" }
   - { id: AUTH-2, title: "Logout button in settings panel", completed: "2026-03-23" }
   - { id: M7, title: "About modal with version, XEP count, license, GitHub", completed: "2026-03-23" }
+  - { id: BUG-6, title: "Voice message composer disappears + no progress", completed: "2026-03-23" }
+  - { id: R2, title: "Enhanced link previews + OGP image dimensions", completed: "2026-03-23" }
+  - { id: R3, title: "Composer markdown shortcuts Ctrl+B/I", completed: "2026-03-23" }
