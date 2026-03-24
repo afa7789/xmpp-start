@@ -436,6 +436,19 @@ impl App {
                     }
                 }
 
+                if matches!(msg, login::Message::Register) {
+                    if let Screen::Login(ref mut login) = self.screen {
+                        let cfg = login.connect_config();
+                        if let Some(ref tx) = self.xmpp_tx {
+                            let tx = tx.clone();
+                            return Task::future(async move {
+                                let _ = tx.send(XmppCommand::Register(cfg)).await;
+                                Message::Login(login::Message::Registering)
+                            });
+                        }
+                    }
+                }
+
                 if matches!(msg, login::Message::GoToBenchmark) {
                     self.screen = Screen::Benchmark(BenchmarkScreen::new());
                     return Task::none();
@@ -617,6 +630,28 @@ impl App {
                             ToastKind::Success,
                         ));
                         return Task::batch([roster_prefill, toast]);
+                    }
+                    XmppEvent::RegistrationFormReceived { server: _, form: _ } => {
+                        // For now, just show a toast. In a full impl, we'd show the Data Form.
+                        return self.update(Message::ShowToast(
+                            "Registration form received (XEP-0077)".into(),
+                            ToastKind::Info,
+                        ));
+                    }
+                    XmppEvent::RegistrationSuccess => {
+                        return self.update(Message::ShowToast(
+                            "Account registered successfully!".into(),
+                            ToastKind::Success,
+                        ));
+                    }
+                    XmppEvent::RegistrationFailure(reason) => {
+                        if let Screen::Login(ref mut login) = self.screen {
+                            login.on_error(reason.clone());
+                        }
+                        return self.update(Message::ShowToast(
+                            format!("Registration failed: {}", reason),
+                            ToastKind::Error,
+                        ));
                     }
                     XmppEvent::Disconnected { ref reason } => {
                         tracing::warn!("XMPP: disconnected — {reason}");

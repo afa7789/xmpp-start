@@ -9,6 +9,8 @@ pub mod engine;
 pub mod modules;
 pub mod subscription;
 
+use tokio_xmpp::minidom::Element;
+
 pub use connection::ConnectConfig;
 
 // ---------------------------------------------------------------------------
@@ -158,6 +160,14 @@ pub enum XmppEvent {
     },
     // K2: Room list received from MUC service (disco#items result)
     RoomListReceived(Vec<modules::disco::DiscoItem>),
+
+    // J9: XEP-0077 Account Registration
+    RegistrationFormReceived {
+        server: String,
+        form: Element,
+    },
+    RegistrationSuccess,
+    RegistrationFailure(String),
 }
 
 /// Commands sent from the UI to the XMPP engine.
@@ -275,5 +285,12 @@ pub enum XmppCommand {
         room_jid: String,
         message_id: String,
         reason: Option<String>,
+    },
+    /// J9: Register a new account (XEP-0077).
+    Register(ConnectConfig),
+    /// J9: Submit a registration form.
+    SubmitRegistration {
+        server: String,
+        form: Element,
     },
 }

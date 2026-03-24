@@ -20,6 +20,7 @@ pub struct LoginScreen {
 enum LoginState {
     Idle,
     Connecting,
+    Registering,
     #[allow(dead_code)]
     Connected(String), // bound JID
     Error(String),
@@ -31,8 +32,11 @@ pub enum Message {
     PasswordChanged(String),
     ServerChanged(String),
     Connect,
+    Register,
     /// Sent by App::update after dispatching the Connect command.
     Connecting,
+    /// Sent by App::update after dispatching the Register command.
+    Registering,
     GoToBenchmark,
 }
 
@@ -96,8 +100,15 @@ impl LoginScreen {
                 // App::update handles sending the command; we just show spinner.
                 self.state = LoginState::Connecting;
             }
+            Message::Register => {
+                // App::update handles sending the command; we just show spinner.
+                self.state = LoginState::Registering;
+            }
             Message::Connecting => {
                 self.state = LoginState::Connecting;
+            }
+            Message::Registering => {
+                self.state = LoginState::Registering;
             }
             Message::GoToBenchmark => {
                 // Handled by App::update; nothing to mutate here.
@@ -110,6 +121,7 @@ impl LoginScreen {
         let status = match &self.state {
             LoginState::Idle => text(""),
             LoginState::Connecting => text("Connecting…"),
+            LoginState::Registering => text("Registering account…"),
             LoginState::Connected(jid) => text(format!("Connected as {jid}")),
             LoginState::Error(e) => text(format!("Error: {e}")),
         };
@@ -119,6 +131,12 @@ impl LoginScreen {
             button("Connect").on_press(Message::Connect)
         } else {
             button("Connect")
+        };
+
+        let register_btn = if connect_enabled {
+            button("Register").on_press(Message::Register)
+        } else {
+            button("Register")
         };
 
         let form = column![
@@ -133,7 +151,8 @@ impl LoginScreen {
             text_input("Server (optional)", &self.server)
                 .on_input(Message::ServerChanged)
                 .padding(10),
-            connect_btn.padding([10, 24]),
+            iced::widget::row![connect_btn.padding([10, 24]), register_btn.padding([10, 24])]
+                .spacing(10),
             status,
             button("Benchmark →")
                 .on_press(Message::GoToBenchmark)

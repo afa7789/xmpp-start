@@ -39,4 +39,5 @@ pub mod entity_time; // Task P6.4 — XEP-0202 entity time
 pub mod ignore; // Task P6.4 — per-room ignored users via PubSub
 pub mod push; // Task K7: XEP-0357 push notifications
 pub mod push_cleanup; // Task P6.5 — XEP-0357 push-disable / WebPush VAPID unsubscribe
-pub mod xmpp_uri; // Task P6.3 — XEP-0147 xmpp: URI parser // Task P6.3 — XEP-0077 account management IQs
+pub mod registration;
+pub mod xmpp_uri; // Task P6.3 — XEP-0147 xmpp: URI parser

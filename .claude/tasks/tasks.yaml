@@ -267,6 +267,13 @@ completed:
       Users can select and crop an avatar (256x256) in the settings. The image is
       published using XEP-0084 PEP (metadata and data nodes). SHA-1 hash calculation
       fixed in engine.
+  - id: J9
+    name: "Account registration wizard"
+    xep: "XEP-0077"
+    completed: "2026-03-23"
+    notes: |
+      In-band registration implemented via a manual pre-authentication stream driver.
+      Added Register button to LoginScreen and registration form routing.
 # Pending tasks organized by priority
 pending:
   critical:
@@ -335,14 +342,6 @@ pending:
       depends_on:
         - "E5" # Link previews
 
-    - id: J9
-      name: "Account registration wizard"
-      xep: "XEP-0077"
-      description: |
-        In-band registration. Register new account from within app.
-      files:
-        - "src/ui/"
-        - "src/xmpp/engine.rs"
 
   low:
     - id: L1
@@ -430,6 +429,9 @@ implemented_xeps:
     - id: XEP-0425
       name: "Message Moderation"
       status: implemented
+    - id: XEP-0077
+      name: "In-Band Registration"
+      status: implemented
   
   chat:
     - id: XEP-0079
@@ -489,10 +491,10 @@ implemented_xeps:
 
 # Statistics
 stats:
-  completed: 64
+  completed: 65
   pending_critical: 2
   pending_high: 0
-  pending_medium: 5
+  pending_medium: 4
   pending_low: 6
-  total_xeps_implemented: 29
+  total_xeps_implemented: 30
 

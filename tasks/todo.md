@@ -93,6 +93,11 @@
 - [ ] **BUG-5**: Duplicate `Message::PaletteQuery(q)` match arm in `App::update`
 	- Context: second arm is unreachable and is currently reported by compiler warning (`unreachable pattern`).
 	- Location: `src/ui/mod.rs` (duplicate arm around lines ~170 and ~285).
+- [ ] **BUG-6**: Voice message upload (M4) — text composer disappears after recording + no upload progress %
+	- Context: after recording and sending a voice note, the text input field vanishes from the composer. Also, upload progress percentage is never shown during the PUT to S3 (only slot request is logged).
+	- Extra: if S3 returns 503, the upload fails silently but the composer is still broken — text messages should remain sendable regardless of upload errors.
+	- Location: `src/ui/mod.rs` and `src/xmpp/modules/` (file_upload / voice message flow).
+	- Repro log: PUT failed: 503 Service Unavailable — but the root issue is the UI regression, not the S3 outage.
 
 ## Phase J — High Priority (from gap analysis)
 - [ ] **J5**: OMEMO end-to-end encryption (XEP-0384) — Critical

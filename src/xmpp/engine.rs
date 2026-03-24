@@ -8,7 +8,7 @@
 
 use std::collections::VecDeque;
 
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tokio_xmpp::{
     jid::Jid,
@@ -22,6 +22,7 @@ use tokio_xmpp::{
     starttls::ServerConfig,
     AsyncClient, AsyncConfig,
 };
+use tokio_xmpp::connect::ServerConnector;
 
 use super::{
     connection::ConnectConfig,
@@ -36,6 +37,7 @@ use super::{
     modules::muc_config::MucConfigManager,
     modules::presence_machine::PresenceMachine,
     modules::push::PushManager,
+    modules::registration::RegistrationManager,
     modules::stream_mgmt::StreamMgmt,
     IncomingMessage, RosterContact, XmppCommand, XmppEvent,
 };
@@ -48,6 +50,7 @@ const NS_CHAT_MARKERS: &str = "urn:xmpp:chat-markers:0";
 // L3: XEP-0425 message moderation namespaces
 const NS_FASTEN: &str = "urn:xmpp:fasten:0";
 const NS_MODERATION: &str = "urn:xmpp:message-moderate:0";
+// J9: XEP-0077 registration namespace
 
 // ---------------------------------------------------------------------------
 // Connection state machine  (P1.9)
@@ -56,6 +59,7 @@ const NS_MODERATION: &str = "urn:xmpp:message-moderate:0";
 #[allow(dead_code)]
 enum EngineState {
     Idle,
+    Registering,
     Running,
 }
 
@@ -71,30 +75,27 @@ pub async fn run_engine(
     event_tx: mpsc::Sender<XmppEvent>,
     mut cmd_rx: mpsc::Receiver<XmppCommand>,
 ) {
-    let mut state = EngineState::Idle;
+    let mut _state = EngineState::Idle;
 
     loop {
-        match state {
-            EngineState::Idle => {
-                // Wait for a Connect command.
-                match cmd_rx.recv().await {
-                    Some(XmppCommand::Connect(config)) => {
-                        tracing::info!("engine: connecting as {}", config.jid);
-                        run_session(config, &event_tx, &mut cmd_rx).await;
-                        // stay Idle for the next iteration
-                    }
-                    Some(_) | None => {
-                        // Other commands while idle are silently ignored.
-                        // Channel closed → exit loop.
-                        if cmd_rx.is_closed() {
-                            break;
-                        }
-                    }
-                }
+        // Wait for a command.
+        match cmd_rx.recv().await {
+            Some(XmppCommand::Connect(config)) => {
+                tracing::info!("engine: connecting as {}", config.jid);
+                run_session(config, &event_tx, &mut cmd_rx).await;
+                // returns to Idle
             }
-            EngineState::Running => {
-                // run_session returned; go back to idle.
-                state = EngineState::Idle;
+            Some(XmppCommand::Register(config)) => {
+                tracing::info!("engine: registering account {}", config.jid);
+                run_registration_session(config, &event_tx, &mut cmd_rx).await;
+                // returns to Idle
+            }
+            Some(_) | None => {
+                // Other commands while idle are silently ignored.
+                // Channel closed → exit loop.
+                if cmd_rx.is_closed() {
+                    break;
+                }
             }
         }
     }
@@ -395,8 +396,10 @@ async fn run_session(
                     Some(XmppCommand::RemoveContact(_))
                     | Some(XmppCommand::RenameContact { .. })
                     | Some(XmppCommand::FetchVCard(_))
-                    | Some(XmppCommand::FetchHistory { .. }) => {
-                        // Not yet implemented — silently ignore.
+                    | Some(XmppCommand::FetchHistory { .. })
+                    | Some(XmppCommand::Register(_))
+                    | Some(XmppCommand::SubmitRegistration { .. }) => {
+                        // Not yet implemented inside an active session — silently ignore.
                     }
                     // S1: auto-away — user has been idle, transition to AutoAway
                     Some(XmppCommand::UserIdle) => {
@@ -1458,6 +1461,113 @@ fn parse_host_port(input: &str, default_port: u16) -> (String, u16) {
 // ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Registration session (J9 / XEP-0077)
+// ---------------------------------------------------------------------------
+
+async fn run_registration_session(
+    config: ConnectConfig,
+    event_tx: &mpsc::Sender<XmppEvent>,
+    cmd_rx: &mut mpsc::Receiver<XmppCommand>,
+) {
+    let jid: Jid = match config.jid.parse() {
+        Ok(j) => j,
+        Err(e) => {
+            let _ = event_tx
+                .send(XmppEvent::RegistrationFailure(format!("Invalid JID: {e}")))
+                .await;
+            return;
+        }
+    };
+
+    let server = if config.server.trim().is_empty() {
+        ServerConfig::UseSrv
+    } else {
+        let (host, port) = parse_host_port(&config.server, 5222);
+        ServerConfig::Manual { host, port }
+    };
+
+    // Connect manually via ServerConfig. This bypasses AsyncClient's auto-auth.
+    let mut stream = match server.connect(&jid, "jabber:client").await {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = event_tx
+                .send(XmppEvent::RegistrationFailure(format!(
+                    "Connection failed: {e}"
+                )))
+                .await;
+            return;
+        }
+    };
+
+    // Request registration form fields from the server.
+    let get_iq = RegistrationManager::build_get_form("reg1");
+    if let Err(e) = stream.send(tokio_xmpp::Packet::Stanza(get_iq)).await {
+        let _ = event_tx
+            .send(XmppEvent::RegistrationFailure(format!(
+                "Failed to send request: {e}"
+            )))
+            .await;
+        return;
+    }
+
+    loop {
+        tokio::select! {
+            maybe_event = stream.next() => {
+                match maybe_event {
+                    Some(Ok(tokio_xmpp::Packet::Stanza(el))) => {
+                        if let Some(query) = RegistrationManager::parse_registration_query(&el) {
+                            // Send form to UI for user interaction.
+                            let _ = event_tx.send(XmppEvent::RegistrationFormReceived {
+                                server: config.server.clone(),
+                                form: query,
+                            }).await;
+                        } else if el.name() == "iq" && el.attr("type") == Some("result") {
+                            // IQ result without query often means successful registration submission.
+                            let _ = event_tx.send(XmppEvent::RegistrationSuccess).await;
+                            return;
+                        } else if el.name() == "iq" && el.attr("type") == Some("error") {
+                            // Registration failed.
+                            let reason = el.get_child("error", "jabber:client")
+                                .or_else(|| el.get_child("error", "urn:ietf:params:xml:ns:xmpp-stanzas"))
+                                .map(|e: &Element| e.name())
+                                .unwrap_or("unknown error");
+                            let _ = event_tx.send(XmppEvent::RegistrationFailure(reason.to_string())).await;
+                            return;
+                        }
+                    }
+                    Some(Err(e)) => {
+                        let _ = event_tx.send(XmppEvent::RegistrationFailure(format!("Stream error: {e}"))).await;
+                        return;
+                    }
+                    Some(Ok(_)) => {} // Ignore other stream events (features, etc.) during registration.
+                    None => {
+                        let _ = event_tx.send(XmppEvent::RegistrationFailure("Stream closed prematurely".into())).await;
+                        return;
+                    }
+                }
+            }
+            maybe_cmd = cmd_rx.recv() => {
+                match maybe_cmd {
+                    Some(XmppCommand::SubmitRegistration { server: _, form }) => {
+                        let submit_iq = RegistrationManager::build_registration_form_submit("reg2", form);
+                        if let Err(e) = stream.send(tokio_xmpp::Packet::Stanza(submit_iq)).await {
+                             let _ = event_tx.send(XmppEvent::RegistrationFailure(format!("Failed to send submission: {e}"))).await;
+                             return;
+                        }
+                    }
+                    Some(XmppCommand::Disconnect) => {
+                        let _ = stream.close().await;
+                        return;
+                    }
+                    Some(_) => {} // Ignore other commands during registration.
+                    None => return,
+                }
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
