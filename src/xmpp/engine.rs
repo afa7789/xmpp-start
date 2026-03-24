@@ -46,12 +46,16 @@ use super::{
         session::OmemoSessionManager,
         store::{OmemoStore, TrustState},
     },
+    modules::bob,
+    modules::geoloc,
     modules::presence_machine::PresenceMachine,
     modules::push::PushManager,
     modules::registration::RegistrationManager,
     modules::stream_mgmt::StreamMgmt,
     modules::vcard_edit::VCardEditManager,
     modules::adhoc::AdhocManager,
+    modules::spam_report::build_spam_report,
+    modules::stickers,
     IncomingMessage, RosterContact, XmppCommand, XmppEvent,
 };
 
@@ -538,9 +542,17 @@ async fn run_session(
                     | Some(XmppCommand::DisconnectAccount(_)) => {
                         // No-op until multi-session engine is implemented.
                     }
-                    Some(XmppCommand::ReportSpam { .. })
-                    | Some(XmppCommand::PublishLocation(_))
-                    | Some(XmppCommand::RequestBob { .. })
+                    // L3: Publish user location via PEP (XEP-0080).
+                    Some(XmppCommand::PublishLocation(loc)) => {
+                        let iq = geoloc::build_geoloc_publish(&loc);
+                        outbox.push_back(iq);
+                        tracing::debug!("geoloc: publishing location ({}, {})", loc.lat, loc.lon);
+                    }
+                    Some(XmppCommand::ReportSpam { jid, reason }) => {
+                        let iq = build_spam_report(&jid, reason.as_deref());
+                        outbox.push_back(iq);
+                    }
+                    Some(XmppCommand::RequestBob { .. })
                     | Some(XmppCommand::SendSticker { .. }) => {
                         // Not yet wired.
                     }
@@ -943,6 +955,29 @@ async fn dispatch_stanza(
                         let fetch_iq = avatar_mgr.build_avatar_data_request(&info.jid, &info.sha1);
                         outbox.push_back(fetch_iq);
                         tracing::debug!("avatar: fetching XEP-0084 data for {from_jid}");
+                    }
+                    return;
+                }
+            }
+            // L3: XEP-0080 GeoLoc PEP notification
+            // <message><event xmlns="...pubsub#event"><items node="http://jabber.org/protocol/geoloc">
+            {
+                const NS_GEOLOC: &str = "http://jabber.org/protocol/geoloc";
+                const NS_PUBSUB_EVENT: &str = "http://jabber.org/protocol/pubsub#event";
+                let is_geoloc_event = el.children().any(|c| {
+                    c.name() == "event"
+                        && c.ns() == NS_PUBSUB_EVENT
+                        && c.children().any(|items| {
+                            items.name() == "items"
+                                && items.attr("node") == Some(NS_GEOLOC)
+                        })
+                });
+                if is_geoloc_event {
+                    let from = el.attr("from").unwrap_or("").to_string();
+                    if let Some(location) = geoloc::parse_geoloc(&el) {
+                        let _ = event_tx
+                            .send(XmppEvent::LocationReceived { from, location })
+                            .await;
                     }
                     return;
                 }

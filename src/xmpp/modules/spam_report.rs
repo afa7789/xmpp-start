@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Task L5 — XEP-0377 Spam Reporting
 // XEP reference: https://xmpp.org/extensions/xep-0377.html
 //
