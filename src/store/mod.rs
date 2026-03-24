@@ -212,6 +212,75 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // K3: mute/unmute conversation tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_set_muted_round_trip() {
+        let db = Database::connect(":memory:")
+            .await
+            .expect("open in-memory db");
+
+        conversation_repo::upsert(&db.pool, "mute@example.com")
+            .await
+            .expect("upsert failed");
+
+        // Default muted = 0.
+        let all = conversation_repo::get_all(&db.pool).await.unwrap();
+        let c = all.iter().find(|c| c.jid == "mute@example.com").unwrap();
+        assert_eq!(c.muted, 0);
+
+        // Mute it.
+        conversation_repo::set_muted(&db.pool, "mute@example.com", true)
+            .await
+            .expect("set_muted(true) failed");
+        let all2 = conversation_repo::get_all(&db.pool).await.unwrap();
+        let c2 = all2.iter().find(|c| c.jid == "mute@example.com").unwrap();
+        assert_eq!(c2.muted, 1);
+
+        // Unmute it.
+        conversation_repo::set_muted(&db.pool, "mute@example.com", false)
+            .await
+            .expect("set_muted(false) failed");
+        let all3 = conversation_repo::get_all(&db.pool).await.unwrap();
+        let c3 = all3.iter().find(|c| c.jid == "mute@example.com").unwrap();
+        assert_eq!(c3.muted, 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_muted_jids() {
+        let db = Database::connect(":memory:")
+            .await
+            .expect("open in-memory db");
+
+        conversation_repo::upsert(&db.pool, "a@example.com")
+            .await
+            .unwrap();
+        conversation_repo::upsert(&db.pool, "b@example.com")
+            .await
+            .unwrap();
+        conversation_repo::upsert(&db.pool, "c@example.com")
+            .await
+            .unwrap();
+
+        conversation_repo::set_muted(&db.pool, "a@example.com", true)
+            .await
+            .unwrap();
+        conversation_repo::set_muted(&db.pool, "c@example.com", true)
+            .await
+            .unwrap();
+
+        let muted = conversation_repo::get_muted_jids(&db.pool)
+            .await
+            .expect("get_muted_jids failed");
+
+        assert!(muted.contains("a@example.com"));
+        assert!(!muted.contains("b@example.com"));
+        assert!(muted.contains("c@example.com"));
+        assert_eq!(muted.len(), 2);
+    }
+
+    // -----------------------------------------------------------------------
     // message_repo extension tests
     // -----------------------------------------------------------------------
 
