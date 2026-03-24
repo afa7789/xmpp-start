@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
@@ -39,11 +38,7 @@ pub async fn insert(pool: &SqlitePool, msg: &Message) -> Result<()> {
 
 /// Insert a message scoped to a specific account.
 /// `account_jid` is the bare JID of the owning account; use "" for single-account compat.
-pub async fn insert_for_account(
-    pool: &SqlitePool,
-    msg: &Message,
-    account_jid: &str,
-) -> Result<()> {
+pub async fn insert_for_account(pool: &SqlitePool, msg: &Message, account_jid: &str) -> Result<()> {
     sqlx::query(
         r#"
         INSERT OR IGNORE INTO messages
@@ -192,8 +187,6 @@ pub async fn update_body(pool: &SqlitePool, origin_id: &str, new_body: &str) -> 
 
 /// M6: Delete all messages from the database (used by "Clear chat history" in settings).
 pub async fn clear_all(pool: &SqlitePool) -> Result<()> {
-    sqlx::query("DELETE FROM messages")
-        .execute(pool)
-        .await?;
+    sqlx::query("DELETE FROM messages").execute(pool).await?;
     Ok(())
 }

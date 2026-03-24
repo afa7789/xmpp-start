@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
@@ -28,11 +27,7 @@ fn row_to_conversation(row: &sqlx::sqlite::SqliteRow) -> Conversation {
 ///
 /// `account_jid` scopes the conversation to a specific account.  Pass an empty
 /// string (or use [`upsert`]) to keep backward-compatible single-account behaviour.
-pub async fn upsert_for_account(
-    pool: &SqlitePool,
-    jid: &str,
-    account_jid: &str,
-) -> Result<()> {
+pub async fn upsert_for_account(pool: &SqlitePool, jid: &str, account_jid: &str) -> Result<()> {
     sqlx::query(
         "INSERT OR IGNORE INTO conversations \
          (jid, last_read_id, archived, last_activity, account_jid) \

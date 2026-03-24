@@ -34,8 +34,12 @@ pub use chat::ChatScreen;
 pub use login::LoginScreen;
 
 use crate::config::{self, Settings, Theme};
-use crate::xmpp::{self, modules::command_palette, modules::console::XmppConsole, modules::presence_machine::PresenceStatus, modules::xmpp_uri, AccountId, XmppCommand, XmppEvent};
 use crate::xmpp::multi_engine::MultiEngineManager;
+use crate::xmpp::{
+    self, modules::command_palette, modules::console::XmppConsole,
+    modules::presence_machine::PresenceStatus, modules::xmpp_uri, AccountId, XmppCommand,
+    XmppEvent,
+};
 use account_state::AccountStateManager;
 use toast::{Toast, ToastKind};
 
@@ -43,17 +47,67 @@ use toast::{Toast, ToastKind};
 fn palette_commands() -> Vec<command_palette::Command> {
     use command_palette::Command;
     vec![
-        Command { id: "open-settings".into(), label: "Open Settings".into(), description: "Open the settings panel".into(), keywords: vec!["preferences".into(), "config".into()] },
-        Command { id: "open-about".into(), label: "Open About".into(), description: "Show app info".into(), keywords: vec!["info".into(), "version".into()] },
-        Command { id: "edit-profile".into(), label: "Edit Profile".into(), description: "Edit your vCard profile".into(), keywords: vec!["vcard".into(), "avatar".into()] },
-        Command { id: "adhoc-commands".into(), label: "Ad-hoc Commands".into(), description: "Run server ad-hoc commands (XEP-0050)".into(), keywords: vec!["adhoc".into(), "server".into()] },
-        Command { id: "toggle-console".into(), label: "Toggle Console".into(), description: "Show or hide the XMPP debug console".into(), keywords: vec!["xml".into(), "debug".into(), "stanza".into()] },
-        Command { id: "add-contact".into(), label: "Add Contact".into(), description: "Add a new roster contact".into(), keywords: vec!["roster".into(), "friend".into()] },
-        Command { id: "switch-account".into(), label: "Switch Account".into(), description: "Switch to a different XMPP account".into(), keywords: vec!["account".into(), "multi".into()] },
-        Command { id: "report-spam".into(), label: "Report Spam".into(), description: "Report a JID as a spammer".into(), keywords: vec!["spam".into(), "block".into()] },
-        Command { id: "disconnect".into(), label: "Disconnect".into(), description: "Gracefully disconnect from the server".into(), keywords: vec!["logout".into(), "quit".into()] },
+        Command {
+            id: "open-settings".into(),
+            label: "Open Settings".into(),
+            description: "Open the settings panel".into(),
+            keywords: vec!["preferences".into(), "config".into()],
+        },
+        Command {
+            id: "open-about".into(),
+            label: "Open About".into(),
+            description: "Show app info".into(),
+            keywords: vec!["info".into(), "version".into()],
+        },
+        Command {
+            id: "edit-profile".into(),
+            label: "Edit Profile".into(),
+            description: "Edit your vCard profile".into(),
+            keywords: vec!["vcard".into(), "avatar".into()],
+        },
+        Command {
+            id: "adhoc-commands".into(),
+            label: "Ad-hoc Commands".into(),
+            description: "Run server ad-hoc commands (XEP-0050)".into(),
+            keywords: vec!["adhoc".into(), "server".into()],
+        },
+        Command {
+            id: "toggle-console".into(),
+            label: "Toggle Console".into(),
+            description: "Show or hide the XMPP debug console".into(),
+            keywords: vec!["xml".into(), "debug".into(), "stanza".into()],
+        },
+        Command {
+            id: "add-contact".into(),
+            label: "Add Contact".into(),
+            description: "Add a new roster contact".into(),
+            keywords: vec!["roster".into(), "friend".into()],
+        },
+        Command {
+            id: "switch-account".into(),
+            label: "Switch Account".into(),
+            description: "Switch to a different XMPP account".into(),
+            keywords: vec!["account".into(), "multi".into()],
+        },
+        Command {
+            id: "report-spam".into(),
+            label: "Report Spam".into(),
+            description: "Report a JID as a spammer".into(),
+            keywords: vec!["spam".into(), "block".into()],
+        },
+        Command {
+            id: "disconnect".into(),
+            label: "Disconnect".into(),
+            description: "Gracefully disconnect from the server".into(),
+            keywords: vec!["logout".into(), "quit".into()],
+        },
         // DC-11: open a chat / room from an xmpp: URI typed in the palette search box
-        Command { id: "open-xmpp-uri".into(), label: "Open XMPP URI".into(), description: "Open a chat or room from an xmpp: URI".into(), keywords: vec!["uri".into(), "link".into(), "xmpp".into()] },
+        Command {
+            id: "open-xmpp-uri".into(),
+            label: "Open XMPP URI".into(),
+            description: "Open a chat or room from an xmpp: URI".into(),
+            keywords: vec!["uri".into(), "link".into(), "xmpp".into()],
+        },
     ]
 }
 
@@ -97,7 +151,9 @@ pub struct App {
     // DC-21: tx end of the multi-account event channel
     multi_event_tx: tokio::sync::mpsc::Sender<(AccountId, XmppEvent)>,
     // DC-21: rx end, shared so the iced subscription can take it once
-    multi_event_rx: std::sync::Arc<std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<(AccountId, XmppEvent)>>>>,
+    multi_event_rx: std::sync::Arc<
+        std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<(AccountId, XmppEvent)>>>,
+    >,
     // DC-21: true while navigating to Login to add a second account
     is_adding_account: bool,
 }
@@ -180,9 +236,8 @@ impl App {
         let password = config::load_password(&settings.last_jid).unwrap_or_default();
 
         // AUTH-1: auto-connect if remember_me is set and stored credentials exist.
-        let auto_connect = settings.remember_me
-            && !settings.last_jid.is_empty()
-            && !password.is_empty();
+        let auto_connect =
+            settings.remember_me && !settings.last_jid.is_empty() && !password.is_empty();
 
         let login = LoginScreen::with_saved(
             settings.last_jid.clone(),
@@ -284,7 +339,9 @@ impl App {
                         "adhoc-commands" => return self.update(Message::GoToAdhoc),
                         "toggle-console" => return self.update(Message::ToggleConsole),
                         "switch-account" => return self.update(Message::GoToAccountSwitcher),
-                        "report-spam" => return self.update(Message::OpenSpamReport(String::new())),
+                        "report-spam" => {
+                            return self.update(Message::OpenSpamReport(String::new()))
+                        }
                         "disconnect" => {
                             if let Some(ref tx) = self.xmpp_tx {
                                 let tx = tx.clone();
@@ -698,7 +755,6 @@ impl App {
                 Task::none()
             }
 
-
             // DC-11: parse an xmpp: URI and dispatch the appropriate action.
             Message::HandleXmppUri(uri) => {
                 let Some(parsed) = xmpp_uri::parse(&uri) else {
@@ -804,7 +860,12 @@ impl App {
                         let d = data.clone();
                         let m = mime_type.clone();
                         avatar_task = Task::future(async move {
-                            let _ = tx.send(XmppCommand::SetAvatar { data: d, mime_type: m }).await;
+                            let _ = tx
+                                .send(XmppCommand::SetAvatar {
+                                    data: d,
+                                    mime_type: m,
+                                })
+                                .await;
                             Message::ShowToast("Uploading avatar…".into(), ToastKind::Info)
                         });
                     }
@@ -1232,9 +1293,7 @@ impl App {
                         tokio::spawn(async move {
                             let _ = crate::store::conversation_repo::upsert(&pool, &bare_jid).await;
                             let _ = crate::store::conversation_repo::update_last_activity(
-                                &pool,
-                                &bare_jid,
-                                ts,
+                                &pool, &bare_jid, ts,
                             )
                             .await;
                             let _ = crate::store::message_repo::insert(
@@ -1266,10 +1325,7 @@ impl App {
                                     .account_state_mgr
                                     .get_active()
                                     .map_or(0, |s| s.unread_total);
-                                let active_id = self
-                                    .account_state_mgr
-                                    .active_id()
-                                    .cloned();
+                                let active_id = self.account_state_mgr.active_id().cloned();
                                 chat.set_active_account(active_id, unread);
                             }
                             if let Some(preview_task) = chat.on_message_received(msg.clone()) {
@@ -1503,8 +1559,7 @@ impl App {
                         let pool = self.db.clone();
                         let mid = message_id.clone();
                         tokio::spawn(async move {
-                            let _ =
-                                crate::store::message_repo::mark_retracted(&pool, &mid).await;
+                            let _ = crate::store::message_repo::mark_retracted(&pool, &mid).await;
                         });
                     }
                     // K2: own vCard received — populate the vCard editor if it's open
@@ -1545,6 +1600,20 @@ impl App {
                             chat.set_active_account(Some(id.clone()), unread);
                         }
                     }
+                    // E1: XEP-0308 last message correction — persist the edited body.
+                    XmppEvent::CorrectionReceived {
+                        ref original_id,
+                        new_body: ref body,
+                        ..
+                    } => {
+                        let pool = self.db.clone();
+                        let oid = original_id.clone();
+                        let nb = body.clone();
+                        tokio::spawn(async move {
+                            let _ =
+                                crate::store::message_repo::update_body(&pool, &oid, &nb).await;
+                        });
+                    }
                     // MEMO / other agents: unhandled events from additional modules.
                     XmppEvent::LocationReceived { .. }
                     | XmppEvent::BobReceived(_)
@@ -1554,8 +1623,9 @@ impl App {
                     | XmppEvent::StickerPackReceived(_)
                     | XmppEvent::IgnoreListReceived { .. }
                     | XmppEvent::ConversationsReceived(_)
-                    | XmppEvent::CorrectionReceived { .. }
-                    | XmppEvent::RetractionReceived { .. } => {}
+                    | XmppEvent::RetractionReceived { .. }
+                    | XmppEvent::PasswordChanged { .. }
+                    | XmppEvent::AccountDeleted { .. } => {}
                 }
                 Task::none()
             }
@@ -1789,7 +1859,11 @@ impl App {
                 .xmpp_console
                 .entries()
                 .map(|e| {
-                    let prefix = if e.direction == StanzaDirection::Sent { "[sent]" } else { "[recv]" };
+                    let prefix = if e.direction == StanzaDirection::Sent {
+                        "[sent]"
+                    } else {
+                        "[recv]"
+                    };
                     let snippet: String = e.xml.chars().take(120).collect();
                     let line = format!("{prefix} {snippet}");
                     text(line).size(10).font(iced::Font::MONOSPACE).into()
