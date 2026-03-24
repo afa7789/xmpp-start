@@ -514,7 +514,9 @@ async fn run_session(
                     // MULTI: account management — not yet wired to engine session logic.
                     Some(XmppCommand::SwitchAccount(_))
                     | Some(XmppCommand::AddAccount(_))
-                    | Some(XmppCommand::RemoveAccount(_)) => {
+                    | Some(XmppCommand::RemoveAccount(_))
+                    | Some(XmppCommand::ConnectAccount(_))
+                    | Some(XmppCommand::DisconnectAccount(_)) => {
                         // No-op until multi-session engine is implemented.
                     }
                     Some(XmppCommand::ReportSpam { .. })

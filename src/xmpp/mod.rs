@@ -7,6 +7,7 @@
 pub mod connection;
 pub mod engine;
 pub mod modules;
+pub mod multi_engine;
 pub mod subscription;
 
 use tokio_xmpp::minidom::Element;
@@ -37,6 +38,36 @@ impl AccountId {
 impl std::fmt::Display for AccountId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MULTI: Account-scoped event wrapper
+// ---------------------------------------------------------------------------
+
+/// Wraps an [`XmppEvent`] with the [`AccountId`] that produced it.
+///
+/// When multiple engine instances are running concurrently the UI needs to
+/// know which account an event came from so it can update the right account state.
+#[derive(Debug, Clone)]
+pub struct AccountEvent {
+    /// The account this event originated from.
+    pub account_id: AccountId,
+    /// The event payload.
+    pub event: XmppEvent,
+}
+
+impl AccountEvent {
+    /// Convenience constructor.
+    #[allow(dead_code)]
+    pub fn new(account_id: AccountId, event: XmppEvent) -> Self {
+        Self { account_id, event }
+    }
+}
+
+impl std::fmt::Display for AccountEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}] {:?}", self.account_id, self.event)
     }
 }
 
@@ -420,6 +451,11 @@ pub enum XmppCommand {
     AddAccount(crate::config::AccountConfig),
     /// Remove an account from the engine's account pool.
     RemoveAccount(AccountId),
+    /// Establish the XMPP connection for an already-registered account.
+    ConnectAccount(AccountId),
+    /// Gracefully disconnect the XMPP connection for an account without
+    /// removing it from the pool (it can be reconnected later).
+    DisconnectAccount(AccountId),
 
     // MEMO: OMEMO E2E encryption commands (XEP-0384)
 
