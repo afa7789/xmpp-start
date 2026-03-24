@@ -83,6 +83,7 @@ pub async fn mark_read(pool: &SqlitePool, jid: &str, message_id: &str) -> Result
 }
 
 /// Archive or un-archive a conversation.
+#[allow(dead_code)] // future: archive/unarchive UI action
 pub async fn set_archived(pool: &SqlitePool, jid: &str, archived: bool) -> Result<()> {
     sqlx::query("UPDATE conversations SET archived = ? WHERE jid = ?")
         .bind(archived as i64)
@@ -103,6 +104,7 @@ pub async fn update_last_activity(pool: &SqlitePool, jid: &str, ts: i64) -> Resu
 }
 
 /// K3: Set or clear the muted flag for a conversation.
+#[allow(dead_code)] // future: K3 mute toggle UI action
 pub async fn set_muted(pool: &SqlitePool, jid: &str, muted: bool) -> Result<()> {
     sqlx::query("UPDATE conversations SET muted = ? WHERE jid = ?")
         .bind(muted as i64)
@@ -113,6 +115,7 @@ pub async fn set_muted(pool: &SqlitePool, jid: &str, muted: bool) -> Result<()> 
 }
 
 /// K3: Return the muted JIDs as a set (for fast lookup in the notification path).
+#[allow(dead_code)] // future: K3 notification filter
 pub async fn get_muted_jids(pool: &SqlitePool) -> Result<std::collections::HashSet<String>> {
     let rows = sqlx::query("SELECT jid FROM conversations WHERE muted = 1")
         .fetch_all(pool)
