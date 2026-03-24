@@ -9,7 +9,7 @@
 
 use tokio_xmpp::minidom::Element;
 
-const NS_MUC: &str = "http://jabber.org/protocol/muc";
+use super::{NS_CLIENT, NS_MUC};
 
 #[derive(Debug, Clone)]
 pub struct MucVoiceManager {
@@ -31,7 +31,7 @@ impl MucVoiceManager {
     }
 
     pub fn build_voice_request(&self, room_jid: &str, _nick: &str) -> Element {
-        Element::builder("message", "jabber:client")
+        Element::builder("message", NS_CLIENT)
             .attr("to", room_jid)
             .append(
                 Element::builder("x", NS_MUC)
@@ -42,7 +42,7 @@ impl MucVoiceManager {
     }
 
     pub fn build_approve_voice(&self, room_jid: &str, nick: &str) -> Element {
-        Element::builder("message", "jabber:client")
+        Element::builder("message", NS_CLIENT)
             .attr("to", room_jid)
             .append(
                 Element::builder("x", NS_MUC)
@@ -57,7 +57,7 @@ impl MucVoiceManager {
     }
 
     pub fn build_decline_voice(&self, room_jid: &str, nick: &str) -> Element {
-        Element::builder("message", "jabber:client")
+        Element::builder("message", NS_CLIENT)
             .attr("to", room_jid)
             .append(
                 Element::builder("x", NS_MUC)

@@ -180,9 +180,10 @@ impl Default for StreamMgmt {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::xmpp::modules::NS_CLIENT;
 
     fn make_element(name: &str) -> Element {
-        Element::builder(name, "jabber:client").build()
+        Element::builder(name, NS_CLIENT).build()
     }
 
     #[test]

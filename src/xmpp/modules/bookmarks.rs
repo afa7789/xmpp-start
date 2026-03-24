@@ -8,6 +8,8 @@
 use tokio_xmpp::minidom::Element;
 use tokio_xmpp::minidom::Node;
 
+use super::NS_CLIENT;
+
 const NS_BOOKMARKS: &str = "storage:bookmarks";
 const NS_PRIVATE: &str = "jabber:iq:private";
 
@@ -122,7 +124,7 @@ impl BookmarkManager {
             .append(Node::Element(storage))
             .build();
 
-        Element::builder("iq", "jabber:client")
+        Element::builder("iq", NS_CLIENT)
             .attr("type", "set")
             .attr("id", "bookmarks-1")
             .append(Node::Element(query))

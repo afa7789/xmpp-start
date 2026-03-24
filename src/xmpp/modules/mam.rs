@@ -15,13 +15,10 @@ use std::collections::HashMap;
 use tokio_xmpp::minidom::Element;
 use uuid::Uuid;
 
-use super::NS_CLIENT;
+use super::{NS_CLIENT, NS_DATA, NS_FORWARD, NS_MAM};
 
-const NS_MAM: &str = "urn:xmpp:mam:2";
 const NS_RSM: &str = "http://jabber.org/protocol/rsm";
-const NS_FORWARD: &str = "urn:xmpp:forward:0";
 const NS_DELAY: &str = "urn:ietf:params:xml:ns:xmpp-delay";
-const NS_DATA: &str = "jabber:x:data";
 
 // ---------------------------------------------------------------------------
 // XEP-0059 Result Set Management

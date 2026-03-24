@@ -1,7 +1,6 @@
 use tokio_xmpp::minidom::Element;
 
-/// J9: XEP-0077 In-Band Registration
-pub const NS_REGISTER: &str = "jabber:iq:register";
+use super::{NS_CLIENT, NS_REGISTER};
 
 pub struct RegistrationManager;
 
@@ -20,7 +19,7 @@ impl RegistrationManager {
     /// Build a discovery IQ to request registration fields from the server.
     /// <iq type='get' id='reg1'><query xmlns='jabber:iq:register'/></iq>
     pub fn build_get_form(id: &str) -> Element {
-        Element::builder("iq", "jabber:client")
+        Element::builder("iq", NS_CLIENT)
             .attr("type", "get")
             .attr("id", id)
             .append(Element::builder("query", NS_REGISTER).build())
@@ -43,7 +42,7 @@ impl RegistrationManager {
             query = query.append(Element::builder("email", NS_REGISTER).append(email).build());
         }
 
-        Element::builder("iq", "jabber:client")
+        Element::builder("iq", NS_CLIENT)
             .attr("type", "set")
             .attr("id", id)
             .append(query.build())
@@ -57,7 +56,7 @@ impl RegistrationManager {
             .append(form)
             .build();
 
-        Element::builder("iq", "jabber:client")
+        Element::builder("iq", NS_CLIENT)
             .attr("type", "set")
             .attr("id", id)
             .append(query)

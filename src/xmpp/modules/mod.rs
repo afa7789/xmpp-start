@@ -6,6 +6,18 @@ use tokio_xmpp::minidom::Element;
 /// Shared XMPP namespace constants used across many modules.
 pub const NS_CLIENT: &str = "jabber:client";
 pub const NS_PUBSUB: &str = "http://jabber.org/protocol/pubsub";
+pub const NS_REACTIONS: &str = "urn:xmpp:reactions:0";
+pub const NS_X_CONFERENCE: &str = "jabber:x:conference";
+pub const NS_MUC_USER: &str = "http://jabber.org/protocol/muc#user";
+pub const NS_MUC_OWNER: &str = "http://jabber.org/protocol/muc#owner";
+pub const NS_MAM: &str = "urn:xmpp:mam:2";
+pub const NS_FORWARD: &str = "urn:xmpp:forward:0";
+pub const NS_MUC: &str = "http://jabber.org/protocol/muc";
+pub const NS_MUC_ADMIN: &str = "http://jabber.org/protocol/muc#admin";
+pub const NS_VCARD: &str = "vcard-temp";
+pub const NS_REGISTER: &str = "jabber:iq:register";
+pub const NS_DATA: &str = "jabber:x:data";
+pub const NS_PUSH: &str = "urn:xmpp:push:0";
 
 /// Recursively search an element tree for a child with the given local name
 /// and namespace. Returns the first match (depth-first).

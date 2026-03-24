@@ -12,9 +12,7 @@ use std::collections::HashMap;
 use tokio_xmpp::minidom::Element;
 use uuid::Uuid;
 
-use super::NS_CLIENT;
-
-const NS_VCARD: &str = "vcard-temp";
+use super::{NS_CLIENT, NS_VCARD};
 
 // ---------------------------------------------------------------------------
 // Domain types

@@ -9,9 +9,7 @@
 use tokio_xmpp::minidom::Element;
 use uuid::Uuid;
 
-use super::NS_CLIENT;
-
-const NS_PUSH: &str = "urn:xmpp:push:0";
+use super::{NS_CLIENT, NS_PUSH};
 
 // ---------------------------------------------------------------------------
 // PushCleanup

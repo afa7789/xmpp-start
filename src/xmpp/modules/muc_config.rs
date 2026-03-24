@@ -8,9 +8,7 @@
 
 use tokio_xmpp::minidom::Element;
 
-use super::NS_CLIENT;
-
-const NS_MUC_OWNER: &str = "http://jabber.org/protocol/muc#owner";
+use super::{NS_CLIENT, NS_MUC_OWNER};
 
 #[derive(Debug, Clone)]
 pub struct MucConfigManager {

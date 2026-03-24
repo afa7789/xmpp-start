@@ -10,10 +10,9 @@ use std::collections::HashMap;
 use tokio_xmpp::minidom::Element;
 use uuid::Uuid;
 
-use super::NS_CLIENT;
+use super::{NS_CLIENT, NS_DATA};
 
 const NS_ADHOC: &str = "http://jabber.org/protocol/commands";
-const NS_DATA: &str = "jabber:x:data";
 
 // ---------------------------------------------------------------------------
 // Domain types

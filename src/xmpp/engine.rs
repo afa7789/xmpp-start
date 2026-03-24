@@ -27,6 +27,9 @@ use tokio_xmpp::connect::ServerConnector;
 
 use super::{
     connection::ConnectConfig,
+    modules::{
+        NS_FORWARD, NS_MAM, NS_MUC_OWNER, NS_MUC_USER, NS_REACTIONS, NS_X_CONFERENCE,
+    },
     modules::avatar::AvatarManager,
     modules::blocking::BlockingManager,
     modules::bookmarks::BookmarkManager,
@@ -53,8 +56,6 @@ use super::{
 };
 
 const NS_CARBONS: &str = "urn:xmpp:carbons:2";
-const NS_FORWARD: &str = "urn:xmpp:forward:0";
-const NS_MAM: &str = "urn:xmpp:mam:2";
 const NS_RECEIPTS: &str = "urn:xmpp:receipts";
 const NS_CHAT_MARKERS: &str = "urn:xmpp:chat-markers:0";
 // L3: XEP-0425 message moderation namespaces
@@ -995,7 +996,6 @@ async fn dispatch_stanza(
             muc_mgr.on_presence(&el);
             // K1: detect room-created status code 201 in MUC owner presence
             {
-                const NS_MUC_USER: &str = "http://jabber.org/protocol/muc#user";
                 let is_room_created = el.children().any(|c| {
                     c.name() == "x"
                         && c.ns() == NS_MUC_USER
@@ -1197,7 +1197,6 @@ async fn handle_iq(
         }
     }
     // K1: detect muc#owner config form result
-    const NS_MUC_OWNER: &str = "http://jabber.org/protocol/muc#owner";
     if el.attr("type") == Some("result") {
         let has_owner_query = el
             .children()
@@ -1543,10 +1542,6 @@ fn extract_carbon(el: &Element, direction: &str) -> Option<Element> {
 // ---------------------------------------------------------------------------
 // Message handler (P1.5)
 // ---------------------------------------------------------------------------
-
-const NS_REACTIONS: &str = "urn:xmpp:reactions:0";
-const NS_X_CONFERENCE: &str = "jabber:x:conference";
-const NS_MUC_USER: &str = "http://jabber.org/protocol/muc#user";
 
 async fn handle_message(
     el: Element,

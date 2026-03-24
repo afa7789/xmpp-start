@@ -11,9 +11,8 @@
 use tokio_xmpp::minidom::Element;
 use uuid::Uuid;
 
-use super::NS_CLIENT;
+use super::{NS_CLIENT, NS_REACTIONS};
 
-const NS_REACTIONS: &str = "urn:xmpp:reactions:0";
 const NS_CORRECTION: &str = "urn:xmpp:message-correct:0";
 const NS_RETRACTION: &str = "urn:xmpp:message-retract:0";
 
