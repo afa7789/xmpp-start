@@ -1,20 +1,13 @@
-#![allow(dead_code)]
 // S3: MUC Voice Request module — XEP-0045 §5.2 (Requesting Voice)
 // Reference: https://xmpp.org/extensions/xep-0045.html
 //
 // Handles:
-//   - User requests voice (when room is locked/voice-requested)
-//   - Admin/owner receives and processes voice requests
-//   - Grant/revoke voice to users
+//   - User requests voice (when room is moderated)
+//   - Admin approves or declines voice requests
 
 use tokio_xmpp::minidom::Element;
 
 use super::{NS_CLIENT, NS_MUC};
-
-#[derive(Debug, Clone)]
-pub struct MucVoiceManager {
-    pending_requests: std::collections::HashMap<String, VoiceRequest>,
-}
 
 #[derive(Debug, Clone)]
 pub struct VoiceRequest {
@@ -23,11 +16,12 @@ pub struct VoiceRequest {
     pub role: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct MucVoiceManager;
+
 impl MucVoiceManager {
     pub fn new() -> Self {
-        Self {
-            pending_requests: std::collections::HashMap::new(),
-        }
+        Self
     }
 
     pub fn build_voice_request(&self, room_jid: &str, _nick: &str) -> Element {
@@ -69,28 +63,6 @@ impl MucVoiceManager {
                     .build(),
             )
             .build()
-    }
-
-    pub fn parse_voice_request(&self, el: &Element) -> Option<VoiceRequest> {
-        let x = el
-            .children()
-            .find(|c| c.name() == "x" && c.ns() == NS_MUC)?;
-        let request = x.children().find(|c| c.name() == "request")?;
-
-        let room_jid = el.attr("from")?.to_string();
-        let nick = request.attr("nick")?.to_string();
-
-        Some(VoiceRequest {
-            room_jid,
-            nick,
-            role: "participant".to_string(),
-        })
-    }
-
-    pub fn is_voice_request(&self, el: &Element) -> bool {
-        el.children().any(|c| {
-            c.name() == "x" && c.ns() == NS_MUC && c.children().any(|cc| cc.name() == "request")
-        })
     }
 }
 
