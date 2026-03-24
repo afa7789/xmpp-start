@@ -123,7 +123,7 @@ pub fn parse_encrypted_message(element: &Element) -> Option<EncryptedMessage> {
             continue;
         }
         let rid: u32 = key_el.attr("rid")?.parse().ok()?;
-        let prekey = key_el.attr("prekey").map(|v| v == "true").unwrap_or(false);
+        let prekey = key_el.attr("prekey").is_some_and(|v| v == "true");
         let data = BASE64.decode(key_el.text()).ok()?;
         keys.push(MessageKey { rid, prekey, data });
     }

@@ -1,5 +1,27 @@
 # xmpp-start Orchestration TODO
 
+## Wave 5 (2026-03-24) — OMEMO + Multi-account
+
+### Completed in Wave 5
+- ✅ **OMEMO-foundation**: OmemoStore, DeviceManager, OmemoSessionManager, OmemoBundle helpers, message.rs stanza builder/parser, omemo_trust.rs UI — 2026-03-24
+- ✅ **OMEMO-engine**: engine wiring for OmemoEnable, OmemoEncryptMessage, OmemoTrustDevice, omemo_try_decrypt, handle_client_event plumbed with omemo_mgr — 2026-03-24
+- ✅ **MULTI-foundation**: MultiEngineManager, AccountState, AccountStateManager, account switcher UI (account_switcher.rs, account_state.rs), sidebar indicator bar — 2026-03-24
+
+### Remaining Work (not yet complete)
+
+#### OMEMO
+- [ ] PEP bundle auto-publish on XMPP connect (currently only published on explicit OmemoEnable command)
+- [ ] Key exchange flow: fetch peer device list + bundles, create outbound Olm sessions automatically before first encrypted message
+- [ ] UI: show OMEMO lock icon on encrypted messages, show trust fingerprint dialog
+- [ ] E2E test: enable OMEMO, exchange messages between two accounts in Docker
+
+#### Multi-account
+- [ ] Replace single `xmpp_tx: mpsc::Sender<XmppCommand>` in App with `MultiEngineManager`
+- [ ] Route all `XmppEvent` to correct per-account `AccountState` (messages, roster, presence, avatars)
+- [ ] Full account switcher: switch conversation lists + sidebars per account
+- [ ] Store XMPP credentials per-account in OS keychain
+- [ ] E2E test: add second account, switch between them, verify independent events
+
 ## Completed
 - ✅ **B1**: rustls CryptoProvider — wired in main.rs
 - ✅ **B2**: i18n module — stub exists as src/i18n/mod.rs
