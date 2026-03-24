@@ -15,6 +15,7 @@ use iced::{
     Alignment, Element, Length, Task,
 };
 
+use crate::ui::data_forms::{DataForm, FieldType, FormField, render_form_interactive};
 use crate::xmpp::modules::adhoc::{CommandResponse, CommandStatus, DataField};
 
 // ---------------------------------------------------------------------------
@@ -132,6 +133,42 @@ impl AdhocScreen {
         }
     }
 
+    /// Convert engine `DataField`s (from a `CommandResponse`) into a `DataForm`
+    /// suitable for rendering with `render_form_interactive`.
+    fn data_fields_to_data_form(fields: &[DataField]) -> DataForm {
+        let form_fields: Vec<FormField> = fields
+            .iter()
+            .map(|f| {
+                let field_type = match f.field_type.as_str() {
+                    "text-private" => FieldType::TextPrivate,
+                    "text-multi" => FieldType::TextMulti,
+                    "boolean" => FieldType::Boolean,
+                    "list-single" => FieldType::ListSingle,
+                    "list-multi" => FieldType::ListMulti,
+                    "fixed" => FieldType::Fixed,
+                    "hidden" => FieldType::Hidden,
+                    "jid-single" => FieldType::JidSingle,
+                    "jid-multi" => FieldType::JidMulti,
+                    _ => FieldType::TextSingle,
+                };
+                FormField {
+                    var: Some(f.var.clone()),
+                    field_type,
+                    label: f.label.clone(),
+                    value: f.value.clone(),
+                    required: false,
+                    options: f.options.clone(),
+                }
+            })
+            .collect();
+
+        DataForm {
+            title: None,
+            instructions: None,
+            fields: form_fields,
+        }
+    }
+
     pub fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
             Message::TargetJidChanged(v) => {
@@ -203,9 +240,9 @@ impl AdhocScreen {
 
         let body: Element<'_, Message> = match &self.step {
             AdhocStep::TargetInput => self.view_target_input(),
-            AdhocStep::Discovering => text("Discovering commands…").into(),
+            AdhocStep::Discovering => text("Discovering commands\u{2026}").into(),
             AdhocStep::CommandList => self.view_command_list(),
-            AdhocStep::Executing => text("Executing command…").into(),
+            AdhocStep::Executing => text("Executing command\u{2026}").into(),
             AdhocStep::ShowingForm(resp) => self.view_form(resp),
             AdhocStep::Done(msg) => column![
                 text(msg.as_str()),
@@ -272,10 +309,8 @@ impl AdhocScreen {
             })
             .collect();
 
-        let list = scrollable(
-            column(items).spacing(4).width(Length::Fill),
-        )
-        .height(Length::Fixed(300.0));
+        let list = scrollable(column(items).spacing(4).width(Length::Fill))
+            .height(Length::Fixed(300.0));
 
         column![
             text(format!("{} command(s) available:", self.commands.len())),
@@ -285,42 +320,15 @@ impl AdhocScreen {
         .into()
     }
 
-    fn view_form<'a>(&self, resp: &'a CommandResponse) -> Element<'a, Message> {
-        let mut form_rows: Vec<Element<'a, Message>> = Vec::new();
-
-        for field in &resp.fields {
-            // Skip hidden fields.
-            if field.field_type == "hidden" {
-                continue;
-            }
-            let label_text = field
-                .label
-                .as_deref()
-                .unwrap_or(field.var.as_str());
-            let current_val = self
-                .field_values
-                .get(&field.var)
-                .cloned()
-                .unwrap_or_default();
-            let var = field.var.clone();
-            let input = text_input(label_text, &current_val)
-                .on_input(move |v| Message::FieldChanged(var.clone(), v))
-                .padding(6)
-                .width(Length::Fixed(280.0));
-            form_rows.push(
-                row![
-                    text(label_text).width(Length::Fixed(120.0)),
-                    input,
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center)
-                .into(),
-            );
-        }
+    fn view_form(&self, resp: &CommandResponse) -> Element<'static, Message> {
+        let form = Self::data_fields_to_data_form(&resp.fields);
+        let field_values = self.field_values.clone();
+        let form_el = render_form_interactive(form, &field_values, Message::FieldChanged);
 
         // Notes from the server.
+        let mut notes_col = column![].spacing(4);
         for note in &resp.notes {
-            form_rows.push(text(note.as_str()).size(12).into());
+            notes_col = notes_col.push(text(note.clone()).size(12));
         }
 
         let submit_btn = button("Submit")
@@ -330,8 +338,12 @@ impl AdhocScreen {
             .on_press(Message::CancelCommand)
             .padding([6, 12]);
 
-        let mut col = column(form_rows).spacing(8);
-        col = col.push(row![submit_btn, cancel_btn].spacing(8));
+        let col = column![
+            form_el,
+            notes_col,
+            row![submit_btn, cancel_btn].spacing(8),
+        ]
+        .spacing(8);
 
         scrollable(col).height(Length::Fixed(400.0)).into()
     }

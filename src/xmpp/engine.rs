@@ -38,7 +38,9 @@ use super::{
     modules::file_upload::FileUploadManager,
     modules::mam::{MamFilter, MamManager, MamQuery, RsmQuery},
     modules::muc::MucManager,
+    modules::muc_admin::{AffiliationAction, MucAdminManager},
     modules::muc_config::MucConfigManager,
+    modules::muc_voice::MucVoiceManager,
     modules::omemo::{
         bundle::OmemoManager,
         device::DeviceManager,
@@ -50,10 +52,13 @@ use super::{
     modules::geoloc,
     modules::presence_machine::PresenceMachine,
     modules::push::PushManager,
+    modules::push_cleanup::PushCleanup,
     modules::registration::RegistrationManager,
     modules::stream_mgmt::StreamMgmt,
     modules::vcard_edit::VCardEditManager,
     modules::adhoc::AdhocManager,
+    modules::account::AccountManager,
+    modules::entity_time::EntityTimeManager,
     modules::spam_report::build_spam_report,
     modules::stickers,
     IncomingMessage, RosterContact, XmppCommand, XmppEvent,
@@ -201,12 +206,18 @@ async fn run_session(
     let mut bookmark_mgr = BookmarkManager::new();
     // K7: XEP-0357 push notifications manager
     let mut push_mgr = PushManager::new();
+    // DC-7: XEP-0357 push cleanup — cleans stale push registrations on connect
+    let push_cleanup = PushCleanup::new();
     // K2: XEP-0054 own vCard editing manager
     let mut vcard_edit_mgr = VCardEditManager::new();
     // L4: XEP-0050 ad-hoc commands manager
     let mut adhoc_mgr = AdhocManager::new();
     // DC-8: XEP-0202 entity time manager
     let mut entity_time_mgr = EntityTimeManager::new();
+    // DC-6: XEP-0045 MUC admin manager (affiliations + role changes)
+    let mut muc_admin_mgr = MucAdminManager::new();
+    // DC-6: XEP-0045 MUC voice request manager
+    let muc_voice_mgr = MucVoiceManager::new();
 
     // MEMO: XEP-0384 OMEMO encryption manager — only active when a DB pool is available.
     let mut omemo_mgr: Option<OmemoManager> = db
@@ -257,7 +268,7 @@ async fn run_session(
                     }
                     Some(ev) => {
 
-                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut own_jid_str, &mut mam_mgr, &mut catchup_mgr, &mut presence_machine, &mut disco_mgr, &mut file_upload_mgr, &mut avatar_mgr, &mut muc_mgr, &mut muc_config_mgr, &mut bookmark_mgr, &mut push_mgr, &mut vcard_edit_mgr, &mut adhoc_mgr, &mut omemo_mgr, &config.jid).await;
+                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut own_jid_str, &mut mam_mgr, &mut catchup_mgr, &mut presence_machine, &mut disco_mgr, &mut file_upload_mgr, &mut avatar_mgr, &mut muc_mgr, &mut muc_config_mgr, &mut bookmark_mgr, &mut push_mgr, &mut vcard_edit_mgr, &mut adhoc_mgr, &mut entity_time_mgr, &mut omemo_mgr, &config.jid).await;
                     }
                 }
             }
@@ -378,6 +389,60 @@ async fn run_session(
                     Some(XmppCommand::ModerateMessage { room_jid, message_id, reason }) => {
                         outbox.push_back(make_moderation_message(&room_jid, &message_id, reason.as_deref()));
                         tracing::info!("muc: moderating message {message_id} in {room_jid}");
+                    }
+                    // DC-6: Kick a user (role = none)
+                    Some(XmppCommand::KickUser { room_jid, nick }) => {
+                        let (_, iq) = muc_admin_mgr.build_role_query(&room_jid, &nick, "none");
+                        outbox.push_back(iq);
+                        tracing::info!("muc: kicking {nick} from {room_jid}");
+                    }
+                    // DC-6: Ban a user (affiliation = outcast)
+                    Some(XmppCommand::BanUser { room_jid, jid }) => {
+                        let (_, iq) = muc_admin_mgr.build_affiliation_query(&room_jid, AffiliationAction::Ban(jid.clone()));
+                        outbox.push_back(iq);
+                        tracing::info!("muc: banning {jid} from {room_jid}");
+                    }
+                    // DC-6: Set arbitrary affiliation
+                    Some(XmppCommand::SetAffiliation { room_jid, action }) => {
+                        let (_, iq) = muc_admin_mgr.build_affiliation_query(&room_jid, action);
+                        outbox.push_back(iq);
+                        tracing::info!("muc: setting affiliation in {room_jid}");
+                    }
+                    // DC-6: Grant voice (participant role)
+                    Some(XmppCommand::GrantVoice { room_jid, nick }) => {
+                        let (_, iq) = muc_admin_mgr.build_role_query(&room_jid, &nick, "participant");
+                        outbox.push_back(iq);
+                        tracing::info!("muc: granting voice to {nick} in {room_jid}");
+                    }
+                    // DC-6: Revoke voice (visitor role)
+                    Some(XmppCommand::RevokeVoice { room_jid, nick }) => {
+                        let (_, iq) = muc_admin_mgr.build_role_query(&room_jid, &nick, "visitor");
+                        outbox.push_back(iq);
+                        tracing::info!("muc: revoking voice from {nick} in {room_jid}");
+                    }
+                    // DC-6: Grant moderator role
+                    Some(XmppCommand::GrantModerator { room_jid, nick }) => {
+                        let (_, iq) = muc_admin_mgr.build_role_query(&room_jid, &nick, "moderator");
+                        outbox.push_back(iq);
+                        tracing::info!("muc: granting moderator to {nick} in {room_jid}");
+                    }
+                    // DC-6: Request voice (visitor sends voice request to room)
+                    Some(XmppCommand::RequestVoice { room_jid, nick }) => {
+                        let msg = muc_voice_mgr.build_voice_request(&room_jid, &nick);
+                        outbox.push_back(msg);
+                        tracing::info!("muc: requesting voice in {room_jid} as {nick}");
+                    }
+                    // DC-6: Approve a voice request
+                    Some(XmppCommand::ApproveVoice { room_jid, nick }) => {
+                        let msg = muc_voice_mgr.build_approve_voice(&room_jid, &nick);
+                        outbox.push_back(msg);
+                        tracing::info!("muc: approving voice for {nick} in {room_jid}");
+                    }
+                    // DC-6: Decline a voice request
+                    Some(XmppCommand::DeclineVoice { room_jid, nick }) => {
+                        let msg = muc_voice_mgr.build_decline_voice(&room_jid, &nick);
+                        outbox.push_back(msg);
+                        tracing::info!("muc: declining voice for {nick} in {room_jid}");
                     }
                     Some(XmppCommand::JoinRoom { jid, nick }) => {
                         // D3: XEP-0045 MUC join
@@ -658,6 +723,7 @@ async fn handle_client_event(
     muc_config_mgr: &mut MucConfigManager,
     bookmark_mgr: &mut BookmarkManager,
     _push_mgr: &mut PushManager,
+    push_cleanup: &PushCleanup,
     vcard_edit_mgr: &mut VCardEditManager,
     adhoc_mgr: &mut AdhocManager,
     omemo_mgr: &mut Option<OmemoManager>,
@@ -710,6 +776,10 @@ async fn handle_client_event(
             // J10: fetch MAM archiving preferences
             outbox.push_back(make_mam_prefs_get_iq());
             tracing::debug!("mam: requested archiving preferences");
+
+            // DC-7: XEP-0357 push cleanup — disable all stale push subscriptions on connect
+            outbox.push_back(push_cleanup.build_disable_all_iq());
+            tracing::debug!("push_cleanup: sent disable-all push IQ on connect");
 
             // MEMO: Auto-publish OMEMO bundle on reconnect if identity already exists.
             if let Some(ref mut mgr) = omemo_mgr {

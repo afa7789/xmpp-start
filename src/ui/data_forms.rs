@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // S10: XEP-0004 Data Forms renderer
 // Reference: https://xmpp.org/extensions/xep-0004.html
 //
@@ -172,6 +171,10 @@ impl FormField {
     }
 }
 
+/// Render a XEP-0004 form as a read-only iced element.
+///
+/// Hidden fields are omitted. Text inputs are shown but not interactive.
+/// Use `render_form_interactive` when the user needs to fill in the form.
 pub fn render_form<M: Clone + 'static>(form: DataForm) -> Element<'static, M> {
     let mut col: Column<M> = column![].spacing(12).padding(16);
 
@@ -196,9 +199,7 @@ pub fn render_form<M: Clone + 'static>(form: DataForm) -> Element<'static, M> {
                 }
             }
             FieldType::Boolean => {
-                let checked = field
-                    .value
-                    .is_some_and(|v| v == "1" || v == "true");
+                let checked = field.value.is_some_and(|v| v == "1" || v == "true");
                 col = col.push(row![
                     text(label).size(14),
                     text(if checked { "[x]" } else { "[ ]" }).size(14),
@@ -214,17 +215,11 @@ pub fn render_form<M: Clone + 'static>(form: DataForm) -> Element<'static, M> {
                 for (opt_label, opt_value) in field.options {
                     let is_selected = selected.contains(&opt_value);
                     let prefix = if field.field_type == FieldType::ListMulti {
-                        if is_selected {
-                            "☑"
-                        } else {
-                            "☐"
-                        }
+                        if is_selected { "☑" } else { "☐" }
+                    } else if is_selected {
+                        "●"
                     } else {
-                        if is_selected {
-                            "●"
-                        } else {
-                            "○"
-                        }
+                        "○"
                     };
                     field_col = field_col.push(
                         container(text(format!("  {} {}", prefix, opt_label)).size(13))
@@ -246,6 +241,109 @@ pub fn render_form<M: Clone + 'static>(form: DataForm) -> Element<'static, M> {
                     text(label).size(14),
                     text_input("", &value).width(Length::Fill),
                 ]);
+            }
+        }
+    }
+
+    container(col).width(Length::Fill).into()
+}
+
+/// Render a XEP-0004 form with interactive text inputs.
+///
+/// `on_change` is called with `(var, new_value)` when the user edits a field.
+/// Field values shown are taken from `field_values` (keyed by `var`); if absent,
+/// the form's own default value is used.
+pub fn render_form_interactive<M, F>(
+    form: DataForm,
+    field_values: &std::collections::HashMap<String, String>,
+    on_change: F,
+) -> Element<'static, M>
+where
+    M: Clone + 'static,
+    F: Fn(String, String) -> M + Clone + 'static,
+{
+    let mut col: Column<M> = column![].spacing(12).padding(16);
+
+    if let Some(title) = form.title.clone() {
+        col = col.push(text(title).size(18));
+    }
+
+    if let Some(instructions) = form.instructions.clone() {
+        col = col.push(text(instructions).size(12));
+    }
+
+    for field in form.fields {
+        let label = field.label.clone().or(field.var.clone()).unwrap_or_default();
+
+        match field.field_type {
+            FieldType::Hidden => {
+                // Skip hidden fields — values are submitted but not shown.
+            }
+            FieldType::Fixed => {
+                if let Some(value) = field.value {
+                    col = col.push(text(value).size(13));
+                }
+            }
+            FieldType::Boolean => {
+                let checked = field.value.is_some_and(|v| v == "1" || v == "true");
+                col = col.push(row![
+                    text(label).size(14),
+                    text(if checked { "[x]" } else { "[ ]" }).size(14),
+                ]);
+            }
+            FieldType::ListSingle | FieldType::ListMulti => {
+                let selected: Vec<String> = field
+                    .value
+                    .map(|v| v.split(',').map(String::from).collect())
+                    .unwrap_or_default();
+
+                let mut field_col: Column<M> = column![text(label).size(14)].spacing(4);
+                for (opt_label, opt_value) in field.options {
+                    let is_selected = selected.contains(&opt_value);
+                    let prefix = if field.field_type == FieldType::ListMulti {
+                        if is_selected { "☑" } else { "☐" }
+                    } else if is_selected {
+                        "●"
+                    } else {
+                        "○"
+                    };
+                    field_col = field_col.push(
+                        container(text(format!("  {} {}", prefix, opt_label)).size(13))
+                            .padding([2, 0]),
+                    );
+                }
+                col = col.push(field_col);
+            }
+            FieldType::TextSingle | FieldType::TextPrivate | FieldType::JidSingle => {
+                let var = field.var.clone().unwrap_or_default();
+                let current_val = field_values
+                    .get(&var)
+                    .cloned()
+                    .or(field.value)
+                    .unwrap_or_default();
+                let on_change_clone = on_change.clone();
+                let var_clone = var.clone();
+                let input = text_input(&label, &current_val)
+                    .on_input(move |v| on_change_clone(var_clone.clone(), v))
+                    .width(Length::Fill);
+                col = col.push(row![
+                    text(label).size(14).width(Length::Fixed(120.0)),
+                    input,
+                ]);
+            }
+            FieldType::TextMulti | FieldType::JidMulti => {
+                let var = field.var.clone().unwrap_or_default();
+                let current_val = field_values
+                    .get(&var)
+                    .cloned()
+                    .or(field.value)
+                    .unwrap_or_default();
+                let on_change_clone = on_change.clone();
+                let var_clone = var.clone();
+                let input = text_input(&label, &current_val)
+                    .on_input(move |v| on_change_clone(var_clone.clone(), v))
+                    .width(Length::Fill);
+                col = col.push(column![text(label).size(14), input]);
             }
         }
     }

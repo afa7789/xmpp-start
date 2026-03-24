@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Task L3 — XEP-0080 User Location (GeoLoc)
 // XEP reference: https://xmpp.org/extensions/xep-0080.html
 //
