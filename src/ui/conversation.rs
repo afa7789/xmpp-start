@@ -22,6 +22,7 @@ use crate::ui::muc_panel::OccupantEntry;
 use chrono::{TimeZone, Utc};
 
 use crate::xmpp::modules::link_preview::LinkPreview;
+use crate::ui::link_preview::render_preview_card;
 
 // G4: /me action message prefix (XEP-0245)
 const ME_PREFIX: &str = "/me ";
@@ -1230,7 +1231,7 @@ impl ConversationView {
 
             // E5: render link preview card below message
             if let Some(preview) = self.previews.get(&m.id) {
-                let preview_card = render_preview_card(preview.clone(), m.own);
+                let preview_card = render_preview_card(preview.clone(), m.own, None);
                 rows.push(preview_card);
             }
 
@@ -1659,57 +1660,6 @@ impl ConversationView {
             body.into()
         }
     }
-}
-
-fn render_preview_card(preview: LinkPreview, own: bool) -> Element<'static, Message> {
-    let mut card_col: iced::widget::Column<Message> = column![].spacing(4).padding([8, 10]);
-
-    if let Some(ref site_name) = preview.site_name {
-        card_col = card_col.push(
-            text(site_name.clone())
-                .size(10)
-                .color(Color::from_rgb(0.5, 0.5, 0.5)),
-        );
-    }
-
-    if let Some(ref title) = preview.title {
-        card_col = card_col.push(text(title.clone()).size(13).font(Font {
-            weight: font::Weight::Bold,
-            ..Font::DEFAULT
-        }));
-    }
-
-    if let Some(ref desc) = preview.description {
-        let desc_text: String = desc.chars().take(150).collect();
-        card_col = card_col.push(text(desc_text).size(12));
-    }
-
-    if let Some(ref image_url) = preview.image_url {
-        card_col = card_col.push(
-            text(image_url.clone())
-                .size(10)
-                .color(Color::from_rgb(0.4, 0.6, 1.0)),
-        );
-    }
-
-    let card = container(card_col)
-        .width(300)
-        .style(|_theme: &iced::Theme| iced::widget::container::Style {
-            background: Some(iced::Background::Color(Color::from_rgb(0.15, 0.15, 0.18))),
-            border: iced::Border {
-                color: Color::from_rgb(0.3, 0.3, 0.35),
-                width: 1.0,
-                radius: 8.0.into(),
-            },
-            ..Default::default()
-        });
-
-    let align = if own {
-        Alignment::End
-    } else {
-        Alignment::Start
-    };
-    container(card).width(Length::Fill).align_x(align).into()
 }
 
 /// Map parsed `Span`s to an iced `rich_text` widget.
