@@ -139,3 +139,4 @@ completed:
   - { id: L1, title: "Sticker packs placeholder (XEP stickers:0)", completed: "2026-03-23" }
   - { id: OMEMO, title: "OMEMO E2E encryption — full engine wiring (XEP-0384)", completed: "2026-03-24" }
   - { id: MULTI, title: "Multi-account support — full App integration", completed: "2026-03-24" }
+  - { id: DC-6, title: "Wire MUC admin + voice commands (Kick/Ban/Affiliation/Voice)", completed: "2026-03-24" }

@@ -395,6 +395,51 @@ pub enum XmppCommand {
         message_id: String,
         reason: Option<String>,
     },
+    /// DC-6: Kick a room occupant (MUC role=none).
+    KickUser {
+        room_jid: String,
+        nick: String,
+    },
+    /// DC-6: Ban a user from a room (MUC affiliation=outcast).
+    BanUser {
+        room_jid: String,
+        jid: String,
+    },
+    /// DC-6: Set arbitrary MUC affiliation action.
+    SetAffiliation {
+        room_jid: String,
+        action: modules::muc_admin::AffiliationAction,
+    },
+    /// DC-6: Grant voice (role=participant).
+    GrantVoice {
+        room_jid: String,
+        nick: String,
+    },
+    /// DC-6: Revoke voice (role=visitor).
+    RevokeVoice {
+        room_jid: String,
+        nick: String,
+    },
+    /// DC-6: Grant moderator role.
+    GrantModerator {
+        room_jid: String,
+        nick: String,
+    },
+    /// DC-6: Request voice in a moderated room.
+    RequestVoice {
+        room_jid: String,
+        nick: String,
+    },
+    /// DC-6: Approve a pending voice request.
+    ApproveVoice {
+        room_jid: String,
+        nick: String,
+    },
+    /// DC-6: Decline a pending voice request.
+    DeclineVoice {
+        room_jid: String,
+        nick: String,
+    },
     /// J9: Register a new account (XEP-0077).
     Register(ConnectConfig),
     /// J9: Submit a registration form.

@@ -6,6 +6,7 @@
 - ✅ **OMEMO-foundation**: OmemoStore, DeviceManager, OmemoSessionManager, OmemoBundle helpers, message.rs stanza builder/parser, omemo_trust.rs UI — 2026-03-24
 - ✅ **OMEMO-engine**: engine wiring for OmemoEnable, OmemoEncryptMessage, OmemoTrustDevice, omemo_try_decrypt, handle_client_event plumbed with omemo_mgr — 2026-03-24
 - ✅ **MULTI-foundation**: MultiEngineManager, AccountState, AccountStateManager, account switcher UI (account_switcher.rs, account_state.rs), sidebar indicator bar — 2026-03-24
+- ✅ **DC-6**: MUC admin + voice command wiring finalized (Kick/Ban/Affiliation/Voice enum + engine handler signature alignment) — 2026-03-24
 
 ### Remaining Work (not yet complete)
 

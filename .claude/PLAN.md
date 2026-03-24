@@ -8,6 +8,10 @@
 
 ## Key findings summary
 
+## Recent completions
+
+- ✅ **DC-6**: MUC admin + voice commands wired end-to-end (XmppCommand variants + engine handling) — 2026-03-24
+
 **What is actually wired and running today:**
 - iced app boots, login screen renders, settings + keychain persist
 - `xmpp_subscription()` spawns `run_engine()`; engine connects via `tokio-xmpp`,

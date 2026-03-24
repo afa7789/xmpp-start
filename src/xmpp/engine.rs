@@ -213,7 +213,7 @@ async fn run_session(
     // L4: XEP-0050 ad-hoc commands manager
     let mut adhoc_mgr = AdhocManager::new();
     // DC-8: XEP-0202 entity time manager
-    let mut entity_time_mgr = EntityTimeManager::new();
+    let _entity_time_mgr = EntityTimeManager::new();
     // DC-6: XEP-0045 MUC admin manager (affiliations + role changes)
     let mut muc_admin_mgr = MucAdminManager::new();
     // DC-6: XEP-0045 MUC voice request manager
@@ -268,7 +268,7 @@ async fn run_session(
                     }
                     Some(ev) => {
 
-                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut own_jid_str, &mut mam_mgr, &mut catchup_mgr, &mut presence_machine, &mut disco_mgr, &mut file_upload_mgr, &mut avatar_mgr, &mut muc_mgr, &mut muc_config_mgr, &mut bookmark_mgr, &mut push_mgr, &mut vcard_edit_mgr, &mut adhoc_mgr, &mut entity_time_mgr, &mut omemo_mgr, &config.jid).await;
+                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut own_jid_str, &mut mam_mgr, &mut catchup_mgr, &mut presence_machine, &mut disco_mgr, &mut file_upload_mgr, &mut avatar_mgr, &mut muc_mgr, &mut muc_config_mgr, &mut bookmark_mgr, &mut push_mgr, &push_cleanup, &mut vcard_edit_mgr, &mut adhoc_mgr, &mut omemo_mgr, &config.jid).await;
                     }
                 }
             }
