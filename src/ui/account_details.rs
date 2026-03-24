@@ -119,7 +119,7 @@ impl AccountDetailsPanel {
 
         let content = detail_rows
             .into_iter()
-            .fold(column![header].spacing(8), |col, r| col.push(r));
+            .fold(column![header].spacing(8), iced::widget::Column::push);
 
         container(content).padding(0).into()
     }

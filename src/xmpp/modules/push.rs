@@ -321,7 +321,7 @@ mod tests {
         let mut mgr = PushManager::new();
 
         // First, build an enable IQ
-        let (iq_id, iq) = {
+        let (iq_id, _iq) = {
             let enable_iq = mgr.build_enable_iq("push.example.com");
             let id = enable_iq.attr("id").unwrap().to_string();
             (id, enable_iq)

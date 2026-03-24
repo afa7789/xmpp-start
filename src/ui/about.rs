@@ -15,6 +15,12 @@ pub enum Message {
     Back,
 }
 
+impl Default for AboutScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AboutScreen {
     pub fn new() -> Self {
         Self {

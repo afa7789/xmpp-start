@@ -1110,7 +1110,7 @@ impl ChatScreen {
                         let occupants = if self.muc_jids.contains(jid.as_str()) {
                             self.muc_occupants
                                 .get(jid.as_str())
-                                .map(|v| v.as_slice())
+                                .map(Vec::as_slice)
                                 .unwrap_or(&[])
                         } else {
                             empty_occupants.as_slice()
@@ -1118,7 +1118,7 @@ impl ChatScreen {
                         let own_nick = if self.muc_jids.contains(jid.as_str()) {
                             self.muc_own_nicks
                                 .get(jid.as_str())
-                                .map(|s| s.as_str())
+                                .map(String::as_str)
                                 .unwrap_or("")
                         } else {
                             ""

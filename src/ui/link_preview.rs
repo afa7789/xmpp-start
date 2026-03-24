@@ -70,9 +70,9 @@ pub fn render_preview_card(
     if let Some(handle) = image_handle {
         let (display_w, display_h) = preview.display_dimensions(MAX_PREVIEW_WIDTH);
         let img_widget = if let Some(h) = display_h {
-            image(handle).width(display_w).height(h)
+            image(handle).width(display_w as f32).height(h as f32)
         } else {
-            image(handle).width(display_w)
+            image(handle).width(display_w as f32)
         };
         card_col = card_col.push(img_widget);
     } else if let Some(ref image_url) = preview.image_url {
@@ -85,7 +85,7 @@ pub fn render_preview_card(
     }
 
     let card = container(card_col)
-        .width(MAX_PREVIEW_WIDTH)
+        .width(MAX_PREVIEW_WIDTH as f32)
         .style(|_theme: &iced::Theme| iced::widget::container::Style {
             background: Some(iced::Background::Color(Color::from_rgb(0.15, 0.15, 0.18))),
             border: iced::Border {

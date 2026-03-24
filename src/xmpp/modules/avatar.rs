@@ -399,7 +399,7 @@ impl AvatarManager {
         pubsub_jid: &str,
         sha1: &str,
         data: &[u8],
-        mime_type: &str,
+        _mime_type: &str,
     ) -> Element {
         let encoded = BASE64.encode(data);
 

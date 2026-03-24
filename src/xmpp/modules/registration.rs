@@ -1,5 +1,4 @@
 use tokio_xmpp::minidom::Element;
-use tokio_xmpp::parsers::ns;
 
 /// J9: XEP-0077 In-Band Registration
 pub const NS_REGISTER: &str = "jabber:iq:register";

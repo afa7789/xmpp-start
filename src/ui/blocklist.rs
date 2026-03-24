@@ -133,7 +133,7 @@ impl BlocklistPanel {
 
         let list = list_items
             .into_iter()
-            .fold(column![].spacing(4), |col, item| col.push(item));
+            .fold(column![].spacing(4), iced::widget::Column::push);
 
         let list_scroll = scrollable(list).height(200);
 

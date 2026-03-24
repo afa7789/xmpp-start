@@ -4334,3 +4334,34 @@ login screen handles persistence.
 ---
 
 *Last updated: 2026-03-23*
+
+## Current State — 2026-03-23
+
+### Completed phases
+- **Foundation (A, B, C, D)**: All wired. SQLite DB, presence, MAM sync, carbons, blocking, disco caps, MUC join/leave, bookmarks autojoin.
+- **Rich features (E, F, G, H, I)**: Message corrections/retractions, reactions, file upload, link previews, debug console, command palette, settings panel, reconnect backoff, typing indicators, replies, /me actions, MAM lazy-load, message search, avatars, contact management, vCard.
+- **Notifications & Status (J)**: Custom status, sound notifications.
+- **Room features (K1, K3)**: Room creation UI + config modal, room invitations (XEP-0249).
+- **@mention autocomplete (L2)**: Dropdown above composer, amber highlight for mentioned messages.
+- **Message moderation (E2.1)**: XEP-0425 moderator retract.
+- **Settings panels (M1, M3, M4, M6, M7, K6)**: System theme sync, blocklist UI, account details, data & storage, about modal, chat preferences.
+- **Auth UX (AUTH-1, AUTH-2)**: Auto-login, logout button.
+- **Bug fixes**: BUG-4 (auto-away XA), BUG-5 (duplicate match arm), BUG-6 (voice message composer).
+- **Unicode rendering**: Shaping::Advanced applied to most text widgets. Pending: conversation.rs (Agent H).
+- **Account registration (J9)**: XEP-0077 in-band registration module + UI wizard.
+- **Avatar upload (H2)**: Own avatar upload via XEP-0084 PEP.
+- **Ad-hoc commands (L4)**: XEP-0050 + XEP-0004 dynamic forms UI.
+- **Browse public rooms (K2)**: disco#items room list.
+- **Link preview enhancements (R1, R2, R3)**: Reaction tooltips, OGP images, composer shortcuts.
+
+### In progress (other agents)
+- **OMEMO (J5 / K1 sec)**: XEP-0384 E2E encryption — src/xmpp/modules/omemo/ skeleton exists, not yet wired to engine. New DB migrations (0004_omemo_keys.up.sql) added. Engine integration and UI pending.
+- **Multi-account (J8 / L1 acc)**: src/config/account.rs + src/ui/account_switcher.rs added. Engine-level per-account isolation pending. DB migration 0003_multi_account.up.sql added.
+
+### Remaining work
+- **Critical**: OMEMO (XEP-0384), Multi-account support.
+- **Medium**: Proxy settings (M5), Per-room notification mute (M2), Push notifications (K7/O1), DND suppression (O2).
+- **Low**: Sticker packs (Q1), BOB (Q2), Spam reporting (L5), Location sharing, Image lightbox (I5).
+- **Polish**: Message status indicators (M2), new-message separator (L1), per-conversation mute (J3).
+
+---

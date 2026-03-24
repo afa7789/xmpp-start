@@ -29,7 +29,7 @@ impl MucVoiceManager {
         }
     }
 
-    pub fn build_voice_request(&self, room_jid: &str, nick: &str) -> Element {
+    pub fn build_voice_request(&self, room_jid: &str, _nick: &str) -> Element {
         Element::builder("message", "jabber:client")
             .attr("to", room_jid)
             .append(

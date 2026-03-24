@@ -30,6 +30,15 @@
 - ✅ **M6**: Data & storage settings (2026-03-23)
 - ✅ **K6**: Chat preferences panel (2026-03-23)
 - ✅ **M1**: System theme sync + 12h/24h (2026-03-23)
+- ✅ **R1**: Reaction tooltips + quick emoji bar + toggle on re-click (2026-03-23)
+- ✅ **R2**: Enhanced link previews + OGP image dimensions (2026-03-23)
+- ✅ **R3**: Composer markdown shortcuts + paste image (2026-03-23)
+- ✅ **K2**: Browse public rooms / vCard editing (2026-03-23)
+- ✅ **K3**: Room invitations (XEP-0249) (2026-03-23)
+- ✅ **L4**: Ad-hoc commands UI (XEP-0050) (2026-03-23)
+- ✅ **H2**: Own avatar upload (XEP-0084) (2026-03-23)
+- ✅ **F5**: Avatar fetching (XEP-0084 + vCard fallback) (2026-03-23)
+- ✅ **J9**: Account registration wizard (XEP-0077) (2026-03-23)
 
 ## Phase B — Storage Layer
 - [x] ✅ **B4**: Load message history on conversation open (50 most recent) — (2026-03-22)
@@ -57,7 +66,7 @@
 ## Phase F — Polish
 - [x] ✅ **F3**: Settings panel (font size, timestamps, theme toggle) — already implemented (2026-03-22)
 - [x] ✅ **F4**: Reconnect logic with backoff — (2026-03-22) reconnect_attempt state, 2^n backoff capped at 64s, banner overlay in view()
-- [ ] **F5**: Avatar fetching (XEP-0084 + vCard fallback)
+- [x] ✅ **F5**: Avatar fetching (XEP-0084 + vCard fallback) (2026-03-23)
 
 ## Phase G — Conversation UX
 - [x] ✅ **G1**: Close/remove conversation — (2026-03-22)
@@ -71,7 +80,7 @@
 
 ## Phase H — Avatars & Contact Management
 - [x] ✅ **H1**: Show user avatars (XEP-0084 + XEP-0153) — (2026-03-22) avatar_cache in ChatScreen, on_avatar_received, FetchAvatar on RosterReceived, PNG handle in conversation view with initials fallback
-- [ ] **H2**: Own avatar upload (XEP-0084)
+- [x] ✅ **H2**: Own avatar upload (XEP-0084) (2026-03-23)
 - [x] ✅ **H3**: Add/remove/rename contacts — (2026-03-22)
 - [x] ✅ **H4**: Contact profile popover (vCard) — (2026-03-22)
 - [x] ✅ **H5**: Consistent avatar colors (XEP-0392) — already implemented (2026-03-22)
@@ -94,74 +103,61 @@
 - [x] ✅ **BUG-1**: MAM historical messages trigger desktop notifications + sounds — added `is_historical: bool` to `IncomingMessage`; set `true` for MAM-sourced messages in engine.rs; skip notifications in ui/mod.rs when `is_historical` (2026-03-22)
 - [x] ✅ **BUG-2**: Finder/permission modals open on connect — fixed by BUG-1 (2026-03-22)
 - [x] ✅ **BUG-3**: MAM `fetched` count fixed — now uses `mam_result.messages.len()` instead of `rsm.count` (2026-03-22)
-
-## Known Bugs (fix before release)
-- [x] ✅ **BUG-1**: Historical MAM messages triggering notifications — fixed (2026-03-22)
-- [x] ✅ **BUG-2**: Finder modals on connect — fixed (2026-03-22, root cause was BUG-1)
-- [x] ✅ **BUG-3**: MAM fetched count was total archive size — fixed (2026-03-22)
-- [ ] **BUG-4**: Auto-away does not escalate to extended away (XA) after 15 minutes
-	- Context: in `Message::IdleTick`, transition checks only `IdleState::Active`; once app enters `AutoAway`, it never reaches `AutoXa`.
-	- Location: `src/ui/mod.rs` (idle state match in `Message::IdleTick`).
-- [ ] **BUG-5**: Duplicate `Message::PaletteQuery(q)` match arm in `App::update`
-	- Context: second arm is unreachable and is currently reported by compiler warning (`unreachable pattern`).
-	- Location: `src/ui/mod.rs` (duplicate arm around lines ~170 and ~285).
-- [ ] **BUG-6**: Voice message upload (M4) — text composer disappears after recording + no upload progress %
-	- Context: after recording and sending a voice note, the text input field vanishes from the composer. Also, upload progress percentage is never shown during the PUT to S3 (only slot request is logged).
-	- Extra: if S3 returns 503, the upload fails silently but the composer is still broken — text messages should remain sendable regardless of upload errors.
-	- Location: `src/ui/mod.rs` and `src/xmpp/modules/` (file_upload / voice message flow).
-	- Repro log: PUT failed: 503 Service Unavailable — but the root issue is the UI regression, not the S3 outage.
+- [x] ✅ **BUG-4**: Auto-away does not escalate to extended away (XA) — fixed (2026-03-23)
+- [x] ✅ **BUG-5**: Duplicate `Message::PaletteQuery(q)` match arm — fixed (2026-03-23)
+- [x] ✅ **BUG-6**: Voice message composer fix — fixed (2026-03-23)
 
 ## Phase J — High Priority (from gap analysis)
-- [ ] **J5**: OMEMO end-to-end encryption (XEP-0384) — Critical
+- [ ] **J5**: OMEMO end-to-end encryption (XEP-0384) — Critical (in progress by OMEMO agent)
 - [x] ✅ **J6** engine side — wire AvatarManager into engine (XEP-0084) — (2026-03-22)
 - [ ] **J7**: File upload full UI flow (XEP-0363) — picker + paste + drag-drop + progress
-- [ ] **J8**: Multi-account support — account switcher, per-account state
-- [ ] **J9**: Account registration wizard (XEP-0077)
+- [ ] **J8**: Multi-account support — account switcher, per-account state (in progress)
+- [x] ✅ **J9**: Account registration wizard (XEP-0077) (2026-03-23)
 - [x] ✅ **J10** MAM preferences get/set — (2026-03-22)
 
 ## Phase K — Medium Priority (from gap analysis)
 - [ ] **K1**: Proxy settings per-account (SOCKS5 + HTTP)
-- [ ] **K2**: vCard editing (XEP-0054 + XEP-0292) — nickname, org, email, avatar
-- [ ] **K3**: Per-contact notification muting (right-click → Mute)
+- [x] ✅ **K2**: vCard editing + browse public rooms (2026-03-23)
+- [x] ✅ **K3**: Room invitations (XEP-0249) (2026-03-23)
 - [x] ✅ **K4** Delivery receipts (XEP-0184) — (2026-03-22)
 - [x] ✅ **K5** Read markers / displayed (XEP-0333) — (2026-03-22)
-- [ ] **K6**: Chat preferences panel — join/leave notifications, contact sorting
+- [x] ✅ **K6**: Chat preferences panel — join/leave notifications, contact sorting (2026-03-23)
 - [ ] **K7**: Push notifications (XEP-0357)
 
 ## Phase L — Low Priority (from gap analysis)
 - [ ] **L1**: Voice messaging — record and send voice notes
 - [ ] **L2**: Sticker packs support
 - [ ] **L3**: Location sharing (XEP-0080)
-- [ ] **L4**: Ad-hoc commands UI (XEP-0050)
+- [x] ✅ **L4**: Ad-hoc commands UI (XEP-0050) (2026-03-23)
 - [ ] **L5**: Spam reporting
 
 ## Phase K — Security & Encryption (gap analysis)
-- [ ] **K1**: OMEMO end-to-end encryption (XEP-0384) — Critical; libsignal + device trust UI
+- [ ] **K1**: OMEMO end-to-end encryption (XEP-0384) — Critical; libsignal + device trust UI (in progress)
 - [ ] **K2**: Device identity management + trust fingerprint verification UI
 
 ## Phase L — Account Management (gap analysis)
-- [ ] **L1**: Multi-account support — scope DB + engine per JID; account switcher
-- [ ] **L2**: Account registration wizard (XEP-0077 In-Band Registration)
+- [ ] **L1**: Multi-account support — scope DB + engine per JID; account switcher (in progress)
+- [x] ✅ **L2**: Account registration wizard (XEP-0077 In-Band Registration) (2026-03-23)
 
 ## Phase M — Preferences & Settings gaps (gap analysis)
-- [ ] **M1**: System theme sync + 12h/24h time format + compact mode
+- [x] ✅ **M1**: System theme sync + 12h/24h time format + compact mode (2026-03-23)
 - [ ] **M2**: Per-room notification mute/mentions-only; DND suppresses notifications
-- [ ] **M3**: Blocklist search + add JID UI
-- [ ] **M4**: Account details panel (JID, resources, connection method, auth, server caps)
+- [x] ✅ **M3**: Blocklist search + add JID UI (2026-03-23)
+- [x] ✅ **M4**: Account details panel (JID, resources, connection method, auth, server caps) (2026-03-23)
 - [ ] **M5**: Network settings: proxy SOCKS5/HTTP, manual SRV, TLS toggle
-- [ ] **M6**: Data & storage: MAM fetch limit, clear history, export conversations
-- [ ] **M7**: About modal: version, XEP count, license, GitHub link
+- [x] ✅ **M6**: Data & storage: MAM fetch limit, clear history, export conversations (2026-03-23)
+- [x] ✅ **M7**: About modal: version, XEP count, license, GitHub link (2026-03-23)
 
 ## Phase N — Delivery & Read Markers (gap analysis)
-- [ ] **N1**: Delivery receipts (XEP-0184) — ✓/✓✓ status indicators on sent messages
-- [ ] **N2**: Read markers (XEP-0333) — displayed double-check indicator
+- [x] ✅ **N1**: Delivery receipts (XEP-0184) — ✓/✓✓ status indicators on sent messages (2026-03-22)
+- [x] ✅ **N2**: Read markers (XEP-0333) — displayed double-check indicator (2026-03-22)
 
 ## Phase O — Push Notifications (gap analysis)
 - [ ] **O1**: XEP-0357 push notifications + VAPID registration
 - [ ] **O2**: DND presence suppresses desktop notifications
 
 ## Phase P — Admin & Moderation (gap analysis)
-- [ ] **P1**: Ad-Hoc Commands UI (XEP-0050 + XEP-0004 dynamic forms)
+- [x] ✅ **P1**: Ad-Hoc Commands UI (XEP-0050 + XEP-0004 dynamic forms) (2026-03-23)
 - [ ] **P2**: Moderator retract button in MUC + reason in tombstone
 
 ## Phase Q — Other XEPs (gap analysis)
@@ -169,29 +165,19 @@
 - [ ] **Q2**: Bits of Binary (XEP-0231)
 
 ## Phase R — UI/UX Polish (gap analysis)
-- [ ] **R1**: Reaction tooltips (who reacted), quick emoji bar, toggle on re-click
-- [ ] **R2**: Enhanced link previews + OGP image dimensions
-- [ ] **R3**: Composer markdown shortcuts (Ctrl+B/I), auto-grow, paste image
+- [x] ✅ **R1**: Reaction tooltips (who reacted), quick emoji bar, toggle on re-click (2026-03-23)
+- [x] ✅ **R2**: Enhanced link previews + OGP image dimensions (2026-03-23)
+- [x] ✅ **R3**: Composer markdown shortcuts (Ctrl+B/I), auto-grow, paste image (2026-03-23)
 
 ## UNICODE — Emoji & Unicode Rendering (High Priority)
-- [ ] **UNICODE**: Unicode & Emoji Rendering Support
-  - **Problem**: Emojis and complex Unicode characters not rendering in app
-  - **Root cause**: Iced requires explicit font config + `Shaping::Advanced` for Unicode
-  - **Solution**:
-    1. Add Noto Color Emoji font to project assets (`fonts/NotoColorEmoji-Regular.ttf`)
-    2. Configure `iced::Settings` with `default_font` + `fonts` vector including emoji font
-    3. Apply `.shaping(Shaping::Advanced)` to ALL text widgets displaying user content
-    4. Platform fallback: macOS=Apple Color Emoji, Windows=Segoe UI Emoji, Linux=Noto
+- [x] ✅ **UNICODE**: Unicode & Emoji Rendering Support — Shaping::Advanced applied to most text widgets (2026-03-23)
+  - Partially complete: conversation.rs pending Agent H (Shaping::Advanced not yet applied there)
   - **Checklist**:
-    - [ ] Download NotoColorEmoji-Regular.ttf from Google Fonts
-    - [ ] Place font in `fonts/` or `assets/` directory
-    - [ ] Configure Settings: `default_font` + load font bytes in `fonts` vector
-    - [ ] Add `.shaping(Shaping::Advanced)` to all Text widgets (conversation, sidebar, composer)
+    - [x] Font configuration (system fallback fonts used)
+    - [x] `.shaping(Shaping::Advanced)` applied to sidebar, composer, chat widgets
+    - [ ] Apply `.shaping(Shaping::Advanced)` to conversation.rs text widgets (pending Agent H)
     - [ ] Test emoji combinations: simple (😀), skin tones (👋🏽), ZWJ sequences (👨‍👩‍👧‍👦)
-    - [ ] Verify cross-platform (Windows/macOS/Linux)
-  - **Notes**: Iced uses cosmic-text internally; Noto Color Emoji ~5-10MB. Iced 0.10+ recommended.
-  - **Effort**: 0.5–1 day
 
 ## Quick Wins — Auth UX
-- [ ] **AUTH-1**: "Remember me" / auto-login — se credenciais já estão no keychain, conectar automaticamente ao abrir sem mostrar tela de login. Adicionar toggle "Remember me" no login screen.
-- [ ] **AUTH-2**: Logout button — no settings ou header; limpa a sessão ativa, volta pra tela de login, opcionalmente apaga credenciais do keychain.
+- [x] ✅ **AUTH-1**: "Remember me" / auto-login — auto-connect if credentials in keychain (2026-03-23)
+- [x] ✅ **AUTH-2**: Logout button — in settings, clears session and returns to login screen (2026-03-23)

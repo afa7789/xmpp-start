@@ -255,7 +255,7 @@ fn avatar_publish_flow() {
     let data_stanza = avatar_mgr.build_avatar_data_publish(
         pubsub_jid,
         sha1,
-        &avatar_data.to_vec(),
+        avatar_data.as_ref(),
         "image/svg+xml",
     );
     let data_xml = String::from(&data_stanza);
@@ -286,7 +286,7 @@ fn message_moderation_command_building() {
 
 #[test]
 fn room_list_parsing_from_disco_items() {
-    use xmpp_start::xmpp::modules::disco::{DiscoIdentity, DiscoItem, DiscoManager};
+    use xmpp_start::xmpp::modules::disco::DiscoManager;
 
     let mut mgr = DiscoManager::new("node", &[], &[]);
     let (id, _) = mgr.build_items_request("conference.example.org");

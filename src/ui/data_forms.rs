@@ -171,10 +171,7 @@ impl FormField {
     }
 }
 
-pub fn render_form<M: Clone + 'static>(form: DataForm) -> Element<'static, M>
-where
-    M: Clone + 'static,
-{
+pub fn render_form<M: Clone + 'static>(form: DataForm) -> Element<'static, M> {
     let mut col: Column<M> = column![].spacing(12).padding(16);
 
     if let Some(title) = form.title.clone() {

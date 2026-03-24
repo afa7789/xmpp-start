@@ -81,7 +81,7 @@ impl MucAdminManager {
             },
         );
 
-        let mut item = if let Some(ref j) = jid {
+        let item = if let Some(ref j) = jid {
             Element::builder("item", NS_MUC_ADMIN)
                 .attr("affiliation", affiliation)
                 .attr("jid", j)
