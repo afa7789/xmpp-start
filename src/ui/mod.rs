@@ -167,13 +167,11 @@ enum IdleState {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub enum Message {
     Login(login::Message),
     Benchmark(benchmark::Message),
     Chat(chat::Message),
     GoToBenchmark,
-    #[allow(dead_code)]
     ToggleTheme,
     XmppReady(mpsc::Sender<XmppCommand>),
     XmppEvent(XmppEvent),

@@ -160,6 +160,17 @@ impl ChatScreen {
         self.sidebar.set_contacts(contacts);
     }
 
+    /// Pre-populate the conversation map from cached DB rows so the sidebar
+    /// shows known conversations before any messages arrive from the server.
+    pub fn prefill_conversations(&mut self, jids: Vec<String>) {
+        let own_jid = self.own_jid.clone();
+        for jid in jids {
+            self.conversations
+                .entry(jid.clone())
+                .or_insert_with(|| ConversationView::new(jid, own_jid.clone()));
+        }
+    }
+
     /// D1: Register a MUC room join and create an occupant panel.
     pub fn on_join_room(&mut self, room_jid: &str) {
         self.muc_jids.insert(room_jid.to_string());
@@ -974,7 +985,6 @@ impl ChatScreen {
         }
     }
 
-    #[allow(dead_code)]
     pub fn draft_for(&self, jid: &str) -> &str {
         self.conversations
             .get(jid)
