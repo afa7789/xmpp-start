@@ -25,29 +25,56 @@ fn row_to_conversation(row: &sqlx::sqlite::SqliteRow) -> Conversation {
 
 /// Insert the conversation if it does not already exist. A no-op when the JID
 /// is already present so callers can call this freely on every incoming message.
-pub async fn upsert(pool: &SqlitePool, jid: &str) -> Result<()> {
+///
+/// `account_jid` scopes the conversation to a specific account.  Pass an empty
+/// string (or use [`upsert`]) to keep backward-compatible single-account behaviour.
+pub async fn upsert_for_account(
+    pool: &SqlitePool,
+    jid: &str,
+    account_jid: &str,
+) -> Result<()> {
     sqlx::query(
-        "INSERT OR IGNORE INTO conversations (jid, last_read_id, archived, last_activity) \
-         VALUES (?, NULL, 0, NULL)",
+        "INSERT OR IGNORE INTO conversations \
+         (jid, last_read_id, archived, last_activity, account_jid) \
+         VALUES (?, NULL, 0, NULL, ?)",
     )
     .bind(jid)
+    .bind(account_jid)
     .execute(pool)
     .await?;
     Ok(())
 }
 
-/// Return all conversations ordered by last_activity descending (NULLs last).
-pub async fn get_all(pool: &SqlitePool) -> Result<Vec<Conversation>> {
+/// Backward-compatible single-account upsert (account_jid = '').
+pub async fn upsert(pool: &SqlitePool, jid: &str) -> Result<()> {
+    upsert_for_account(pool, jid, "").await
+}
+
+/// Return all conversations for a given account, ordered by last_activity desc.
+///
+/// Pass an empty string for `account_jid` to get the legacy single-account rows.
+pub async fn get_all_for_account(
+    pool: &SqlitePool,
+    account_jid: &str,
+) -> Result<Vec<Conversation>> {
     let rows = sqlx::query(
         "SELECT jid, last_read_id, archived, last_activity, \
                 COALESCE(muted, 0) AS muted \
          FROM conversations \
+         WHERE account_jid = ? \
          ORDER BY last_activity DESC NULLS LAST",
     )
+    .bind(account_jid)
     .fetch_all(pool)
     .await?;
 
     Ok(rows.iter().map(row_to_conversation).collect())
+}
+
+/// Return all conversations ordered by last_activity descending (NULLs last).
+/// Backward-compatible: returns conversations where account_jid = ''.
+pub async fn get_all(pool: &SqlitePool) -> Result<Vec<Conversation>> {
+    get_all_for_account(pool, "").await
 }
 
 /// Persist the ID of the most-recently-read message for a conversation.

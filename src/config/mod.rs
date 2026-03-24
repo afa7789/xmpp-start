@@ -9,6 +9,9 @@
 //   - Password:     OS keychain via `keyring` crate
 //   - Theme:        included in settings.json
 
+pub mod account;
+pub use account::AccountConfig;
+
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -74,6 +77,25 @@ pub struct Settings {
     /// K6: use compact message layout (less padding, default false).
     #[serde(default)]
     pub compact_layout: bool,
+    /// MULTI: configured accounts.  When non-empty these take precedence over
+    /// the legacy `last_jid` / keychain-password single-account path.
+    #[serde(default)]
+    pub accounts: Vec<AccountConfig>,
+    /// M5: proxy type ("socks5" or "http"), None = direct.
+    #[serde(default)]
+    pub proxy_type: Option<String>,
+    /// M5: proxy hostname or IP address.
+    #[serde(default)]
+    pub proxy_host: Option<String>,
+    /// M5: proxy port number.
+    #[serde(default)]
+    pub proxy_port: Option<u16>,
+    /// M5: manual SRV override (e.g. "_xmpp-client._tcp.example.com").
+    #[serde(default)]
+    pub manual_srv: Option<String>,
+    /// M5: always require TLS (default true).
+    #[serde(default = "default_true")]
+    pub force_tls: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
@@ -127,6 +149,12 @@ impl Default for Settings {
             show_join_leave: true,
             show_typing_indicators: true,
             compact_layout: false,
+            accounts: Vec::new(),
+            proxy_type: None,
+            proxy_host: None,
+            proxy_port: None,
+            manual_srv: None,
+            force_tls: true,
         }
     }
 }
@@ -256,6 +284,12 @@ mod tests {
             show_join_leave: false,
             show_typing_indicators: false,
             compact_layout: true,
+            accounts: vec![AccountConfig::new("user@example.com")],
+            proxy_type: Some("socks5".into()),
+            proxy_host: Some("proxy.example.com".into()),
+            proxy_port: Some(1080),
+            manual_srv: Some("_xmpp-client._tcp.example.com".into()),
+            force_tls: false,
         };
         let json = serde_json::to_string(&s).unwrap();
         let s2: Settings = serde_json::from_str(&json).unwrap();
@@ -270,6 +304,42 @@ mod tests {
         assert!(s2.use_system_theme);
         assert_eq!(s2.time_format, TimeFormat::TwelveHour);
         assert_eq!(s2.mam_fetch_limit, 100);
+        assert_eq!(s2.accounts.len(), 1);
+        assert_eq!(s2.accounts[0].jid, "user@example.com");
+        assert_eq!(s2.proxy_type, Some("socks5".into()));
+        assert_eq!(s2.proxy_host, Some("proxy.example.com".into()));
+        assert_eq!(s2.proxy_port, Some(1080));
+        assert_eq!(s2.manual_srv, Some("_xmpp-client._tcp.example.com".into()));
+        assert!(!s2.force_tls);
+    }
+
+    #[test]
+    fn network_settings_defaults() {
+        let s = Settings::default();
+        assert!(s.proxy_type.is_none());
+        assert!(s.proxy_host.is_none());
+        assert!(s.proxy_port.is_none());
+        assert!(s.manual_srv.is_none());
+        assert!(s.force_tls);
+    }
+
+    #[test]
+    fn network_settings_roundtrip() {
+        let s = Settings {
+            proxy_type: Some("http".into()),
+            proxy_host: Some("192.168.1.1".into()),
+            proxy_port: Some(8080),
+            manual_srv: Some("_xmpp-client._tcp.corp.example.com".into()),
+            force_tls: true,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        let s2: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(s2.proxy_type, Some("http".into()));
+        assert_eq!(s2.proxy_host, Some("192.168.1.1".into()));
+        assert_eq!(s2.proxy_port, Some(8080));
+        assert_eq!(s2.manual_srv, Some("_xmpp-client._tcp.corp.example.com".into()));
+        assert!(s2.force_tls);
     }
 
     #[test]

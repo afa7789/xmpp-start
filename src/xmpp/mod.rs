@@ -14,6 +14,31 @@ use tokio_xmpp::minidom::Element;
 pub use connection::ConnectConfig;
 
 // ---------------------------------------------------------------------------
+// MULTI: Account identity newtype
+// ---------------------------------------------------------------------------
+
+/// Opaque identifier for a configured XMPP account.
+/// Wraps the bare JID string so call-sites can't accidentally pass arbitrary strings.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AccountId(pub String);
+
+impl AccountId {
+    pub fn new(jid: impl Into<String>) -> Self {
+        Self(jid.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for AccountId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Data types exchanged between engine and UI
 // ---------------------------------------------------------------------------
 
@@ -181,6 +206,38 @@ pub enum XmppEvent {
         from_jid: String,
         commands: Vec<(String, String)>,
     },
+
+    // L3: Peer published a new location (XEP-0080).
+    LocationReceived {
+        from: String,
+        location: modules::geoloc::GeoLocation,
+    },
+
+    // Q2: Bits of Binary data received in response to a request (XEP-0231).
+    BobReceived(modules::bob::BobData),
+
+    // MULTI: Account management events.
+    /// The active account has been switched to the given account.
+    AccountSwitched(AccountId),
+
+    // MEMO: OMEMO E2E encryption events (XEP-0384)
+
+    /// A peer's OMEMO device list was received or updated via PEP.
+    OmemoDeviceListReceived {
+        jid: String,
+        devices: Vec<u32>,
+    },
+
+    /// An incoming OMEMO-encrypted message was successfully decrypted.
+    OmemoMessageDecrypted {
+        from: String,
+        body: String,
+    },
+
+    /// A new unrecognized device appeared for `jid` and needs trust resolution.
+    OmemoKeyExchangeNeeded {
+        jid: String,
+    },
 }
 
 /// Commands sent from the UI to the XMPP engine.
@@ -332,4 +389,39 @@ pub enum XmppCommand {
     DiscoverAdhocCommands {
         target_jid: String,
     },
+
+    /// L5: Report a JID as a spammer (XEP-0377).
+    ReportSpam {
+        jid: String,
+        reason: Option<String>,
+    },
+
+    /// L3: Publish the user's current location via PEP (XEP-0080).
+    PublishLocation(modules::geoloc::GeoLocation),
+
+    /// Q2: Request a Bits of Binary data element from a peer (XEP-0231).
+    RequestBob {
+        cid: String,
+        from: String,
+    },
+
+    // MULTI: Account management commands.
+    /// Switch the active account to the given account ID.
+    SwitchAccount(AccountId),
+    /// Add a new account to the engine's account pool.
+    AddAccount(crate::config::AccountConfig),
+    /// Remove an account from the engine's account pool.
+    RemoveAccount(AccountId),
+
+    // MEMO: OMEMO E2E encryption commands (XEP-0384)
+
+    /// Generate an identity key pair, publish the device list, and publish the pre-key bundle.
+    /// This enables OMEMO for the current account.
+    OmemoEnable,
+
+    /// Encrypt `body` for all trusted devices of `to` and send the result.
+    OmemoEncryptMessage { to: String, body: String },
+
+    /// Mark `device_id` for `jid` as trusted by the user.
+    OmemoTrustDevice { jid: String, device_id: u32 },
 }

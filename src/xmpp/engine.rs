@@ -512,6 +512,20 @@ async fn run_session(
                         outbox.push_back(iq);
                         tracing::info!("push: disabling all notifications");
                     }
+                    // MULTI: account management — not yet wired to engine session logic.
+                    Some(XmppCommand::SwitchAccount(_))
+                    | Some(XmppCommand::AddAccount(_))
+                    | Some(XmppCommand::RemoveAccount(_)) => {
+                        // No-op until multi-session engine is implemented.
+                    }
+                    Some(XmppCommand::ReportSpam { .. })
+                    | Some(XmppCommand::PublishLocation(_))
+                    | Some(XmppCommand::RequestBob { .. })
+                    | Some(XmppCommand::OmemoEnable)
+                    | Some(XmppCommand::OmemoEncryptMessage { .. })
+                    | Some(XmppCommand::OmemoTrustDevice { .. }) => {
+                        // Handled in dedicated session loops or not yet wired.
+                    }
                 }
             }
         }

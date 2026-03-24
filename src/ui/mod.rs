@@ -10,6 +10,7 @@ use tokio::sync::mpsc;
 
 pub mod about;
 pub mod account_details;
+pub mod account_switcher;
 pub mod adhoc;
 pub mod avatar;
 pub mod benchmark;
@@ -1253,6 +1254,14 @@ impl App {
                             let _ = adhoc.update(adhoc::Message::CommandResponseReceived(resp));
                         }
                     }
+                    // MULTI: account switched notification — no-op until UI is wired.
+                    XmppEvent::AccountSwitched(_) => {}
+                    // MEMO / other agents: unhandled events from additional modules.
+                    XmppEvent::LocationReceived { .. }
+                    | XmppEvent::BobReceived(_)
+                    | XmppEvent::OmemoDeviceListReceived { .. }
+                    | XmppEvent::OmemoMessageDecrypted { .. }
+                    | XmppEvent::OmemoKeyExchangeNeeded { .. } => {}
                 }
                 Task::none()
             }

@@ -34,12 +34,22 @@ fn row_to_message(row: &sqlx::sqlite::SqliteRow) -> Message {
 }
 
 pub async fn insert(pool: &SqlitePool, msg: &Message) -> Result<()> {
+    insert_for_account(pool, msg, "").await
+}
+
+/// Insert a message scoped to a specific account.
+/// `account_jid` is the bare JID of the owning account; use "" for single-account compat.
+pub async fn insert_for_account(
+    pool: &SqlitePool,
+    msg: &Message,
+    account_jid: &str,
+) -> Result<()> {
     sqlx::query(
         r#"
         INSERT OR IGNORE INTO messages
             (id, conversation_jid, from_jid, body, timestamp,
-             stanza_id, origin_id, state, edited_body, retracted)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             stanza_id, origin_id, state, edited_body, retracted, account_jid)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(&msg.id)
@@ -52,6 +62,7 @@ pub async fn insert(pool: &SqlitePool, msg: &Message) -> Result<()> {
     .bind(&msg.state)
     .bind(&msg.edited_body)
     .bind(msg.retracted)
+    .bind(account_jid)
     .execute(pool)
     .await?;
     Ok(())
@@ -62,17 +73,29 @@ pub async fn find_by_conversation(
     conversation_jid: &str,
     limit: i64,
 ) -> Result<Vec<Message>> {
+    find_by_conversation_for_account(pool, conversation_jid, "", limit).await
+}
+
+/// Fetch messages for a conversation scoped to a specific account.
+/// Pass `account_jid = ""` for backward-compatible single-account queries.
+pub async fn find_by_conversation_for_account(
+    pool: &SqlitePool,
+    conversation_jid: &str,
+    account_jid: &str,
+    limit: i64,
+) -> Result<Vec<Message>> {
     let rows = sqlx::query(
         r#"
         SELECT id, conversation_jid, from_jid, body, timestamp,
                stanza_id, origin_id, state, edited_body, retracted
         FROM messages
-        WHERE conversation_jid = ?
+        WHERE conversation_jid = ? AND account_jid = ?
         ORDER BY timestamp ASC
         LIMIT ?
         "#,
     )
     .bind(conversation_jid)
+    .bind(account_jid)
     .bind(limit)
     .fetch_all(pool)
     .await?;
