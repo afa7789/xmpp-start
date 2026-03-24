@@ -347,7 +347,7 @@ async fn run_session(
                     }
                     Some(ev) => {
 
-                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut own_jid_str, &mut mam_mgr, &mut catchup_mgr, &mut presence_machine, &mut disco_mgr, &mut file_upload_mgr, &mut avatar_mgr, &mut muc_mgr, &mut muc_config_mgr, &mut bookmark_mgr, &mut push_mgr, &push_cleanup, &mut vcard_edit_mgr, &mut adhoc_mgr, &mut omemo_mgr, &mut ignore_mgr, &conv_sync_mgr, &mut account_mgr, &config.jid, config.push_service_jid.as_deref()).await;
+                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut own_jid_str, &mut mam_mgr, &mut catchup_mgr, &mut presence_machine, &mut disco_mgr, &mut file_upload_mgr, &mut avatar_mgr, &mut muc_mgr, &mut muc_config_mgr, &mut bookmark_mgr, &mut push_mgr, &push_cleanup, &mut vcard_edit_mgr, &mut adhoc_mgr, &mut omemo_mgr, &mut ignore_mgr, &conv_sync_mgr, &mut account_mgr, &mut sync_orch, &config.jid, config.push_service_jid.as_deref()).await;
                     }
                 }
             }
@@ -807,26 +807,6 @@ async fn run_session(
                             }
                         }
                     }
-                    // P4.4: Bulk MAM sync for a list of conversations.
-                    Some(XmppCommand::StartMamSync(conversations)) => {
-                        for (jid, last_id) in conversations {
-                            let query = MamQuery {
-                                query_id: uuid::Uuid::new_v4().to_string(),
-                                filter: MamFilter {
-                                    with: Some(jid.clone()),
-                                    start: last_id,
-                                    end: None,
-                                },
-                                rsm: RsmQuery {
-                                    max: 50,
-                                    after: None,
-                                    before: None,
-                                },
-                            };
-                            outbox.push_back(mam_mgr.build_query_iq(query));
-                            tracing::debug!("mam: started sync for {jid}");
-                        }
-                    }
                 }
             }
         }
@@ -994,7 +974,7 @@ async fn handle_client_event(
                 own_jid_str,
                 mam_mgr,
                 catchup_mgr,
-                &mut sync_orch,
+                sync_orch,
                 disco_mgr,
                 file_upload_mgr,
                 avatar_mgr,

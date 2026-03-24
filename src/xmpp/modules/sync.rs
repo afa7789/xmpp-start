@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Task P4.4 — Background sync orchestrator
 //
 // Post-connect MAM catchup pipeline.
