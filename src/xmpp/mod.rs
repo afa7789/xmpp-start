@@ -23,10 +23,12 @@ pub use connection::ConnectConfig;
 pub struct AccountId(pub String);
 
 impl AccountId {
+    #[allow(dead_code)]
     pub fn new(jid: impl Into<String>) -> Self {
         Self(jid.into())
     }
 
+    #[allow(dead_code)]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -65,6 +67,7 @@ pub struct IncomingMessage {
 /// Events emitted by the XMPP engine to the UI layer.
 /// Sent through the iced subscription channel.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum XmppEvent {
     // Connection lifecycle
     Connected {
@@ -246,6 +249,7 @@ pub enum XmppEvent {
 
 /// Commands sent from the UI to the XMPP engine.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum XmppCommand {
     /// Start (or restart) a connection with the given credentials.
     Connect(ConnectConfig),

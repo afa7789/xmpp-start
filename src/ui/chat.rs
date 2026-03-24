@@ -62,6 +62,7 @@ pub struct ChatScreen {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::enum_variant_names, dead_code)]
 pub enum Message {
     Sidebar(sidebar::Message),
     Conversation(String, super::conversation::Message),
@@ -1106,23 +1107,14 @@ impl ChatScreen {
                             .get(jid)
                             .is_some_and(|t| t.elapsed().as_secs() < 5);
                         // L2: pass occupant list and own nick for @mention autocomplete
-                        let empty_occupants: Vec<crate::ui::muc_panel::OccupantEntry> = vec![];
-                        let occupants = if self.muc_jids.contains(jid.as_str()) {
-                            self.muc_occupants
-                                .get(jid.as_str())
-                                .map(Vec::as_slice)
-                                .unwrap_or(&[])
-                        } else {
-                            empty_occupants.as_slice()
-                        };
-                        let own_nick = if self.muc_jids.contains(jid.as_str()) {
-                            self.muc_own_nicks
-                                .get(jid.as_str())
-                                .map(String::as_str)
-                                .unwrap_or("")
-                        } else {
-                            ""
-                        };
+                        let occupants: &[crate::ui::muc_panel::OccupantEntry] = self
+                            .muc_occupants
+                            .get(jid.as_str())
+                            .map_or(&[], Vec::as_slice);
+                        let own_nick = self
+                            .muc_own_nicks
+                            .get(jid.as_str())
+                            .map_or("", String::as_str);
                         let conv_view = convo
                             .view(&self.avatars, time_format, occupants, own_nick)
                             .map(move |m| Message::Conversation(jid2.clone(), m));

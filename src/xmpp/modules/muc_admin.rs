@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // S3: MUC Admin module — XEP-0045 §10 (Affiliations) & §11 (Moderation)
 // Reference: https://xmpp.org/extensions/xep-0045.html
 //

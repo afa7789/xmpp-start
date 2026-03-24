@@ -42,35 +42,21 @@ pending:
 
   high:
 
-  medium:
+  medium: []
 
-  low:
-    - id: L1-new
-      title: "Sticker packs support"
-      priority: low
-
-    - id: L3-new
-      title: "Location sharing (XEP-0080)"
-      priority: low
-
-    - id: L5
-      title: "Spam reporting"
-      priority: low
-
-    - id: Q2
-      title: "Bits of Binary (XEP-0231)"
-      priority: low
+  low: []
+    # L1: completed 2026-03-23 (sticker packs placeholder)
 
   critical:
     - id: OMEMO
       title: "OMEMO E2E encryption (XEP-0384)"
       priority: critical
-      notes: "libsignal + device trust UI — estimated 2-3 weeks"
+      notes: "Foundation laid (vodozemac, key store, device mgmt). Full encryption pending."
 
     - id: MULTI
       title: "Multi-account support"
       priority: critical
-      notes: "Scope DB + engine per JID; account switcher — estimated 1-2 weeks"
+      notes: "Foundation laid (AccountConfig, DB scoping, switcher UI). Full wiring pending."
 
 completed:
   - { id: B1, title: "rustls CryptoProvider", completed: "2026-03-22" }
@@ -153,3 +139,9 @@ completed:
   - { id: UNICODE, title: "Unicode & Emoji Rendering Support", completed: "2026-03-23" }
   - { id: F5, title: "Avatar fetching (XEP-0084 + vCard fallback)", completed: "2026-03-23" }
   - { id: M5, title: "Network settings panel (proxy, SRV override, force TLS)", completed: "2026-03-23" }
+  - { id: L5, title: "Spam reporting (XEP-0377)", completed: "2026-03-23" }
+  - { id: L3, title: "Location sharing (XEP-0080)", completed: "2026-03-23" }
+  - { id: Q2, title: "Bits of Binary (XEP-0231)", completed: "2026-03-23" }
+  - { id: MULTI-foundation, title: "Multi-account foundation (config, DB scoping, switcher skeleton)", completed: "2026-03-23" }
+  - { id: OMEMO-foundation, title: "OMEMO foundation (vodozemac, key store, device manager, architecture)", completed: "2026-03-23" }
+  - { id: L1, title: "Sticker packs placeholder (XEP stickers:0)", completed: "2026-03-23" }

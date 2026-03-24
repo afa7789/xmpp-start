@@ -61,7 +61,7 @@ pub enum Message {
     /// User clicked "Discover".
     DiscoverRequested,
     /// Engine returned the command list.
-    CommandsDiscovered { from_jid: String, commands: Vec<(String, String)> },
+    CommandsDiscovered { _from_jid: String, commands: Vec<(String, String)> },
     /// User clicked on a command item.
     CommandSelected(String),
     /// Engine returned a command response.
@@ -142,7 +142,7 @@ impl AdhocScreen {
                 self.commands.clear();
                 // Caller intercepts to send XmppCommand::DiscoverAdhocCommands.
             }
-            Message::CommandsDiscovered { from_jid: _, commands } => {
+            Message::CommandsDiscovered { _from_jid: _, commands } => {
                 self.commands = commands;
                 self.step = AdhocStep::CommandList;
             }

@@ -13,5 +13,7 @@
 pub mod device;
 pub mod store;
 
+#[allow(unused_imports)]
 pub use device::DeviceManager;
+#[allow(unused_imports)]
 pub use store::{OmemoStore, TrustState};

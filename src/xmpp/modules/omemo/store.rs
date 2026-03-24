@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // OMEMO key/session storage backed by SQLite (XEP-0384)
 //
 // All cryptographic material is stored as opaque blobs serialized by vodozemac.
@@ -37,6 +38,7 @@ impl TrustState {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "tofu" => TrustState::Tofu,

@@ -279,7 +279,7 @@ mod tests {
         let collected: Vec<String> = reactions_el
             .children()
             .filter(|c| c.name() == "reaction")
-            .map(|c| c.text())
+            .map(tokio_xmpp::minidom::Element::text)
             .collect();
 
         assert_eq!(collected, vec!["👍", "❤️", "😂"]);

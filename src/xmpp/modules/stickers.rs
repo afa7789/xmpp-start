@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Task L1 — XEP-0449 Sticker Packs (placeholder)
 // XEP reference: https://xmpp.org/extensions/xep-0449.html
 //
@@ -68,14 +69,12 @@ pub fn parse_sticker_pack(element: &Element) -> Option<StickerPack> {
 
     let id = element
         .attr("id")
-        .map(str::to_owned)
-        .unwrap_or_else(|| Uuid::new_v4().to_string());
+        .map_or_else(|| Uuid::new_v4().to_string(), str::to_owned);
 
     let name = element
         .children()
         .find(|c| c.name() == "name" && c.ns() == NS_STICKERS)
-        .map(|n| n.text())
-        .unwrap_or_else(|| "Unnamed Pack".to_string());
+        .map_or_else(|| "Unnamed Pack".to_string(), tokio_xmpp::minidom::Element::text);
 
     let mut stickers = Vec::new();
     for item in element.children().filter(|c| c.name() == "item") {
@@ -93,7 +92,7 @@ fn parse_sticker_item(item: &Element) -> Option<Sticker> {
     let desc = item
         .children()
         .find(|c| c.name() == "desc")
-        .map(|d| d.text())
+        .map(tokio_xmpp::minidom::Element::text)
         .unwrap_or_default();
 
     // <file> carries <media-type> and <uri cid="..."> (or <uri>cid:...</uri>)
@@ -102,8 +101,7 @@ fn parse_sticker_item(item: &Element) -> Option<Sticker> {
     let content_type = file
         .children()
         .find(|c| c.name() == "media-type")
-        .map(|m| m.text())
-        .unwrap_or_else(|| "image/png".to_string());
+        .map_or_else(|| "image/png".to_string(), tokio_xmpp::minidom::Element::text);
 
     // URI is either an attribute on <uri> or the text content prefixed "cid:"
     let cid = file
@@ -112,7 +110,7 @@ fn parse_sticker_item(item: &Element) -> Option<Sticker> {
         .and_then(|u| {
             // Try attribute first, then text
             u.attr("cid")
-                .map(str::to_owned)
+                .map(str::to_string)
                 .or_else(|| {
                     let txt = u.text();
                     txt.strip_prefix("cid:").map(str::to_owned)

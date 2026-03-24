@@ -433,11 +433,13 @@ impl AvatarManager {
     // -----------------------------------------------------------------------
 
     /// Return the cached `AvatarInfo` for a JID, if any.
+    #[allow(dead_code)]
     pub fn get(&self, jid: &str) -> Option<&AvatarInfo> {
         self.cache.get(jid)
     }
 
     /// Insert or replace the avatar for the JID stored in `info.jid`.
+    #[allow(dead_code)]
     pub fn set(&mut self, info: AvatarInfo) {
         self.cache.insert(info.jid.clone(), info);
     }

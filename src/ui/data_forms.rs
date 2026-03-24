@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // S10: XEP-0004 Data Forms renderer
 // Reference: https://xmpp.org/extensions/xep-0004.html
 //
@@ -49,15 +50,15 @@ impl DataForm {
         let title = el
             .children()
             .find(|c| c.name() == "title")
-            .map(|c| c.text());
+            .map(tokio_xmpp::minidom::Element::text);
         let instructions = el
             .children()
             .find(|c| c.name() == "instructions")
-            .map(|c| c.text());
+            .map(tokio_xmpp::minidom::Element::text);
 
         let mut fields = Vec::new();
         for field_el in el.children().filter(|c| c.name() == "field") {
-            if let Some(field) = FormField::from_element(&field_el) {
+            if let Some(field) = FormField::from_element(field_el) {
                 fields.push(field);
             }
         }
@@ -91,7 +92,7 @@ impl FormField {
         let value = el
             .children()
             .find(|c| c.name() == "value")
-            .map(|c| c.text());
+            .map(tokio_xmpp::minidom::Element::text);
         let required = el.children().any(|c| c.name() == "required");
 
         let options: Vec<(String, String)> = el
@@ -197,8 +198,7 @@ pub fn render_form<M: Clone + 'static>(form: DataForm) -> Element<'static, M> {
             FieldType::Boolean => {
                 let checked = field
                     .value
-                    .map(|v| v == "1" || v == "true")
-                    .unwrap_or(false);
+                    .is_some_and(|v| v == "1" || v == "true");
                 col = col.push(row![
                     text(label).size(14),
                     text(if checked { "[x]" } else { "[ ]" }).size(14),

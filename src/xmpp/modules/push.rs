@@ -101,8 +101,7 @@ impl PushManager {
         let node = self
             .subscriptions
             .get(service_jid)
-            .map(|s| s.node.clone())
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
+            .map_or_else(|| Uuid::new_v4().to_string(), |s| s.node.clone());
 
         let disable_el = Element::builder("disable", NS_PUSH)
             .attr("jid", service_jid)

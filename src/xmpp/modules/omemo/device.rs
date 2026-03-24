@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // OMEMO device list management (XEP-0384)
 //
 // Pure state machine — no I/O, no async.

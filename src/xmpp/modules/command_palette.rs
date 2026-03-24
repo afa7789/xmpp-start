@@ -101,7 +101,7 @@ mod tests {
             id: id.to_string(),
             label: label.to_string(),
             description: description.to_string(),
-            keywords: keywords.iter().map(|s| s.to_string()).collect(),
+            keywords: keywords.iter().map(std::string::ToString::to_string).collect(),
         }
     }
 

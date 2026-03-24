@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // M4: Account details panel
 //
 // Displays the current account's JID, server, resource, connection status,

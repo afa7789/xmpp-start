@@ -292,14 +292,14 @@ mod tests {
             vcard
                 .children()
                 .find(|c| c.name() == "NICKNAME")
-                .map(|c| c.text()),
+                .map(tokio_xmpp::minidom::Element::text),
             Some("jdoe".into())
         );
         assert_eq!(
             vcard
                 .children()
                 .find(|c| c.name() == "FN")
-                .map(|c| c.text()),
+                .map(tokio_xmpp::minidom::Element::text),
             Some("John Doe".into())
         );
         // ORG / ORGNAME

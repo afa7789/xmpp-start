@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // R2: Enhanced link preview rendering helpers.
 //
 // This module provides `render_preview_card` — an improved version of the

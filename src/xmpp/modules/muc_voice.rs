@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // S3: MUC Voice Request module — XEP-0045 §5.2 (Requesting Voice)
 // Reference: https://xmpp.org/extensions/xep-0045.html
 //

@@ -93,6 +93,7 @@ enum IdleState {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum Message {
     Login(login::Message),
     Benchmark(benchmark::Message),
@@ -1329,7 +1330,7 @@ impl App {
                     XmppEvent::AdhocCommandsDiscovered { from_jid, commands } => {
                         if let Screen::Adhoc(ref mut adhoc, _) = self.screen {
                             let _ = adhoc.update(adhoc::Message::CommandsDiscovered {
-                                from_jid,
+                                _from_jid: from_jid,
                                 commands,
                             });
                         }

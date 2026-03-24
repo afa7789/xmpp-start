@@ -162,6 +162,7 @@ pub struct DisplayMessage {
 
 /// M2/K5: message delivery/read state for own messages (shown as ✓ indicators)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum MessageState {
     Sending,
     Sent,
@@ -226,6 +227,7 @@ pub struct ConversationView {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code, clippy::enum_variant_names)]
 pub enum Message {
     ComposerChanged(String),
     Send,
@@ -345,6 +347,7 @@ impl ConversationView {
     }
 
     /// G8: Prepend older messages at the front of the message list.
+    #[allow(dead_code)]
     pub fn prepend_messages(&mut self, mut older: Vec<DisplayMessage>) {
         older.append(&mut self.messages);
         self.messages = older;
@@ -479,12 +482,11 @@ impl ConversationView {
                     .reactions
                     .get(&msg_id)
                     .and_then(|by_jid| by_jid.get(&self.own_jid))
-                    .map(|emojis| emojis.contains(&emoji))
-                    .unwrap_or(false);
+                    .is_some_and(|emojis| emojis.contains(&emoji));
                 if already {
-                    return Task::done(Message::RetractReaction(msg_id, emoji));
+                    Task::done(Message::RetractReaction(msg_id, emoji))
                 } else {
-                    return Task::done(Message::SendReaction(msg_id, emoji));
+                    Task::done(Message::SendReaction(msg_id, emoji))
                 }
             }
             Message::RetractReaction(_, _) => Task::none(), // R1: bubbled to ChatScreen
@@ -548,8 +550,7 @@ impl ConversationView {
             Message::FilePicked(Some(path)) => {
                 let name = path
                     .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| "file".into());
+                    .map_or_else(|| "file".into(), |n| n.to_string_lossy().into_owned());
                 let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                 self.pending_attachments.push(Attachment {
                     path,
@@ -618,8 +619,7 @@ impl ConversationView {
                 for path in paths {
                     let name = path
                         .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| "file".into());
+                        .map_or_else(|| "file".into(), |n| n.to_string_lossy().into_owned());
                     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                     self.pending_attachments.push(Attachment {
                         path,

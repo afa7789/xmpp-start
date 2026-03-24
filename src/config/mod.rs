@@ -246,6 +246,34 @@ pub fn delete_password(jid: &str) {
     }
 }
 
+impl TimeFormat {
+    /// Format a unix timestamp (milliseconds) into a human-readable string.
+    #[allow(dead_code)]
+    pub fn format_timestamp(&self, ts_millis: i64) -> String {
+        let ts = chrono::DateTime::from_timestamp_millis(ts_millis);
+        match ts {
+            Some(dt) => match self {
+                TimeFormat::TwentyFourHour => dt.format("%H:%M").to_string(),
+                TimeFormat::TwelveHour => dt.format("%I:%M %p").to_string(),
+            },
+            None => String::new(),
+        }
+    }
+
+    /// Format a unix timestamp with date for date separators.
+    #[allow(dead_code)]
+    pub fn format_timestamp_full(&self, ts_millis: i64) -> String {
+        let ts = chrono::DateTime::from_timestamp_millis(ts_millis);
+        match ts {
+            Some(dt) => match self {
+                TimeFormat::TwentyFourHour => dt.format("%Y-%m-%d %H:%M").to_string(),
+                TimeFormat::TwelveHour => dt.format("%Y-%m-%d %I:%M %p").to_string(),
+            },
+            None => String::new(),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -356,31 +384,5 @@ mod tests {
         assert_eq!(s.theme, Theme::Dark);
         s.theme = Theme::Light;
         assert_eq!(s.theme, Theme::Light);
-    }
-}
-
-impl TimeFormat {
-    /// Format a unix timestamp (milliseconds) into a human-readable string.
-    pub fn format_timestamp(&self, ts_millis: i64) -> String {
-        let ts = chrono::DateTime::from_timestamp_millis(ts_millis);
-        match ts {
-            Some(dt) => match self {
-                TimeFormat::TwentyFourHour => dt.format("%H:%M").to_string(),
-                TimeFormat::TwelveHour => dt.format("%I:%M %p").to_string(),
-            },
-            None => String::new(),
-        }
-    }
-
-    /// Format a unix timestamp with date for date separators.
-    pub fn format_timestamp_full(&self, ts_millis: i64) -> String {
-        let ts = chrono::DateTime::from_timestamp_millis(ts_millis);
-        match ts {
-            Some(dt) => match self {
-                TimeFormat::TwentyFourHour => dt.format("%Y-%m-%d %H:%M").to_string(),
-                TimeFormat::TwelveHour => dt.format("%Y-%m-%d %I:%M %p").to_string(),
-            },
-            None => String::new(),
-        }
     }
 }
