@@ -985,7 +985,7 @@ impl ChatScreen {
             .unwrap_or_default();
         let sidebar_view = self
             .sidebar
-            .view_with_drafts(&drafts, &conference_service)
+            .view_with_drafts(&drafts, &conference_service, None)
             .map(Message::Sidebar);
 
         // K3: if there is a pending invite dialog, show it instead of the conversation

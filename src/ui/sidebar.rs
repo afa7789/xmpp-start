@@ -10,9 +10,10 @@ use iced::{
     Alignment, Element, Length, Task,
 };
 
+use crate::ui::account_state::account_color;
 use crate::ui::avatar::{jid_color, jid_initial};
 
-use crate::xmpp::RosterContact;
+use crate::xmpp::{AccountId, RosterContact};
 
 #[derive(Debug, Clone)]
 pub struct SidebarScreen {
@@ -61,6 +62,8 @@ pub enum Message {
     CreateRoomServiceChanged(String),
     CreateRoomNickChanged(String),
     SubmitCreateRoom,
+    // MULTI: open the account switcher panel
+    OpenAccountSwitcher,
 }
 
 impl Default for SidebarScreen {
@@ -223,6 +226,9 @@ impl SidebarScreen {
                 self.create_room_service.clear();
                 self.create_room_nick.clear();
             }
+            Message::OpenAccountSwitcher => {
+                // Handled by the parent (ChatScreen / App); no local state change.
+            }
         }
         Task::none()
     }
@@ -230,11 +236,68 @@ impl SidebarScreen {
     /// G6: render sidebar with optional draft indicators.
     /// `drafts` is a list of JIDs that currently have a non-empty draft.
     /// `default_conference_service` is pre-filled in the create-room form.
+    /// `active_account` is the currently active account for the indicator bar
+    /// (pass `None` when operating in single-account mode or before login).
+    /// `unread_total` is the aggregate unread count shown on the indicator badge.
     pub fn view_with_drafts(
         &self,
         drafts: &[String],
         default_conference_service: &str,
+        active_account: Option<(&AccountId, usize)>,
     ) -> Element<'_, Message> {
+        // MULTI: account indicator bar — shown at the very top of the sidebar
+        // when an account is active. Displays a colored dot, truncated JID,
+        // and (optionally) an unread badge; clicking opens the account switcher.
+        let account_indicator: Option<Element<Message>> =
+            active_account.map(|(id, unread)| {
+                let color = account_color(id);
+                let dot = container(text("").size(1))
+                    .width(10)
+                    .height(10)
+                    .style(move |_theme: &iced::Theme| iced::widget::container::Style {
+                        background: Some(iced::Background::Color(color)),
+                        border: iced::Border {
+                            radius: 5.0.into(),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    });
+
+                // Truncate JID to at most 22 chars so it fits the 200-px sidebar.
+                let jid = id.as_str();
+                let label = if jid.len() > 22 {
+                    format!("{}…", &jid[..21])
+                } else {
+                    jid.to_owned()
+                };
+
+                let label_elem: Element<Message> = if unread > 0 {
+                    row![
+                        text(label).size(12).width(Length::Fill),
+                        container(text(unread.to_string()).size(10))
+                            .width(18)
+                            .height(18)
+                            .align_x(Alignment::Center)
+                            .align_y(Alignment::Center),
+                    ]
+                    .align_y(Alignment::Center)
+                    .into()
+                } else {
+                    text(label).size(12).width(Length::Fill).into()
+                };
+
+                let indicator_row = row![dot, label_elem]
+                    .spacing(6)
+                    .align_y(Alignment::Center)
+                    .width(Length::Fill);
+
+                button(indicator_row)
+                    .on_press(Message::OpenAccountSwitcher)
+                    .width(Length::Fill)
+                    .padding([4, 8])
+                    .into()
+            });
+
         let add_btn = button("+")
             .on_press(Message::ToggleAddContact)
             .padding([2, 6]);
@@ -439,10 +502,14 @@ impl SidebarScreen {
             None
         };
 
-        let mut col = column![header_row]
+        let mut col = column![]
             .spacing(4)
             .padding(8)
             .width(Length::Fill);
+        if let Some(indicator) = account_indicator {
+            col = col.push(indicator);
+        }
+        col = col.push(header_row);
         if let Some(add_row) = add_contact_row {
             col = col.push(add_row);
         }

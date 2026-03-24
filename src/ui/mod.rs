@@ -816,6 +816,12 @@ impl App {
                 if let chat::Message::OpenSettings = msg {
                     return self.update(Message::GoToSettings);
                 }
+                // MULTI: intercept OpenAccountSwitcher from sidebar
+                if let chat::Message::Sidebar(crate::ui::sidebar::Message::OpenAccountSwitcher) =
+                    msg
+                {
+                    return self.update(Message::GoToAccountSwitcher);
+                }
                 // O2: intercept SetPresence to track own presence for DND notification suppression
                 if let chat::Message::SetPresence(ref status) = msg {
                     self.own_presence = status.clone();
