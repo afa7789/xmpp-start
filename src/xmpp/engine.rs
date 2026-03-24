@@ -415,23 +415,11 @@ async fn run_session(
                         tracing::info!("avatar: published own avatar ({} bytes)", data.len());
                     }
                     Some(XmppCommand::SendReaction { to, msg_id, emojis }) => {
-                        // E3: Build XEP-0444 reaction stanza
+                        // E3: Build XEP-0444 reaction stanza via MutationManager
                         if let Ok(to_jid) = to.parse::<Jid>() {
-                            let mut msg_el = Element::builder("message", "jabber:client")
-                                .attr("to", to_jid.to_string())
-                                .attr("type", "chat")
-                                .build();
-                            let mut reactions_el = Element::builder("reactions", "urn:xmpp:reactions:0")
-                                .attr("id", &msg_id)
-                                .build();
-                            for emoji in &emojis {
-                                let reaction_el = Element::builder("reaction", "urn:xmpp:reactions:0")
-                                    .append(emoji.as_str())
-                                    .build();
-                                reactions_el.append_child(reaction_el);
-                            }
-                            msg_el.append_child(reactions_el);
-                            outbox.push_back(msg_el);
+                            let emoji_refs: Vec<&str> = emojis.iter().map(String::as_str).collect();
+                            let el = mutation_mgr.build_reaction(&to_jid.to_string(), &msg_id, &emoji_refs);
+                            outbox.push_back(el);
                             tracing::debug!("reactions: sent {} reaction(s) to {to_jid}", emojis.len());
                         }
                     }
@@ -443,15 +431,15 @@ async fn run_session(
                         }
                     }
                     Some(XmppCommand::SendCorrection { to, original_id, new_body }) => {
-                        // E1: XEP-0308 message correction
+                        // E1: XEP-0308 message correction via MutationManager
                         if let Ok(to_jid) = to.parse::<Jid>() {
-                            outbox.push_back(make_correction_message(to_jid, &original_id, &new_body));
+                            outbox.push_back(mutation_mgr.build_correction(&to_jid.to_string(), &original_id, &new_body));
                         }
                     }
                     Some(XmppCommand::SendRetraction { to, origin_id }) => {
-                        // E2: XEP-0424 message retraction
+                        // E2: XEP-0424 message retraction via MutationManager
                         if let Ok(to_jid) = to.parse::<Jid>() {
-                            outbox.push_back(make_retraction_message(to_jid, &origin_id));
+                            outbox.push_back(mutation_mgr.build_retraction(&to_jid.to_string(), &origin_id));
                         }
                     }
                     // L3: XEP-0425 message moderation (moderator removes any room message)
@@ -2016,6 +2004,9 @@ async fn handle_message(
     blocking_mgr: &BlockingManager,
     outbox: &mut VecDeque<Element>,
 ) {
+    // DC-5: stateless manager for XEP-0308/0424/0444 parsing
+    let mutation_mgr = MutationManager::new();
+
     // K3: XEP-0249 direct invitation
     if let Some(x_el) = el
         .children()
@@ -2068,29 +2059,56 @@ async fn handle_message(
     }
 
     // E3: detect XEP-0444 reaction stanza before consuming el
-    if let Some(reactions_el) = el
-        .children()
-        .find(|c| c.name() == "reactions" && c.ns() == NS_REACTIONS)
     {
-        if let Some(msg_id) = reactions_el.attr("id") {
-            let from = el.attr("from").unwrap_or("").to_string();
-            let bare_from = from.split('/').next().unwrap_or(&from).to_string();
+        let from = el.attr("from").unwrap_or("").to_string();
+        let bare_from = from.split('/').next().unwrap_or(&from).to_string();
+        if let Some(update) = mutation_mgr.parse_reaction(&bare_from, &el) {
             if !blocking_mgr.is_blocked(&bare_from) {
-                let emojis: Vec<String> = reactions_el
-                    .children()
-                    .filter(|c| c.name() == "reaction" && c.ns() == NS_REACTIONS)
-                    .map(tokio_xmpp::minidom::Element::text)
-                    .collect();
                 let _ = event_tx
                     .send(XmppEvent::ReactionReceived {
-                        msg_id: msg_id.to_string(),
-                        from: bare_from,
-                        emojis,
+                        msg_id: update.target_id,
+                        from: update.from_jid,
+                        emojis: update.emojis,
                     })
                     .await;
             }
+            return;
         }
-        return;
+    }
+
+    // E1: detect XEP-0308 last message correction before consuming el
+    {
+        let from = el.attr("from").unwrap_or("").to_string();
+        let bare_from = from.split('/').next().unwrap_or(&from).to_string();
+        if let Some(correction) = mutation_mgr.parse_correction(&bare_from, &el) {
+            if !blocking_mgr.is_blocked(&bare_from) {
+                let _ = event_tx
+                    .send(XmppEvent::CorrectionReceived {
+                        original_id: correction.target_id,
+                        from_jid: correction.from_jid,
+                        new_body: correction.new_body,
+                    })
+                    .await;
+            }
+            return;
+        }
+    }
+
+    // E2: detect XEP-0424 message retraction before consuming el
+    {
+        let from = el.attr("from").unwrap_or("").to_string();
+        let bare_from = from.split('/').next().unwrap_or(&from).to_string();
+        if let Some(retraction) = mutation_mgr.parse_retraction(&bare_from, &el) {
+            if !blocking_mgr.is_blocked(&bare_from) {
+                let _ = event_tx
+                    .send(XmppEvent::RetractionReceived {
+                        origin_id: retraction.target_id,
+                        from_jid: retraction.from_jid,
+                    })
+                    .await;
+            }
+            return;
+        }
     }
 
     // K4: XEP-0184 delivery receipt — <received xmlns='urn:xmpp:receipts' id='...'/>
@@ -2324,39 +2342,6 @@ fn make_roster_set(jid: &str) -> Element {
         .build();
     iq.append_child(query);
     iq
-}
-
-/// E1: Build a XEP-0308 message correction stanza.
-fn make_correction_message(to: Jid, original_id: &str, new_body: &str) -> Element {
-    let replace_el = Element::builder("replace", "urn:xmpp:message-correct:0")
-        .attr("id", original_id)
-        .build();
-    let body_el = Element::builder("body", "jabber:client")
-        .append(new_body)
-        .build();
-    let mut raw = Element::builder("message", "jabber:client")
-        .attr("type", "chat")
-        .attr("to", to.to_string())
-        .attr("id", uuid::Uuid::new_v4().to_string())
-        .build();
-    raw.append_child(body_el);
-    raw.append_child(replace_el);
-    raw
-}
-
-/// E2: Build a XEP-0424 message retraction stanza.
-fn make_retraction_message(to: Jid, origin_id: &str) -> Element {
-    let apply_to_el = Element::builder("apply-to", "urn:xmpp:fasten:0")
-        .attr("id", origin_id)
-        .append(Element::builder("retract", "urn:xmpp:message-retract:1").build())
-        .build();
-    let mut raw = Element::builder("message", "jabber:client")
-        .attr("type", "chat")
-        .attr("to", to.to_string())
-        .attr("id", uuid::Uuid::new_v4().to_string())
-        .build();
-    raw.append_child(apply_to_el);
-    raw
 }
 
 /// L3: Build a XEP-0425 message moderation stanza for a MUC room.
@@ -2775,5 +2760,47 @@ mod tests {
         assert_eq!(cfg.jid, "user@example.com");
         assert_eq!(cfg.server, "xmpp.example.com:5222");
         assert_eq!(cfg.status_message, Some("In a meeting".into()));
+        assert!(cfg.proxy_config().is_none());
+    }
+
+    #[test]
+    fn connect_config_proxy_config_some() {
+        let cfg = ConnectConfig {
+            jid: "user@example.com".into(),
+            password: "secret".into(),
+            server: String::new(),
+            status_message: None,
+            send_receipts: true,
+            send_typing: true,
+            send_read_markers: true,
+            proxy_type: Some("socks5".into()),
+            proxy_host: Some("proxy.example.com".into()),
+            proxy_port: Some(1080),
+            manual_srv: None,
+        };
+        let pc = cfg.proxy_config();
+        assert!(pc.is_some());
+        let (t, h, p) = pc.unwrap();
+        assert_eq!(t, "socks5");
+        assert_eq!(h, "proxy.example.com");
+        assert_eq!(p, 1080);
+    }
+
+    #[test]
+    fn connect_config_proxy_config_none_when_partial() {
+        let cfg = ConnectConfig {
+            jid: "user@example.com".into(),
+            password: "secret".into(),
+            server: String::new(),
+            status_message: None,
+            send_receipts: true,
+            send_typing: true,
+            send_read_markers: true,
+            proxy_type: Some("http".into()),
+            proxy_host: None,
+            proxy_port: Some(8080),
+            manual_srv: None,
+        };
+        assert!(cfg.proxy_config().is_none());
     }
 }

@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Task P5.3 — XEP-0444 Reactions, XEP-0308 Last Message Correction, XEP-0424 Retraction
 //
 // References:
@@ -14,7 +13,8 @@ use uuid::Uuid;
 use super::{NS_CLIENT, NS_REACTIONS};
 
 const NS_CORRECTION: &str = "urn:xmpp:message-correct:0";
-const NS_RETRACTION: &str = "urn:xmpp:message-retract:0";
+const NS_RETRACTION: &str = "urn:xmpp:message-retract:1";
+const NS_FASTEN: &str = "urn:xmpp:fasten:0";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -193,46 +193,51 @@ impl MutationManager {
 
     /// Build a retraction message revoking a previously sent message.
     ///
+    /// Uses the XEP-0424 v0.4+ `apply-to` wrapper with namespace `:1`.
+    ///
     /// ```xml
     /// <message to="{to}" type="chat" id="{new_uuid}" xmlns="jabber:client">
-    ///   <retract xmlns="urn:xmpp:message-retract:0" id="{origin_id}"/>
-    ///   <body>This message has been retracted.</body>
+    ///   <apply-to xmlns="urn:xmpp:fasten:0" id="{origin_id}">
+    ///     <retract xmlns="urn:xmpp:message-retract:1"/>
+    ///   </apply-to>
     /// </message>
     /// ```
     pub fn build_retraction(&self, to_jid: &str, origin_id: &str) -> Element {
         let new_id = Uuid::new_v4().to_string();
 
-        let retract_el = Element::builder("retract", NS_RETRACTION)
+        let apply_to_el = Element::builder("apply-to", NS_FASTEN)
             .attr("id", origin_id)
-            .build();
-
-        let body_el = Element::builder("body", NS_CLIENT)
-            .append("This message has been retracted.")
+            .append(Element::builder("retract", NS_RETRACTION).build())
             .build();
 
         Element::builder("message", NS_CLIENT)
             .attr("to", to_jid)
             .attr("type", "chat")
             .attr("id", new_id.as_str())
-            .append(retract_el)
-            .append(body_el)
+            .append(apply_to_el)
             .build()
     }
 
     /// Parse an incoming retraction message.
     ///
-    /// Returns `Some(Retraction)` when the message contains a
-    /// `<retract xmlns='urn:xmpp:message-retract:0'>` child, `None` otherwise.
+    /// Returns `Some(Retraction)` when the message contains an
+    /// `<apply-to xmlns='urn:xmpp:fasten:0'>` child that wraps a
+    /// `<retract xmlns='urn:xmpp:message-retract:1'>` element. `None` otherwise.
     pub fn parse_retraction(&self, from_jid: &str, el: &Element) -> Option<Retraction> {
         if el.name() != "message" {
             return None;
         }
 
-        let retract_el = el
+        let apply_to_el = el
+            .children()
+            .find(|c| c.name() == "apply-to" && c.ns() == NS_FASTEN)?;
+
+        let target_id = apply_to_el.attr("id")?.to_string();
+
+        // Confirm the retract child is present.
+        apply_to_el
             .children()
             .find(|c| c.name() == "retract" && c.ns() == NS_RETRACTION)?;
-
-        let target_id = retract_el.attr("id")?.to_string();
 
         Some(Retraction {
             target_id,
@@ -382,19 +387,25 @@ mod tests {
         assert!(result.is_none());
     }
 
-    // 9. build_retraction: message contains a <retract> element with correct namespace.
+    // 9. build_retraction: message contains an apply-to wrapper with the correct origin-id.
     #[test]
-    fn build_retraction_has_retract_element() {
+    fn build_retraction_has_apply_to_element() {
         let mgr = MutationManager::new();
         let el = mgr.build_retraction("alice@example.com", "origin-888");
 
-        let retract_el = el
+        let apply_to_el = el
             .children()
-            .find(|c| c.name() == "retract")
-            .expect("<retract> must exist");
+            .find(|c| c.name() == "apply-to" && c.ns() == NS_FASTEN)
+            .expect("<apply-to> must exist");
+
+        assert_eq!(apply_to_el.attr("id"), Some("origin-888"));
+
+        let retract_el = apply_to_el
+            .children()
+            .find(|c| c.name() == "retract" && c.ns() == NS_RETRACTION)
+            .expect("<retract> child must exist inside <apply-to>");
 
         assert_eq!(retract_el.ns(), NS_RETRACTION);
-        assert_eq!(retract_el.attr("id"), Some("origin-888"));
     }
 
     // 10. parse_retraction: extracts the origin-id from a retraction stanza.
@@ -426,17 +437,13 @@ mod tests {
         assert!(result.is_none());
     }
 
-    // 12. build_retraction: tombstone body text is present.
+    // 12. build_retraction: the stanza has no <body> (no tombstone text in the v0.4+ format).
     #[test]
-    fn build_retraction_has_tombstone_body() {
+    fn build_retraction_has_no_body() {
         let mgr = MutationManager::new();
         let el = mgr.build_retraction("alice@example.com", "origin-777");
 
-        let body_el = el
-            .children()
-            .find(|c| c.name() == "body")
-            .expect("<body> must exist");
-
-        assert_eq!(body_el.text(), "This message has been retracted.");
+        let body_el = el.children().find(|c| c.name() == "body");
+        assert!(body_el.is_none(), "retraction stanza must not carry a <body>");
     }
 }

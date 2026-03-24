@@ -1,5 +1,5 @@
-#![allow(dead_code)]
 // Task P1.1b — Proxy lifecycle state machine
+// DC-18    — ProxyLifecycle driven from run_session via ConnectConfig::proxy_config()
 //
 // Pure state machine — no async, no I/O, no networking.
 // Models the TCP proxy lifecycle with WebSocket fallback after 3 consecutive failures.

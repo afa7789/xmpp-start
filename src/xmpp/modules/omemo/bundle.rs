@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // OMEMO pre-key bundle build/parse helpers (XEP-0384)
 //
 // Handles:
@@ -6,6 +5,8 @@
 //   - build_bundle_publish() — PEP publish IQ for own bundle
 //   - parse_bundle()        — parse peer bundle from PubSub IQ response
 //   - OmemoManager          — top-level coordinator: DeviceManager + OmemoSessionManager + OmemoStore
+
+use std::collections::HashMap;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
@@ -186,6 +187,9 @@ pub struct OmemoManager {
     pub device_mgr: DeviceManager,
     pub session_mgr: OmemoSessionManager,
     pub store: OmemoStore,
+    /// Maps pending bundle-fetch IQ ids to `(peer_jid, device_id)`.
+    /// Populated by `track_bundle_fetch`, consumed by `take_bundle_fetch`.
+    pending_bundle_fetches: HashMap<String, (String, u32)>,
 }
 
 impl OmemoManager {
@@ -194,11 +198,22 @@ impl OmemoManager {
             device_mgr: DeviceManager::new(),
             session_mgr: OmemoSessionManager::new(),
             store,
+            pending_bundle_fetches: HashMap::new(),
         }
     }
 
+    /// Record a pending bundle-fetch IQ so we can correlate the response.
+    pub fn track_bundle_fetch(&mut self, iq_id: String, peer_jid: String, device_id: u32) {
+        self.pending_bundle_fetches.insert(iq_id, (peer_jid, device_id));
+    }
+
+    /// Consume a pending bundle-fetch entry by IQ id, returning `(peer_jid, device_id)`.
+    pub fn take_bundle_fetch(&mut self, iq_id: &str) -> Option<(String, u32)> {
+        self.pending_bundle_fetches.remove(iq_id)
+    }
+
     // -----------------------------------------------------------------------
-    // Enable — Phase 1
+    // Enable -- Phase 1
     // -----------------------------------------------------------------------
 
     /// Initialise OMEMO for `account_jid`.

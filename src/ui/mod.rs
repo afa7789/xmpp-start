@@ -35,6 +35,7 @@ pub use login::LoginScreen;
 
 use crate::config::{self, Settings, Theme};
 use crate::xmpp::{self, modules::command_palette, modules::console::XmppConsole, modules::presence_machine::PresenceStatus, modules::xmpp_uri, AccountId, XmppCommand, XmppEvent};
+use crate::xmpp::multi_engine::MultiEngineManager;
 use account_state::AccountStateManager;
 use toast::{Toast, ToastKind};
 
@@ -91,6 +92,14 @@ pub struct App {
     spam_report_modal: Option<spam_report::SpamReportModal>,
     // MULTI: per-account UI state manager
     account_state_mgr: AccountStateManager,
+    // DC-21: multi-engine manager for additional accounts
+    multi_engine: MultiEngineManager,
+    // DC-21: tx end of the multi-account event channel
+    multi_event_tx: tokio::sync::mpsc::Sender<(AccountId, XmppEvent)>,
+    // DC-21: rx end, shared so the iced subscription can take it once
+    multi_event_rx: std::sync::Arc<std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<(AccountId, XmppEvent)>>>>,
+    // DC-21: true while navigating to Login to add a second account
+    is_adding_account: bool,
 }
 
 /// S1: tracks which auto-away stage has been sent to the engine.
@@ -188,6 +197,12 @@ impl App {
             None
         };
 
+        // DC-21: create the multi-account event channel
+        let (multi_event_tx, multi_event_rx) =
+            tokio::sync::mpsc::channel::<(AccountId, XmppEvent)>(64);
+        let multi_event_rx_shared =
+            std::sync::Arc::new(std::sync::Mutex::new(Some(multi_event_rx)));
+
         (
             App {
                 screen: Screen::Login(login),
@@ -211,6 +226,10 @@ impl App {
                 auto_connect_cfg,
                 spam_report_modal: None,
                 account_state_mgr: AccountStateManager::new(),
+                multi_engine: MultiEngineManager::new(AccountId::new(String::new())),
+                multi_event_tx: multi_event_tx,
+                multi_event_rx: multi_event_rx_shared,
+                is_adding_account: false,
             },
             Task::none(),
         )

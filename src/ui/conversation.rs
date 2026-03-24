@@ -87,6 +87,8 @@ pub struct Attachment {
     pub size: u64,
     /// Upload progress 0–100.
     pub progress: u8,
+    /// DC-17: thumbnail preview for image attachments (PNG bytes from thumbnail::generate).
+    pub thumbnail: Option<Vec<u8>>,
 }
 
 fn extract_first_url(text: &str) -> Option<String> {
@@ -116,6 +118,22 @@ fn extract_image_url(body: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// DC-17: generate a thumbnail for a local image file.
+/// Returns `None` for non-image files or if generation fails.
+fn thumbnail_for_path(path: &std::path::Path) -> Option<Vec<u8>> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    if !matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "gif" | "webp") {
+        return None;
+    }
+    crate::store::thumbnail::generate_from_path(path)
+        .ok()
+        .map(|t| t.data)
 }
 
 // M3: emoji picker data — common emoji grouped by category
@@ -553,11 +571,14 @@ impl ConversationView {
                     .file_name()
                     .map_or_else(|| "file".into(), |n| n.to_string_lossy().into_owned());
                 let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                // DC-17: generate thumbnail preview for image files
+                let thumbnail = thumbnail_for_path(&path);
                 self.pending_attachments.push(Attachment {
                     path,
                     name,
                     size,
                     progress: 0,
+                    thumbnail,
                 });
                 Task::none()
             }
@@ -606,11 +627,15 @@ impl ConversationView {
                 let tmp_path = std::env::temp_dir().join("clipboard_paste.png");
                 if std::fs::write(&tmp_path, &bytes).is_ok() {
                     let size = bytes.len() as u64;
+                    // DC-17: generate thumbnail from the PNG bytes we just wrote
+                    let thumbnail =
+                        crate::store::thumbnail::generate(&bytes).ok().map(|t| t.data);
                     self.pending_attachments.push(Attachment {
                         path: tmp_path,
                         name: "clipboard_paste.png".into(),
                         size,
                         progress: 0,
+                        thumbnail,
                     });
                 }
                 Task::none()
@@ -622,11 +647,14 @@ impl ConversationView {
                         .file_name()
                         .map_or_else(|| "file".into(), |n| n.to_string_lossy().into_owned());
                     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                    // DC-17: generate thumbnail preview for image files
+                    let thumbnail = thumbnail_for_path(&path);
                     self.pending_attachments.push(Attachment {
                         path,
                         name,
                         size,
                         progress: 0,
+                        thumbnail,
                     });
                 }
                 self.drag_drop_active = false;
@@ -850,6 +878,7 @@ impl ConversationView {
                     path,
                     size,
                     progress: 0,
+                    thumbnail: None, // WAV files don't have thumbnails
                 });
                 // Reuse the existing Send path which picks up pending_attachments
                 Task::done(Message::Send)
@@ -1488,6 +1517,13 @@ impl ConversationView {
                     ))),
                     ..Default::default()
                 });
+                // DC-17: show thumbnail preview if available
+                if let Some(ref thumb_bytes) = att.thumbnail {
+                    let handle =
+                        iced_image::Handle::from_bytes(thumb_bytes.clone());
+                    att_col = att_col
+                        .push(iced::widget::image(handle).width(64).height(64));
+                }
                 let att_row = row![
                     text(label).size(11).width(Length::Fill),
                     progress_bar,
