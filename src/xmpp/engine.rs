@@ -205,6 +205,8 @@ async fn run_session(
     let mut vcard_edit_mgr = VCardEditManager::new();
     // L4: XEP-0050 ad-hoc commands manager
     let mut adhoc_mgr = AdhocManager::new();
+    // DC-8: XEP-0202 entity time manager
+    let mut entity_time_mgr = EntityTimeManager::new();
 
     // MEMO: XEP-0384 OMEMO encryption manager — only active when a DB pool is available.
     let mut omemo_mgr: Option<OmemoManager> = db

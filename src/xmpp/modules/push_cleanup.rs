@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Task P6.5 — WebPush VAPID unsubscribe stanza builder
 // XEP reference: https://xmpp.org/extensions/xep-0357.html
 //
