@@ -34,7 +34,7 @@ pub use chat::ChatScreen;
 pub use login::LoginScreen;
 
 use crate::config::{self, Settings, Theme};
-use crate::xmpp::{self, modules::presence_machine::PresenceStatus, AccountId, XmppCommand, XmppEvent};
+use crate::xmpp::{self, modules::presence_machine::PresenceStatus, modules::xmpp_uri, AccountId, XmppCommand, XmppEvent};
 use account_state::AccountStateManager;
 use toast::{Toast, ToastKind};
 
@@ -145,6 +145,8 @@ pub enum Message {
     // MULTI: account switcher screen
     GoToAccountSwitcher,
     AccountSwitcher(account_switcher::Message),
+    // DC-11: handle an xmpp: deep-link URI
+    HandleXmppUri(String),
 }
 
 enum Screen {
@@ -394,10 +396,17 @@ impl App {
 
             Message::GoToSettings => {
                 let prev = std::mem::replace(&mut self.screen, Screen::Login(LoginScreen::new()));
-                self.screen = Screen::Settings(
-                    Box::new(settings::SettingsScreen::new(self.settings.clone())),
-                    Box::new(prev),
-                );
+                let mut settings_screen = settings::SettingsScreen::new(self.settings.clone());
+                // Populate Account Details section with the live connection state.
+                if let Screen::Chat(ref chat) = prev {
+                    settings_screen.set_account_info(account_details::AccountInfo {
+                        bound_jid: chat.own_jid().to_string(),
+                        connected: true,
+                        server_features: String::new(),
+                        auth_method: String::new(),
+                    });
+                }
+                self.screen = Screen::Settings(Box::new(settings_screen), Box::new(prev));
                 Task::none()
             }
 
@@ -659,6 +668,72 @@ impl App {
                         std::mem::replace(&mut self.screen, Screen::Login(LoginScreen::new()))
                     {
                         self.screen = *prev;
+                    }
+                }
+                Task::none()
+            }
+
+
+            // DC-11: parse an xmpp: URI and dispatch the appropriate action.
+            Message::HandleXmppUri(uri) => {
+                let Some(parsed) = xmpp_uri::parse(&uri) else {
+                    return self.update(Message::ShowToast(
+                        format!("Invalid XMPP URI: {uri}"),
+                        ToastKind::Error,
+                    ));
+                };
+                match parsed.action {
+                    xmpp_uri::XmppUriAction::Join => {
+                        // Join a MUC room. Use own JID local part as default nick.
+                        let nick = if let Screen::Chat(ref chat) = self.screen {
+                            chat.own_jid().split('@').next().unwrap_or("me").to_string()
+                        } else {
+                            "me".to_string()
+                        };
+                        // Override with URI-provided nick if present.
+                        let nick = parsed.params.get("nick").cloned().unwrap_or(nick);
+                        if let Some(ref tx) = self.xmpp_tx {
+                            let tx = tx.clone();
+                            let jid = parsed.jid.clone();
+                            tokio::spawn(async move {
+                                let _ = tx.send(XmppCommand::JoinRoom { jid, nick }).await;
+                            });
+                        }
+                        // Open the room conversation panel.
+                        if let Screen::Chat(ref mut chat) = self.screen {
+                            let _ = chat.update(chat::Message::Sidebar(
+                                crate::ui::sidebar::Message::SelectContact(parsed.jid),
+                            ));
+                        }
+                    }
+                    xmpp_uri::XmppUriAction::Subscribe => {
+                        // Send a contact subscription / add to roster.
+                        if let Some(ref tx) = self.xmpp_tx {
+                            let tx = tx.clone();
+                            let jid = parsed.jid.clone();
+                            tokio::spawn(async move {
+                                let _ = tx.send(XmppCommand::AddContact(jid)).await;
+                            });
+                        }
+                        return self.update(Message::ShowToast(
+                            format!("Subscription request sent to {}", parsed.jid),
+                            ToastKind::Info,
+                        ));
+                    }
+                    // ?message or bare JID (no action) — open a direct chat.
+                    xmpp_uri::XmppUriAction::Message | xmpp_uri::XmppUriAction::Unknown(_) => {
+                        if let Screen::Chat(ref mut chat) = self.screen {
+                            let _ = chat.update(chat::Message::Sidebar(
+                                crate::ui::sidebar::Message::SelectContact(parsed.jid),
+                            ));
+                        }
+                    }
+                    xmpp_uri::XmppUriAction::Remove => {
+                        // Nothing to act on without a confirmation dialog — show info toast.
+                        return self.update(Message::ShowToast(
+                            format!("Use the contact list to remove {}", parsed.jid),
+                            ToastKind::Info,
+                        ));
                     }
                 }
                 Task::none()
@@ -1131,6 +1206,12 @@ impl App {
                         let ts = chrono::Utc::now().timestamp_millis();
                         tokio::spawn(async move {
                             let _ = crate::store::conversation_repo::upsert(&pool, &bare_jid).await;
+                            let _ = crate::store::conversation_repo::update_last_activity(
+                                &pool,
+                                &bare_jid,
+                                ts,
+                            )
+                            .await;
                             let _ = crate::store::message_repo::insert(
                                 &pool,
                                 &crate::store::message_repo::Message {
@@ -1388,6 +1469,13 @@ impl App {
                         if let Screen::Chat(ref mut chat) = self.screen {
                             chat.on_message_moderated(room_jid, message_id);
                         }
+                        // Persist the retraction so the message stays tombstoned after restart.
+                        let pool = self.db.clone();
+                        let mid = message_id.clone();
+                        tokio::spawn(async move {
+                            let _ =
+                                crate::store::message_repo::mark_retracted(&pool, &mid).await;
+                        });
                     }
                     // K2: own vCard received — populate the vCard editor if it's open
                     XmppEvent::OwnVCardReceived(fields) => {
