@@ -39,7 +39,7 @@ fn main() -> iced::Result {
     };
 
     iced::application("XMPP Messenger", ui::App::update, ui::App::view)
-        .subscription(|_state| ui::App::subscription())
+        .subscription(|state: &ui::App| state.subscription())
         .theme(ui::App::iced_theme)
         .run_with(move || ui::App::new_with_settings(settings, pool))
 }

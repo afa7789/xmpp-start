@@ -34,7 +34,8 @@ pub use chat::ChatScreen;
 pub use login::LoginScreen;
 
 use crate::config::{self, Settings, Theme};
-use crate::xmpp::{self, modules::presence_machine::PresenceStatus, XmppCommand, XmppEvent};
+use crate::xmpp::{self, modules::presence_machine::PresenceStatus, AccountId, XmppCommand, XmppEvent};
+use account_state::AccountStateManager;
 use toast::{Toast, ToastKind};
 
 // F2: hardcoded command palette entries
@@ -83,6 +84,8 @@ pub struct App {
     auto_connect_cfg: Option<crate::xmpp::ConnectConfig>,
     // L5: spam report modal — Some when open
     spam_report_modal: Option<spam_report::SpamReportModal>,
+    // MULTI: per-account UI state manager
+    account_state_mgr: AccountStateManager,
 }
 
 /// S1: tracks which auto-away stage has been sent to the engine.
@@ -200,6 +203,7 @@ impl App {
                 mam_default_mode: mam_mode,
                 auto_connect_cfg,
                 spam_report_modal: None,
+                account_state_mgr: AccountStateManager::new(),
             },
             Task::none(),
         )
@@ -586,18 +590,31 @@ impl App {
                 Task::none()
             }
 
-            // MULTI: account switcher screen
+            // MULTI: account switcher screen — populate with live account data.
             Message::GoToAccountSwitcher => {
                 let prev = std::mem::replace(&mut self.screen, Screen::Login(LoginScreen::new()));
-                self.screen = Screen::AccountSwitcher(
-                    Box::new(account_switcher::AccountSwitcherScreen::new()),
-                    Box::new(prev),
-                );
+                // Build the account entry list from the state manager.
+                let active_id = self.account_state_mgr.active_id().cloned();
+                let entries: Vec<account_switcher::AccountEntry> = self
+                    .account_state_mgr
+                    .account_ids()
+                    .map(|id| account_switcher::AccountEntry {
+                        label: id.as_str().to_owned(),
+                        connected: true, // single-engine mode: if registered, it's connected
+                        color: None,
+                        id: id.clone(),
+                    })
+                    .collect();
+                let mut sw = account_switcher::AccountSwitcherScreen::new();
+                sw.accounts = entries;
+                sw.active = active_id;
+                self.screen = Screen::AccountSwitcher(Box::new(sw), Box::new(prev));
                 Task::none()
             }
 
             Message::AccountSwitcher(msg) => {
                 let is_close = matches!(msg, account_switcher::Message::Close);
+                let is_add = matches!(msg, account_switcher::Message::AddAccount);
                 let switch_to = if let account_switcher::Message::SwitchTo(ref id) = msg {
                     Some(id.clone())
                 } else {
@@ -606,13 +623,36 @@ impl App {
                 if let Screen::AccountSwitcher(ref mut sw, _) = self.screen {
                     sw.update(msg);
                 }
-                if let Some(id) = switch_to {
+                if let Some(ref id) = switch_to {
+                    // MULTI: update per-account state manager.
+                    self.account_state_mgr.switch_to(id);
+                    // Sync the new active account into the chat screen's indicator bar.
+                    let unread = self
+                        .account_state_mgr
+                        .get_active()
+                        .map_or(0, |s| s.unread_total);
+                    if let Screen::Chat(ref mut chat) = self.screen {
+                        chat.set_active_account(Some(id.clone()), unread);
+                    }
+                    // Also notify the engine so it can route commands correctly.
                     if let Some(ref tx) = self.xmpp_tx {
                         let tx = tx.clone();
+                        let id_clone = id.clone();
                         tokio::spawn(async move {
-                            let _ = tx.send(XmppCommand::SwitchAccount(id)).await;
+                            let _ = tx.send(XmppCommand::SwitchAccount(id_clone)).await;
                         });
                     }
+                }
+                if is_add {
+                    // MULTI: AddAccount navigates to the login screen so the user
+                    // can enter credentials for a second account.  When that
+                    // connection succeeds the Connected handler will register it.
+                    if let Screen::AccountSwitcher(_, prev) =
+                        std::mem::replace(&mut self.screen, Screen::Login(LoginScreen::new()))
+                    {
+                        drop(prev); // discard — login is the new entry point
+                    }
+                    return Task::none();
                 }
                 if is_close {
                     if let Screen::AccountSwitcher(_, prev) =
@@ -928,7 +968,19 @@ impl App {
                                 let _ = config::save_password(&cfg.jid, &cfg.password);
                             }
                         }
-                        self.screen = Screen::Chat(Box::new(ChatScreen::new(bound_jid.clone())));
+                        // MULTI: register this account in the state manager so the
+                        // sidebar indicator bar is populated on first connect.
+                        let account_id = AccountId::new(bound_jid.clone());
+                        self.account_state_mgr.add_account(account_id.clone());
+                        let mut chat_screen = ChatScreen::new(bound_jid.clone());
+                        // Pass the active account info into the chat screen so
+                        // view_with_drafts() can render the indicator bar.
+                        let unread = self
+                            .account_state_mgr
+                            .get_active()
+                            .map_or(0, |s| s.unread_total);
+                        chat_screen.set_active_account(Some(account_id), unread);
+                        self.screen = Screen::Chat(Box::new(chat_screen));
                         // A3: pre-populate sidebar from cached DB roster before server responds
                         let pool = self.db.clone();
                         let roster_prefill = Task::future(async move {
@@ -1098,6 +1150,22 @@ impl App {
                         });
 
                         if let Screen::Chat(ref mut chat) = self.screen {
+                            // MULTI: increment unread count for background conversations.
+                            if !is_active && !msg.is_historical {
+                                if let Some(state) = self.account_state_mgr.get_active_mut() {
+                                    state.unread_total += 1;
+                                }
+                                // Sync updated unread total back into the chat screen.
+                                let unread = self
+                                    .account_state_mgr
+                                    .get_active()
+                                    .map_or(0, |s| s.unread_total);
+                                let active_id = self
+                                    .account_state_mgr
+                                    .active_id()
+                                    .cloned();
+                                chat.set_active_account(active_id, unread);
+                            }
                             if let Some(preview_task) = chat.on_message_received(msg.clone()) {
                                 return Task::batch([notif_task, preview_task.map(Message::Chat)]);
                             }
@@ -1348,8 +1416,17 @@ impl App {
                             let _ = adhoc.update(adhoc::Message::CommandResponseReceived(resp));
                         }
                     }
-                    // MULTI: account switched notification — no-op until UI is wired.
-                    XmppEvent::AccountSwitched(_) => {}
+                    // MULTI: account switched — sync indicator bar in the chat screen.
+                    XmppEvent::AccountSwitched(ref id) => {
+                        self.account_state_mgr.switch_to(id);
+                        let unread = self
+                            .account_state_mgr
+                            .get_active()
+                            .map_or(0, |s| s.unread_total);
+                        if let Screen::Chat(ref mut chat) = self.screen {
+                            chat.set_active_account(Some(id.clone()), unread);
+                        }
+                    }
                     // MEMO / other agents: unhandled events from additional modules.
                     XmppEvent::LocationReceived { .. }
                     | XmppEvent::BobReceived(_)
@@ -1640,8 +1717,8 @@ impl App {
         stack(layers).into()
     }
 
-    pub fn subscription() -> Subscription<Message> {
-        let xmpp_sub = xmpp::subscription::xmpp_subscription();
+    pub fn subscription(&self) -> Subscription<Message> {
+        let xmpp_sub = xmpp::subscription::xmpp_subscription((*self.db).clone());
         // S1: periodic idle tick — fires every 30s so App can check auto-away conditions
         let idle_sub =
             iced::time::every(std::time::Duration::from_secs(30)).map(|_| Message::IdleTick);

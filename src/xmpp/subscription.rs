@@ -9,13 +9,16 @@
 
 use iced::futures::SinkExt;
 use iced::Subscription;
+use sqlx::SqlitePool;
 use tokio::sync::mpsc;
 
 use super::{engine::run_engine, XmppCommand, XmppEvent};
 use crate::ui::Message;
 
 /// Returns an iced Subscription that owns the XMPP engine for the app lifetime.
-pub fn xmpp_subscription() -> Subscription<Message> {
+///
+/// `db` is the SQLite pool passed to the engine for OMEMO key/session persistence.
+pub fn xmpp_subscription(db: SqlitePool) -> Subscription<Message> {
     let stream = iced::stream::channel(
         64,
         |mut iced_tx: iced::futures::channel::mpsc::Sender<Message>| async move {
@@ -27,8 +30,8 @@ pub fn xmpp_subscription() -> Subscription<Message> {
             // Give the command sender to the UI so it can drive the engine.
             let _ = iced_tx.send(Message::XmppReady(cmd_tx)).await;
 
-            // Spawn the engine; it will block waiting for a Connect command.
-            tokio::spawn(run_engine(event_tx, cmd_rx));
+            // Spawn the engine with the DB pool for OMEMO support.
+            tokio::spawn(run_engine(event_tx, cmd_rx, Some(db)));
 
             // Forward engine events into iced's message stream.
             while let Some(event) = event_rx.recv().await {

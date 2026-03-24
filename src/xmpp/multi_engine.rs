@@ -18,6 +18,7 @@ use super::connection::ConnectConfig;
 // Per-engine handle
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 struct EngineHandle {
     /// Command sender into this engine's loop.
     cmd_tx: mpsc::Sender<XmppCommand>,
@@ -28,6 +29,7 @@ struct EngineHandle {
 // ---------------------------------------------------------------------------
 
 /// Owns one XMPP engine per account and routes commands / events accordingly.
+#[allow(dead_code)]
 pub struct MultiEngineManager {
     /// Live engine handles, keyed by account JID.
     engines: HashMap<AccountId, EngineHandle>,
@@ -35,6 +37,7 @@ pub struct MultiEngineManager {
     active_account: AccountId,
 }
 
+#[allow(dead_code)]
 impl MultiEngineManager {
     /// Create a manager with no engines.  `initial_active` is the account that
     /// will be considered active until `switch_active` is called.
@@ -80,8 +83,10 @@ impl MultiEngineManager {
             }
         });
 
-        // Spawn the engine loop.
-        tokio::spawn(run_engine(engine_event_tx, cmd_rx));
+        // Spawn the engine loop.  Pass `None` for db — per-engine DB
+        // integration is handled by the parent (multi-engine has no direct DB
+        // access; OMEMO persistence uses the main app's pool passed at start).
+        tokio::spawn(run_engine(engine_event_tx, cmd_rx, None));
 
         // Immediately issue a Connect command so the engine dials the server.
         // Password lookup from OS keychain is the caller's responsibility; here
@@ -163,10 +168,12 @@ mod tests {
     use super::*;
     use tokio::sync::mpsc;
 
-    fn make_event_rx() -> (
+    type EventChannel = (
         mpsc::Sender<(AccountId, XmppEvent)>,
         mpsc::Receiver<(AccountId, XmppEvent)>,
-    ) {
+    );
+
+    fn make_event_rx() -> EventChannel {
         mpsc::channel(16)
     }
 

@@ -10,7 +10,8 @@ use iced::{
 };
 
 use crate::xmpp::{
-    modules::presence_machine::PresenceStatus, IncomingMessage, RosterContact, XmppCommand,
+    modules::presence_machine::PresenceStatus, AccountId, IncomingMessage, RosterContact,
+    XmppCommand,
 };
 
 use super::{
@@ -59,6 +60,10 @@ pub struct ChatScreen {
     pending_invite_dialog: Option<(String, String, String)>,
     /// K2: public rooms list received from MUC service (for browse dialog)
     public_rooms: Vec<crate::xmpp::modules::disco::DiscoItem>,
+    /// MULTI: the currently active account ID — used to populate the sidebar indicator bar.
+    active_account_id: Option<AccountId>,
+    /// MULTI: aggregate unread count shown on the account indicator badge.
+    account_unread: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -128,7 +133,17 @@ impl ChatScreen {
             pending_invitations: Vec::new(),
             pending_invite_dialog: None,
             public_rooms: Vec::new(),
+            active_account_id: None,
+            account_unread: 0,
         }
+    }
+
+    /// MULTI: set the active account ID and aggregate unread count for the
+    /// sidebar indicator bar.  Called by App whenever the active account changes
+    /// or the unread total is updated.
+    pub fn set_active_account(&mut self, id: Option<AccountId>, unread: usize) {
+        self.active_account_id = id;
+        self.account_unread = unread;
     }
 
     /// H1: store a received avatar PNG for a JID.
@@ -983,9 +998,14 @@ impl ChatScreen {
             .nth(1)
             .map(|domain| format!("conference.{}", domain))
             .unwrap_or_default();
+        // MULTI: pass active account info to sidebar for the indicator bar.
+        let account_info = self
+            .active_account_id
+            .as_ref()
+            .map(|id| (id, self.account_unread));
         let sidebar_view = self
             .sidebar
-            .view_with_drafts(&drafts, &conference_service, None)
+            .view_with_drafts(&drafts, &conference_service, account_info)
             .map(Message::Sidebar);
 
         // K3: if there is a pending invite dialog, show it instead of the conversation

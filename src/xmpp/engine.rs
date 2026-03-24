@@ -9,6 +9,7 @@
 use std::collections::VecDeque;
 
 use futures::{SinkExt, StreamExt};
+use sqlx::SqlitePool;
 use tokio::sync::mpsc;
 use tokio_xmpp::{
     jid::Jid,
@@ -35,6 +36,13 @@ use super::{
     modules::mam::{MamFilter, MamManager, MamQuery, RsmQuery},
     modules::muc::MucManager,
     modules::muc_config::MucConfigManager,
+    modules::omemo::{
+        bundle::OmemoManager,
+        device::DeviceManager,
+        message::{build_encrypted_message, parse_encrypted_message, EncryptedMessage, MessageKey, MessageHeader},
+        session::OmemoSessionManager,
+        store::{OmemoStore, TrustState},
+    },
     modules::presence_machine::PresenceMachine,
     modules::push::PushManager,
     modules::registration::RegistrationManager,
@@ -73,9 +81,13 @@ enum EngineState {
 ///
 /// Waits for the first [`XmppCommand::Connect`] before dialling the server.
 /// On disconnect the engine returns to the idle state and waits again.
+///
+/// `db` is an optional SQLite pool used for OMEMO key/session persistence.
+/// Pass `None` when the database is not available (e.g., tests, multi-engine).
 pub async fn run_engine(
     event_tx: mpsc::Sender<XmppEvent>,
     mut cmd_rx: mpsc::Receiver<XmppCommand>,
+    db: Option<SqlitePool>,
 ) {
     let mut _state = EngineState::Idle;
 
@@ -84,7 +96,7 @@ pub async fn run_engine(
         match cmd_rx.recv().await {
             Some(XmppCommand::Connect(config)) => {
                 tracing::info!("engine: connecting as {}", config.jid);
-                run_session(config, &event_tx, &mut cmd_rx).await;
+                run_session(config, &event_tx, &mut cmd_rx, db.clone()).await;
                 // returns to Idle
             }
             Some(XmppCommand::Register(config)) => {
@@ -115,6 +127,7 @@ async fn run_session(
     config: ConnectConfig,
     event_tx: &mpsc::Sender<XmppEvent>,
     cmd_rx: &mut mpsc::Receiver<XmppCommand>,
+    db: Option<SqlitePool>,
 ) {
     let jid: Jid = match config.jid.parse() {
         Ok(j) => j,
@@ -188,6 +201,11 @@ async fn run_session(
     // L4: XEP-0050 ad-hoc commands manager
     let mut adhoc_mgr = AdhocManager::new();
 
+    // MEMO: XEP-0384 OMEMO encryption manager — only active when a DB pool is available.
+    let mut omemo_mgr: Option<OmemoManager> = db
+        .as_ref()
+        .map(|pool| OmemoManager::new(OmemoStore::new(pool.clone())));
+
     // S6: privacy settings — control whether we send receipts, typing, read markers
     let flags = (config.send_receipts as u8)
         | ((config.send_typing as u8) << 1)
@@ -232,7 +250,7 @@ async fn run_session(
                     }
                     Some(ev) => {
 
-                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut own_jid_str, &mut mam_mgr, &mut catchup_mgr, &mut presence_machine, &mut disco_mgr, &mut file_upload_mgr, &mut avatar_mgr, &mut muc_mgr, &mut muc_config_mgr, &mut bookmark_mgr, &mut push_mgr, &mut vcard_edit_mgr, &mut adhoc_mgr).await;
+                        handle_client_event(ev, event_tx, &mut outbox, &mut reconnect_attempt, &mut sm, &mut blocking_mgr, &mut own_jid_str, &mut mam_mgr, &mut catchup_mgr, &mut presence_machine, &mut disco_mgr, &mut file_upload_mgr, &mut avatar_mgr, &mut muc_mgr, &mut muc_config_mgr, &mut bookmark_mgr, &mut push_mgr, &mut vcard_edit_mgr, &mut adhoc_mgr, &mut omemo_mgr, &config.jid).await;
                     }
                 }
             }
@@ -522,11 +540,73 @@ async fn run_session(
                     Some(XmppCommand::ReportSpam { .. })
                     | Some(XmppCommand::PublishLocation(_))
                     | Some(XmppCommand::RequestBob { .. })
-                    | Some(XmppCommand::OmemoEnable)
-                    | Some(XmppCommand::OmemoEncryptMessage { .. })
-                    | Some(XmppCommand::OmemoTrustDevice { .. })
                     | Some(XmppCommand::SendSticker { .. }) => {
-                        // Handled in dedicated session loops or not yet wired.
+                        // Not yet wired.
+                    }
+                    // MEMO: Enable OMEMO — generate keys and publish device list + bundle.
+                    Some(XmppCommand::OmemoEnable) => {
+                        if let Some(ref mut mgr) = omemo_mgr {
+                            match mgr.enable(&config.jid).await {
+                                Ok(stanzas) => {
+                                    let device_id = mgr.device_mgr.own_device_id();
+                                    for stanza in stanzas {
+                                        outbox.push_back(stanza);
+                                    }
+                                    tracing::info!("omemo: enabled with device_id={device_id}");
+                                    // Emit own device list received so UI knows OMEMO is active.
+                                    let _ = event_tx.send(XmppEvent::OmemoDeviceListReceived {
+                                        jid: config.jid.clone(),
+                                        devices: vec![device_id],
+                                    }).await;
+                                }
+                                Err(e) => {
+                                    tracing::error!("omemo: enable failed: {e}");
+                                }
+                            }
+                        } else {
+                            tracing::warn!("omemo: OmemoEnable received but no DB pool available");
+                        }
+                    }
+                    // MEMO: Encrypt and send an OMEMO message.
+                    Some(XmppCommand::OmemoEncryptMessage { to, body }) => {
+                        if let Some(ref mut mgr) = omemo_mgr {
+                            match omemo_encrypt_and_send(mgr, &config.jid, &to, &body).await {
+                                Ok(stanza) => {
+                                    outbox.push_back(stanza);
+                                    tracing::info!("omemo: encrypted message queued for {to}");
+                                }
+                                Err(OmemoEncryptError::NoTrustedDevices) => {
+                                    tracing::warn!("omemo: no trusted devices for {to}, fetching device list");
+                                    // Trigger device list fetch so we can do key exchange next time.
+                                    let (_, iq) = mgr.device_mgr.build_device_list_fetch(&to);
+                                    outbox.push_back(iq);
+                                    let _ = event_tx.send(XmppEvent::OmemoKeyExchangeNeeded {
+                                        jid: to.clone(),
+                                    }).await;
+                                }
+                                Err(OmemoEncryptError::Other(e)) => {
+                                    tracing::error!("omemo: encrypt failed for {to}: {e}");
+                                    let _ = event_tx.send(XmppEvent::OmemoKeyExchangeNeeded {
+                                        jid: to.clone(),
+                                    }).await;
+                                }
+                            }
+                        } else {
+                            tracing::warn!("omemo: OmemoEncryptMessage received but no DB pool");
+                        }
+                    }
+                    // MEMO: Update trust for a peer device.
+                    Some(XmppCommand::OmemoTrustDevice { jid, device_id }) => {
+                        if let Some(ref mgr) = omemo_mgr {
+                            if let Err(e) = mgr.store
+                                .set_trust(&config.jid, &jid, device_id, TrustState::Trusted)
+                                .await
+                            {
+                                tracing::error!("omemo: set_trust failed for {jid}/{device_id}: {e}");
+                            } else {
+                                tracing::info!("omemo: device {device_id} of {jid} marked trusted");
+                            }
+                        }
                     }
                 }
             }
@@ -565,6 +645,8 @@ async fn handle_client_event(
     _push_mgr: &mut PushManager,
     vcard_edit_mgr: &mut VCardEditManager,
     adhoc_mgr: &mut AdhocManager,
+    omemo_mgr: &mut Option<OmemoManager>,
+    account_jid: &str,
 ) {
     match ev {
         tokio_xmpp::Event::Online { bound_jid, .. } => {
@@ -614,6 +696,28 @@ async fn handle_client_event(
             outbox.push_back(make_mam_prefs_get_iq());
             tracing::debug!("mam: requested archiving preferences");
 
+            // MEMO: Auto-publish OMEMO bundle on reconnect if identity already exists.
+            if let Some(ref mut mgr) = omemo_mgr {
+                match mgr.store.load_own_identity(account_jid).await {
+                    Ok(Some(identity)) => {
+                        // Device ID is already set — republish device list + bundle.
+                        mgr.device_mgr.set_own_device_id(identity.device_id);
+                        let device_list_iq = mgr.device_mgr.build_device_list_publish(&[identity.device_id]);
+                        outbox.push_back(device_list_iq);
+                        tracing::info!(
+                            "omemo: republished device list on reconnect (device_id={})",
+                            identity.device_id
+                        );
+                    }
+                    Ok(None) => {
+                        tracing::debug!("omemo: no identity found, OMEMO not yet enabled");
+                    }
+                    Err(e) => {
+                        tracing::warn!("omemo: failed to load identity on connect: {e}");
+                    }
+                }
+            }
+
             let _ = event_tx
                 .send(XmppEvent::Connected {
                     bound_jid: bound_jid.to_string(),
@@ -661,6 +765,8 @@ async fn handle_client_event(
                 bookmark_mgr,
                 vcard_edit_mgr,
                 adhoc_mgr,
+                omemo_mgr,
+                account_jid,
             )
             .await;
         }
@@ -685,6 +791,8 @@ async fn dispatch_stanza(
     bookmark_mgr: &mut BookmarkManager,
     vcard_edit_mgr: &mut VCardEditManager,
     adhoc_mgr: &mut AdhocManager,
+    omemo_mgr: &mut Option<OmemoManager>,
+    account_jid: &str,
 ) {
     // F1: emit received stanza to debug console before routing
     let xml_str = String::from(&el);
@@ -834,6 +942,48 @@ async fn dispatch_stanza(
                         let fetch_iq = avatar_mgr.build_avatar_data_request(&info.jid, &info.sha1);
                         outbox.push_back(fetch_iq);
                         tracing::debug!("avatar: fetching XEP-0084 data for {from_jid}");
+                    }
+                    return;
+                }
+            }
+            // MEMO: Check for OMEMO device list PEP push before plain-text path.
+            if let Some(from_jid) = DeviceManager::is_device_list_event(&el) {
+                let devices = DeviceManager::parse_device_list(&el);
+                // Persist device list update in the store.
+                if let Some(ref mgr) = omemo_mgr {
+                    if let Err(e) = mgr.store.sync_device_list(account_jid, &from_jid, &devices).await {
+                        tracing::warn!("omemo: sync_device_list failed for {from_jid}: {e}");
+                    }
+                }
+                let _ = event_tx.send(XmppEvent::OmemoDeviceListReceived {
+                    jid: from_jid,
+                    devices,
+                }).await;
+                return;
+            }
+            // MEMO: Check for OMEMO <encrypted> stanza (incoming encrypted message).
+            {
+                use super::modules::omemo::NS_OMEMO;
+                let has_encrypted = el.get_child("encrypted", NS_OMEMO).is_some();
+                if has_encrypted {
+                    if let Some(ref mut mgr) = omemo_mgr {
+                        let from = el.attr("from").unwrap_or("").to_string();
+                        match omemo_try_decrypt(mgr, account_jid, &el).await {
+                            Ok(Some(body)) => {
+                                let _ = event_tx.send(XmppEvent::OmemoMessageDecrypted {
+                                    from,
+                                    body,
+                                }).await;
+                            }
+                            Ok(None) => {
+                                tracing::debug!("omemo: key-transport message (no payload), ignored");
+                            }
+                            Err(e) => {
+                                tracing::warn!("omemo: decrypt failed from {from}: {e}");
+                            }
+                        }
+                    } else {
+                        tracing::warn!("omemo: received encrypted message but OMEMO not available");
                     }
                     return;
                 }
@@ -1128,6 +1278,245 @@ async fn handle_iq(
                 })
                 .collect();
             let _ = event_tx.send(XmppEvent::RosterReceived(contacts)).await;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MEMO: OMEMO encrypt/decrypt helpers
+// ---------------------------------------------------------------------------
+
+/// Error variants for outbound OMEMO encryption.
+#[derive(Debug)]
+enum OmemoEncryptError {
+    /// No trusted devices found for the recipient — need key exchange first.
+    NoTrustedDevices,
+    /// Any other failure.
+    Other(anyhow::Error),
+}
+
+impl From<anyhow::Error> for OmemoEncryptError {
+    fn from(e: anyhow::Error) -> Self {
+        OmemoEncryptError::Other(e)
+    }
+}
+
+/// Encrypt `body` for all trusted devices of `to` and build the `<message>` stanza.
+///
+/// For each device that has an existing Olm session, Olm-encrypts the AES key.
+/// Devices without sessions are skipped; the caller triggers a bundle fetch
+/// for those and retries after key exchange.
+async fn omemo_encrypt_and_send(
+    mgr: &mut OmemoManager,
+    account_jid: &str,
+    to: &str,
+    body: &str,
+) -> Result<Element, OmemoEncryptError> {
+    // Load own identity so we know our device_id.
+    let identity = mgr.store
+        .load_own_identity(account_jid)
+        .await
+        .map_err(OmemoEncryptError::Other)?
+        .ok_or_else(|| OmemoEncryptError::Other(anyhow::anyhow!("OMEMO identity not initialised")))?;
+
+    let own_device_id = identity.device_id;
+
+    // Load trusted devices for the recipient.
+    let peer_devices = mgr.store
+        .load_devices(account_jid, to)
+        .await
+        .map_err(OmemoEncryptError::Other)?;
+
+    let trusted: Vec<_> = peer_devices.iter().filter(|d| d.trust.is_encryptable()).collect();
+    if trusted.is_empty() {
+        return Err(OmemoEncryptError::NoTrustedDevices);
+    }
+
+    // AES-256-GCM encrypt the message body.
+    let enc_payload = OmemoSessionManager::encrypt_payload(body)
+        .map_err(OmemoEncryptError::Other)?;
+
+    // Build the key slots for each trusted device that has an established session.
+    let mut key_slots: Vec<MessageKey> = Vec::new();
+
+    for device in &trusted {
+        let stored_session = mgr.store
+            .load_session(account_jid, to, device.device_id)
+            .await
+            .map_err(OmemoEncryptError::Other)?;
+
+        let ss = match stored_session {
+            Some(s) => s,
+            None => {
+                // No session yet for this device — skip; caller will fetch bundle.
+                tracing::debug!(
+                    "omemo: no session for {}/{}, skipping (need bundle fetch)",
+                    to, device.device_id
+                );
+                continue;
+            }
+        };
+
+        let mut session = OmemoSessionManager::unpickle_session(&ss.session_data)
+            .map_err(OmemoEncryptError::Other)?;
+        let olm_msg = OmemoSessionManager::encrypt(&mut session, &enc_payload.key);
+
+        // Persist updated session state.
+        let pickled = OmemoSessionManager::pickle_session(&session)
+            .map_err(OmemoEncryptError::Other)?;
+        mgr.store
+            .save_session(account_jid, to, device.device_id, &pickled)
+            .await
+            .map_err(OmemoEncryptError::Other)?;
+
+        use vodozemac::olm::OlmMessage;
+        let (prekey, ciphertext) = match olm_msg {
+            OlmMessage::PreKey(ref pk) => (true, pk.to_bytes()),
+            OlmMessage::Normal(ref nm) => (false, nm.to_bytes()),
+        };
+
+        key_slots.push(MessageKey {
+            rid: device.device_id,
+            prekey,
+            data: ciphertext,
+        });
+    }
+
+    if key_slots.is_empty() {
+        return Err(OmemoEncryptError::NoTrustedDevices);
+    }
+
+    let header = MessageHeader {
+        sid: own_device_id,
+        keys: key_slots,
+        iv: enc_payload.nonce,
+    };
+
+    let encrypted_msg = EncryptedMessage {
+        header,
+        payload: Some(enc_payload.ciphertext),
+    };
+
+    Ok(build_encrypted_message(to, own_device_id, &encrypted_msg))
+}
+
+/// Attempt to decrypt an incoming OMEMO `<message>` stanza.
+///
+/// Returns `Ok(Some(body))` on success, `Ok(None)` for key-transport (no payload),
+/// `Err` on any decryption failure.
+async fn omemo_try_decrypt(
+    mgr: &mut OmemoManager,
+    account_jid: &str,
+    el: &Element,
+) -> anyhow::Result<Option<String>> {
+    use vodozemac::olm::OlmMessage;
+
+    let encrypted = parse_encrypted_message(el)
+        .ok_or_else(|| anyhow::anyhow!("failed to parse <encrypted> element"))?;
+
+    // Load own identity to find our device_id.
+    let identity = mgr.store
+        .load_own_identity(account_jid)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("OMEMO identity not initialised"))?;
+
+    let own_device_id = identity.device_id;
+
+    // Find the key slot addressed to our device.
+    let our_key = match encrypted.header.keys.iter().find(|k| k.rid == own_device_id) {
+        Some(k) => k.clone(),
+        None => {
+            return Err(anyhow::anyhow!(
+                "no key slot for our device_id={own_device_id}"
+            ));
+        }
+    };
+
+    let sender_device_id = encrypted.header.sid;
+    let from_jid = el
+        .attr("from")
+        .unwrap_or("")
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .to_string();
+
+    // Reconstruct the AES key via Olm.
+    let aes_key: Vec<u8> = if our_key.prekey {
+        // PreKey message — create an inbound session from the X3DH material.
+        let account_bytes = &identity.identity_key;
+        let mut own_account = OmemoSessionManager::unpickle_account(account_bytes)?;
+
+        use vodozemac::olm::PreKeyMessage;
+        let prekey_msg = PreKeyMessage::from_bytes(&our_key.data)
+            .map_err(|e| anyhow::anyhow!("PreKeyMessage::from_bytes failed: {e}"))?;
+
+        // The sender's identity key is embedded in the PreKeyMessage.
+        let sender_ik = prekey_msg.identity_key();
+
+        let result = OmemoSessionManager::create_inbound_session(
+            &mut own_account,
+            sender_ik,
+            &prekey_msg,
+        )?;
+
+        // Persist the new inbound session.
+        let pickled_session = OmemoSessionManager::pickle_session(&result.session)?;
+        mgr.store
+            .save_session(account_jid, &from_jid, sender_device_id, &pickled_session)
+            .await?;
+
+        // Persist the updated own account (one-time key consumed).
+        let pickled_account = OmemoSessionManager::pickle_account(&own_account)?;
+        use crate::xmpp::modules::omemo::store::OwnIdentity;
+        let updated_identity = OwnIdentity {
+            account_jid: account_jid.to_owned(),
+            device_id: identity.device_id,
+            identity_key: pickled_account,
+            signed_prekey: identity.signed_prekey.clone(),
+            spk_id: identity.spk_id,
+        };
+        mgr.store.save_own_identity(&updated_identity).await?;
+
+        result.plaintext
+    } else {
+        // Normal message — use existing session.
+        let stored_session = mgr.store
+            .load_session(account_jid, &from_jid, sender_device_id)
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no session for {from_jid}/{sender_device_id} and message is not PreKey"
+                )
+            })?;
+
+        let mut session = OmemoSessionManager::unpickle_session(&stored_session.session_data)?;
+        use vodozemac::olm::Message as NormalMessage;
+        let normal_msg = NormalMessage::from_bytes(&our_key.data)
+            .map_err(|e| anyhow::anyhow!("NormalMessage::from_bytes failed: {e}"))?;
+        let key = OmemoSessionManager::decrypt(
+            &mut session,
+            &OlmMessage::Normal(normal_msg),
+        )?;
+
+        // Persist updated session state.
+        let pickled = OmemoSessionManager::pickle_session(&session)?;
+        mgr.store
+            .save_session(account_jid, &from_jid, sender_device_id, &pickled)
+            .await?;
+        key
+    };
+
+    // Decrypt the AES-256-GCM payload.
+    match encrypted.payload {
+        None => Ok(None), // key-transport, no body
+        Some(ref ciphertext) => {
+            let body = OmemoSessionManager::decrypt_payload(
+                &aes_key,
+                &encrypted.header.iv,
+                ciphertext,
+            )?;
+            Ok(Some(body))
         }
     }
 }
@@ -1589,6 +1978,7 @@ fn parse_host_port(input: &str, default_port: u16) -> (String, u16) {
 // Unit tests
 // ---------------------------------------------------------------------------
 
+
 // ---------------------------------------------------------------------------
 // Registration session (J9 / XEP-0077)
 // ---------------------------------------------------------------------------
@@ -1826,7 +2216,7 @@ mod tests {
         drop(_cmd_tx);
 
         // Should return quickly (channel is already closed).
-        run_engine(event_tx, cmd_rx).await;
+        run_engine(event_tx, cmd_rx, None).await;
     }
 
     // --- Carbon detection (XEP-0280) ---
