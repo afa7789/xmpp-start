@@ -1,0 +1,228 @@
+# xmpp-start Task Registry — Single Source of Truth
+# Categories: critical, high, medium, low
+# Status: pending, in_progress, completed
+
+project: xmpp-start
+updated: "2026-03-23"
+
+implemented_xeps:
+  - XEP-0004  # Data Forms (renderer)
+  - XEP-0030  # Service Discovery
+  - XEP-0045  # MUC (partial)
+  - XEP-0048  # Bookmarks
+  - XEP-0054  # vCard-temp (read)
+  - XEP-0077  # In-Band Registration
+  - XEP-0079  # AMP
+  - XEP-0084  # User Avatar (fetch)
+  - XEP-0085  # Chat State Notifications
+  - XEP-0115  # Entity Capabilities
+  - XEP-0153  # vCard-Based Avatars
+  - XEP-0178  # Best Practices for SASL EXTERNAL
+  - XEP-0184  # Message Delivery Receipts
+  - XEP-0191  # Blocking Command
+  - XEP-0198  # Stream Management
+  - XEP-0245  # /me actions
+  - XEP-0252  # BOSH
+  - XEP-0280  # Message Carbons
+  - XEP-0308  # Last Message Correction
+  - XEP-0313  # MAM
+  - XEP-0333  # Chat Markers
+  - XEP-0363  # HTTP File Upload
+  - XEP-0392  # Consistent Color Generation
+  - XEP-0393  # Message Styling
+  - XEP-0424  # Message Retraction
+  - XEP-0444  # Message Reactions
+  - XEP-0461  # Message Replies
+
+pending:
+  bugs:
+    - id: BUG-4
+      title: "Auto-away does not escalate to extended away (XA)"
+      priority: high
+      files: ["src/ui/mod.rs"]
+      notes: "IdleTick only checks Active state; once AutoAway, never reaches AutoXa"
+
+    - id: BUG-5
+      title: "Duplicate PaletteQuery match arm (unreachable pattern)"
+      priority: high
+      files: ["src/ui/mod.rs"]
+      notes: "Second arm is unreachable, compiler warning"
+
+    - id: BUG-6
+      title: "Voice message upload — composer disappears + no progress"
+      priority: medium
+      files: ["src/ui/mod.rs", "src/xmpp/modules/"]
+      notes: "Text input vanishes after recording; upload progress never shown"
+
+  high:
+    - id: UNICODE
+      title: "Unicode & Emoji Rendering Support"
+      priority: high
+      notes: >
+        Emojis and complex Unicode not rendering. Fix: (1) Shaping::Advanced on all Text widgets,
+        (2) load emoji font (Noto Color Emoji) in Iced Settings, (3) test ZWJ sequences + skin tones.
+        See tasks/todo.md for full checklist.
+
+    - id: AUTH-1
+      title: "Auto-login / Remember me"
+      priority: high
+      notes: "If credentials in keychain, connect automatically without login screen"
+
+    - id: AUTH-2
+      title: "Logout button"
+      priority: high
+      notes: "In settings or header; clears session, returns to login"
+
+    - id: F5
+      title: "Avatar fetching (XEP-0084 + vCard fallback)"
+      priority: high
+      files: ["src/ui/", "src/xmpp/modules/avatar.rs"]
+
+    - id: M7
+      title: "About modal — version, XEP count, license, GitHub link"
+      priority: high
+      files: ["src/ui/"]
+
+    - id: R1
+      title: "Reaction tooltips + quick emoji bar + toggle re-click"
+      priority: high
+      files: ["src/ui/conversation.rs"]
+
+  medium:
+    - id: H2
+      title: "Own avatar upload (XEP-0084 PEP)"
+      priority: medium
+      files: ["src/ui/", "src/xmpp/modules/avatar.rs"]
+
+    - id: K6
+      title: "Chat preferences panel"
+      priority: medium
+      notes: "Join/leave notifications, contact sorting"
+
+    - id: M1
+      title: "System theme sync + 12h/24h time format"
+      priority: medium
+      files: ["src/ui/"]
+
+    - id: K2-new
+      title: "vCard editing (XEP-0054 + XEP-0292)"
+      priority: medium
+      notes: "Nickname, org, email, avatar editing"
+
+    - id: K3-new
+      title: "Per-contact notification muting"
+      priority: medium
+      notes: "Right-click → Mute"
+
+    - id: M5
+      title: "Network settings — proxy SOCKS5/HTTP, manual SRV"
+      priority: medium
+
+    - id: M5
+      title: "Network settings — proxy SOCKS5/HTTP, manual SRV"
+      priority: medium
+
+    - id: R2
+      title: "Enhanced link previews + OGP image dimensions"
+      priority: medium
+      files: ["src/ui/conversation.rs"]
+
+    - id: R3
+      title: "Composer markdown shortcuts (Ctrl+B/I), auto-grow"
+      priority: medium
+
+  low:
+    - id: L1-new
+      title: "Sticker packs support"
+      priority: low
+
+    - id: L3-new
+      title: "Location sharing (XEP-0080)"
+      priority: low
+
+    - id: L4
+      title: "Ad-hoc commands UI (XEP-0050)"
+      priority: low
+
+    - id: L5
+      title: "Spam reporting"
+      priority: low
+
+    - id: Q2
+      title: "Bits of Binary (XEP-0231)"
+      priority: low
+
+  critical:
+    - id: OMEMO
+      title: "OMEMO E2E encryption (XEP-0384)"
+      priority: critical
+      notes: "libsignal + device trust UI — estimated 2-3 weeks"
+
+    - id: MULTI
+      title: "Multi-account support"
+      priority: critical
+      notes: "Scope DB + engine per JID; account switcher — estimated 1-2 weeks"
+
+completed:
+  - { id: B1, title: "rustls CryptoProvider", completed: "2026-03-22" }
+  - { id: B2, title: "i18n module stub", completed: "2026-03-22" }
+  - { id: B3, title: "Presence indicator", completed: "2026-03-22" }
+  - { id: A1, title: "SQLite DB at startup", completed: "2026-03-22" }
+  - { id: A2, title: "Persist incoming messages", completed: "2026-03-22" }
+  - { id: A3, title: "Persist roster", completed: "2026-03-22" }
+  - { id: A4, title: "Wire PresenceUpdated to sidebar", completed: "2026-03-22" }
+  - { id: A5, title: "Desktop notifications", completed: "2026-03-22" }
+  - { id: B4, title: "Load message history on open", completed: "2026-03-22" }
+  - { id: B5, title: "Unread badge count", completed: "2026-03-22" }
+  - { id: B6, title: "Mark conversation read", completed: "2026-03-22" }
+  - { id: C1, title: "Wire StreamMgmt", completed: "2026-03-22" }
+  - { id: C2, title: "Wire PresenceMachine", completed: "2026-03-22" }
+  - { id: C3, title: "MAM post-connect sync", completed: "2026-03-22" }
+  - { id: C4, title: "Wire BlockingManager", completed: "2026-03-22" }
+  - { id: C5, title: "Wire DiscoManager caps", completed: "2026-03-22" }
+  - { id: C6, title: "XEP-0280 Carbons", completed: "2026-03-22" }
+  - { id: D1, title: "Render OccupantPanel in MUC", completed: "2026-03-22" }
+  - { id: D2, title: "D2 completed", completed: "2026-03-22" }
+  - { id: D3, title: "MUC join/leave UI flow", completed: "2026-03-22" }
+  - { id: D4, title: "Bookmarks autojoin", completed: "2026-03-22" }
+  - { id: E1, title: "Message corrections (XEP-0308)", completed: "2026-03-22" }
+  - { id: E2, title: "Message retractions (XEP-0424)", completed: "2026-03-22" }
+  - { id: E3, title: "Emoji reactions (XEP-0444)", completed: "2026-03-22" }
+  - { id: E4, title: "File upload UI (XEP-0363)", completed: "2026-03-22" }
+  - { id: E5, title: "Link previews", completed: "2026-03-22" }
+  - { id: F1, title: "XMPP debug console", completed: "2026-03-22" }
+  - { id: F2, title: "Command palette (Cmd+K)", completed: "2026-03-22" }
+  - { id: F3, title: "Settings panel", completed: "2026-03-22" }
+  - { id: F4, title: "Reconnect with backoff", completed: "2026-03-22" }
+  - { id: G1, title: "Close/remove conversation", completed: "2026-03-22" }
+  - { id: G2, title: "Typing indicators (XEP-0085)", completed: "2026-03-22" }
+  - { id: G3, title: "Message replies (XEP-0461)", completed: "2026-03-22" }
+  - { id: G4, title: "/me actions (XEP-0245)", completed: "2026-03-22" }
+  - { id: G5, title: "G5 completed", completed: "2026-03-22" }
+  - { id: G6, title: "Draft auto-save", completed: "2026-03-22" }
+  - { id: G7, title: "Copy message to clipboard", completed: "2026-03-22" }
+  - { id: G8, title: "MAM lazy-load", completed: "2026-03-22" }
+  - { id: G9, title: "Message search", completed: "2026-03-22" }
+  - { id: H1, title: "Show user avatars", completed: "2026-03-22" }
+  - { id: H3, title: "Add/remove/rename contacts", completed: "2026-03-22" }
+  - { id: H4, title: "Contact profile popover", completed: "2026-03-22" }
+  - { id: H5, title: "Consistent avatar colors (XEP-0392)", completed: "2026-03-22" }
+  - { id: I1, title: "Paste image from clipboard", completed: "2026-03-22" }
+  - { id: I2, title: "Drag & drop files", completed: "2026-03-22" }
+  - { id: I3, title: "File picker + attachments", completed: "2026-03-22" }
+  - { id: I4, title: "Attachment preview", completed: "2026-03-22" }
+  - { id: J2, title: "Custom status message", completed: "2026-03-22" }
+  - { id: J4, title: "Sound notifications", completed: "2026-03-22" }
+  - { id: J6, title: "Wire AvatarManager (XEP-0084)", completed: "2026-03-22" }
+  - { id: J10, title: "MAM preferences get/set", completed: "2026-03-22" }
+  - { id: K1, title: "Room creation UI + config modal", completed: "2026-03-23" }
+  - { id: K4, title: "Delivery receipts (XEP-0184)", completed: "2026-03-22" }
+  - { id: K5, title: "Read markers (XEP-0333)", completed: "2026-03-22" }
+  - { id: L2, title: "@mention autocomplete in MUC", completed: "2026-03-23" }
+  - { id: J9, title: "Account registration wizard (XEP-0077)", completed: "2026-03-23" }
+  - { id: BUG-1, title: "Historical MAM notifications", completed: "2026-03-22" }
+  - { id: BUG-2, title: "Finder modals on connect", completed: "2026-03-22" }
+  - { id: BUG-3, title: "MAM fetched count", completed: "2026-03-22" }
+  - { id: M3, title: "Blocklist search + add JID UI", completed: "2026-03-23" }
+  - { id: M4, title: "Account details panel", completed: "2026-03-23" }
+  - { id: M6, title: "Data & storage — MAM fetch limit, clear history, export", completed: "2026-03-23" }

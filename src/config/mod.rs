@@ -62,6 +62,9 @@ pub struct Settings {
     /// K6: contact sorting preference ("alphabetical" or "recent")
     #[serde(default)]
     pub contact_sort: String,
+    /// M6: number of messages to fetch per MAM page (default 50).
+    #[serde(default = "default_mam_fetch_limit")]
+    pub mam_fetch_limit: u32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
@@ -77,6 +80,10 @@ fn default_true() -> bool {
 
 fn default_remember_me() -> bool {
     true
+}
+
+fn default_mam_fetch_limit() -> u32 {
+    50
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -107,6 +114,7 @@ impl Default for Settings {
             time_format: TimeFormat::TwentyFourHour,
             avatar_data: None,
             contact_sort: "alphabetical".to_string(),
+            mam_fetch_limit: 50,
         }
     }
 }
@@ -223,6 +231,7 @@ mod tests {
             time_format: TimeFormat::TwelveHour,
             avatar_data: None,
             contact_sort: "alphabetical".to_string(),
+            mam_fetch_limit: 100,
         };
         let json = serde_json::to_string(&s).unwrap();
         let s2: Settings = serde_json::from_str(&json).unwrap();
@@ -236,6 +245,7 @@ mod tests {
         assert_eq!(s2.mam_default_mode, Some("roster".into()));
         assert!(s2.use_system_theme);
         assert_eq!(s2.time_format, TimeFormat::TwelveHour);
+        assert_eq!(s2.mam_fetch_limit, 100);
     }
 
     #[test]

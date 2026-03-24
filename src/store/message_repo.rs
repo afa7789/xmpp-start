@@ -166,3 +166,11 @@ pub async fn update_body(pool: &SqlitePool, origin_id: &str, new_body: &str) -> 
         .await?;
     Ok(())
 }
+
+/// M6: Delete all messages from the database (used by "Clear chat history" in settings).
+pub async fn clear_all(pool: &SqlitePool) -> Result<()> {
+    sqlx::query("DELETE FROM messages")
+        .execute(pool)
+        .await?;
+    Ok(())
+}
