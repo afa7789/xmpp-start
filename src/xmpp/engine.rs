@@ -619,8 +619,9 @@ async fn run_session(
                         let iq = build_spam_report(&jid, reason.as_deref());
                         outbox.push_back(iq);
                     }
-                    Some(XmppCommand::RequestBob { .. }) => {
-                        // Not yet wired.
+                    Some(XmppCommand::RequestBob { cid, from }) => {
+                        let iq = bob::build_bob_request(&cid, &from);
+                        outbox.push_back(iq);
                     }
                     Some(XmppCommand::SendSticker { to, pack_id, sticker }) => {
                         let msg = stickers::build_sticker_message(&to, &pack_id, &sticker);
@@ -1334,6 +1335,13 @@ async fn handle_iq(
                 let _ = event_tx.send(XmppEvent::RoomConfigured { room_jid }).await;
                 return;
             }
+        }
+    }
+    // Q2: detect Bits of Binary result (XEP-0231)
+    if el.attr("type") == Some("result") {
+        if let Some(bob_data) = bob::parse_bob_data(&el) {
+            let _ = event_tx.send(XmppEvent::BobReceived(bob_data)).await;
+            return;
         }
     }
     // D4: detect bookmarks result (private XML storage, XEP-0048)

@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Task Q2 — XEP-0231 Bits of Binary
 // XEP reference: https://xmpp.org/extensions/xep-0231.html
 //
