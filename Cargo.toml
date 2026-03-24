@@ -74,6 +74,9 @@ arboard = "3"
 cpal = "0.15"
 hound = "3"
 
+# OMEMO E2E encryption (XEP-0384) — Signal/Olm protocol, pure Rust
+vodozemac = "0.8"
+
 # Utilities
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }

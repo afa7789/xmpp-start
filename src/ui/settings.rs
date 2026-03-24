@@ -27,6 +27,10 @@ pub struct SettingsScreen {
     clear_history_confirm: bool,
     // M6: commands to emit to the engine (drained by the App via drain_commands)
     pending_commands: Vec<crate::xmpp::XmppCommand>,
+    // M5: network settings draft inputs
+    proxy_host_input: String,
+    proxy_port_input: String,
+    manual_srv_input: String,
 }
 
 #[derive(Debug, Clone)]
@@ -71,11 +75,23 @@ pub enum Message {
     // K2: open vCard editor from settings
     OpenVCardEditor,
     Back,
+    // M5: network settings
+    ProxyTypeSelected(String),
+    ProxyHostChanged(String),
+    ProxyPortChanged(String),
+    ManualSrvChanged(String),
+    ForceTlsToggled(bool),
 }
 
 impl SettingsScreen {
     pub fn new(settings: Settings) -> Self {
         let mam_fetch_limit_input = settings.mam_fetch_limit.to_string();
+        let proxy_host_input = settings.proxy_host.clone().unwrap_or_default();
+        let proxy_port_input = settings
+            .proxy_port
+            .map(|p| p.to_string())
+            .unwrap_or_default();
+        let manual_srv_input = settings.manual_srv.clone().unwrap_or_default();
         Self {
             status_input: settings.status_message.clone().unwrap_or_default(),
             blocklist: BlocklistPanel::new(vec![]),
@@ -83,6 +99,9 @@ impl SettingsScreen {
             mam_fetch_limit_input,
             clear_history_confirm: false,
             pending_commands: vec![],
+            proxy_host_input,
+            proxy_port_input,
+            manual_srv_input,
             settings,
         }
     }
@@ -321,6 +340,48 @@ impl SettingsScreen {
             // K2: OpenVCardEditor is handled by App::update intercepting this message.
             Message::OpenVCardEditor => Task::none(),
             Message::Back => Task::none(),
+
+            // M5: network settings
+            Message::ProxyTypeSelected(kind) => {
+                self.settings.proxy_type = if kind == "none" {
+                    None
+                } else {
+                    Some(kind)
+                };
+                let _ = config::save(&self.settings);
+                Task::none()
+            }
+            Message::ProxyHostChanged(v) => {
+                self.proxy_host_input = v.clone();
+                self.settings.proxy_host = if v.trim().is_empty() {
+                    None
+                } else {
+                    Some(v.trim().to_string())
+                };
+                let _ = config::save(&self.settings);
+                Task::none()
+            }
+            Message::ProxyPortChanged(v) => {
+                self.proxy_port_input = v.clone();
+                self.settings.proxy_port = v.trim().parse::<u16>().ok();
+                let _ = config::save(&self.settings);
+                Task::none()
+            }
+            Message::ManualSrvChanged(v) => {
+                self.manual_srv_input = v.clone();
+                self.settings.manual_srv = if v.trim().is_empty() {
+                    None
+                } else {
+                    Some(v.trim().to_string())
+                };
+                let _ = config::save(&self.settings);
+                Task::none()
+            }
+            Message::ForceTlsToggled(v) => {
+                self.settings.force_tls = v;
+                let _ = config::save(&self.settings);
+                Task::none()
+            }
         }
     }
 
@@ -504,6 +565,9 @@ impl SettingsScreen {
         // M6: Data & Storage section
         let data_section = self.view_data_storage();
 
+        // M5: Network section
+        let network_section = self.view_network();
+
         let back_btn = button("Back").on_press(Message::Back).padding([6, 14]);
         let edit_profile_btn = button("Edit Profile")
             .on_press(Message::OpenVCardEditor)
@@ -537,6 +601,7 @@ impl SettingsScreen {
             chat_prefs_section,
             blocklist_section,
             account_section,
+            network_section,
             data_section,
             bottom_row,
         ]
@@ -670,6 +735,91 @@ impl SettingsScreen {
             .spacing(8)
             .into()
     }
+
+    // M5: Network settings sub-view.
+    fn view_network(&self) -> Element<'_, Message> {
+        let header = text("Network").size(16);
+
+        let proxy_type_label = match self.settings.proxy_type.as_deref() {
+            Some("socks5") => "SOCKS5",
+            Some("http") => "HTTP",
+            _ => "None",
+        };
+        let proxy_type_row: Element<Message> = row![
+            text("Proxy type:").size(14).width(Length::Fill),
+            button("None")
+                .on_press(Message::ProxyTypeSelected("none".into()))
+                .padding([4, 8]),
+            button("SOCKS5")
+                .on_press(Message::ProxyTypeSelected("socks5".into()))
+                .padding([4, 8]),
+            button("HTTP")
+                .on_press(Message::ProxyTypeSelected("http".into()))
+                .padding([4, 8]),
+            text(proxy_type_label).size(13),
+        ]
+        .spacing(4)
+        .align_y(Alignment::Center)
+        .into();
+
+        // Proxy host + port: only shown when a proxy type is selected
+        let proxy_detail: Option<Element<Message>> =
+            if self.settings.proxy_type.is_some() {
+                let host_row: Element<Message> = row![
+                    text("Proxy host:").size(14).width(Length::Fixed(120.0)),
+                    text_input("hostname or IP", &self.proxy_host_input)
+                        .on_input(Message::ProxyHostChanged)
+                        .width(Length::Fill)
+                        .padding([4, 8]),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center)
+                .into();
+                let port_row: Element<Message> = row![
+                    text("Proxy port:").size(14).width(Length::Fixed(120.0)),
+                    text_input("1080", &self.proxy_port_input)
+                        .on_input(Message::ProxyPortChanged)
+                        .width(Length::Fixed(80.0))
+                        .padding([4, 8]),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center)
+                .into();
+                Some(
+                    column![host_row, port_row]
+                        .spacing(8)
+                        .into(),
+                )
+            } else {
+                None
+            };
+
+        let srv_row: Element<Message> = row![
+            text("Manual SRV:").size(14).width(Length::Fixed(120.0)),
+            text_input("_xmpp-client._tcp…", &self.manual_srv_input)
+                .on_input(Message::ManualSrvChanged)
+                .width(Length::Fill)
+                .padding([4, 8]),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center)
+        .into();
+
+        let tls_row = row![
+            text("Force TLS").size(14).width(Length::Fill),
+            toggler(self.settings.force_tls).on_toggle(Message::ForceTlsToggled),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+
+        let mut col = column![header, proxy_type_row].spacing(8);
+        if let Some(detail) = proxy_detail {
+            col = col.push(detail);
+        }
+        col = col.push(srv_row);
+        col = col.push(tls_row);
+        col.into()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -716,5 +866,66 @@ mod tests {
         let cmd = panel.update(BMsg::Unblock("troll@example.org".into()));
         assert!(matches!(cmd, Some(BlocklistCommand::Unblock(_))));
         assert_eq!(panel.blocked.len(), 1);
+    }
+
+    #[test]
+    fn network_defaults_force_tls_true() {
+        let s = Settings::default();
+        assert!(s.force_tls);
+        assert!(s.proxy_type.is_none());
+    }
+
+    #[test]
+    fn settings_screen_proxy_type_none_clears_field() {
+        let mut screen = SettingsScreen::new(Settings {
+            proxy_type: Some("socks5".into()),
+            ..Settings::default()
+        });
+        let _ = screen.update(Message::ProxyTypeSelected("none".into()));
+        assert!(screen.settings.proxy_type.is_none());
+    }
+
+    #[test]
+    fn settings_screen_proxy_host_roundtrip() {
+        let mut screen = SettingsScreen::new(Settings::default());
+        let _ = screen.update(Message::ProxyHostChanged("proxy.corp.com".into()));
+        assert_eq!(screen.settings.proxy_host, Some("proxy.corp.com".into()));
+        assert_eq!(screen.proxy_host_input, "proxy.corp.com");
+    }
+
+    #[test]
+    fn settings_screen_proxy_port_parses() {
+        let mut screen = SettingsScreen::new(Settings::default());
+        let _ = screen.update(Message::ProxyPortChanged("8080".into()));
+        assert_eq!(screen.settings.proxy_port, Some(8080));
+    }
+
+    #[test]
+    fn settings_screen_proxy_port_invalid_clears() {
+        let mut screen = SettingsScreen::new(Settings {
+            proxy_port: Some(1080),
+            ..Settings::default()
+        });
+        let _ = screen.update(Message::ProxyPortChanged("not_a_port".into()));
+        assert!(screen.settings.proxy_port.is_none());
+    }
+
+    #[test]
+    fn settings_screen_manual_srv_roundtrip() {
+        let mut screen = SettingsScreen::new(Settings::default());
+        let _ =
+            screen.update(Message::ManualSrvChanged("_xmpp-client._tcp.example.com".into()));
+        assert_eq!(
+            screen.settings.manual_srv,
+            Some("_xmpp-client._tcp.example.com".into())
+        );
+    }
+
+    #[test]
+    fn settings_screen_force_tls_toggle() {
+        let mut screen = SettingsScreen::new(Settings::default());
+        assert!(screen.settings.force_tls);
+        let _ = screen.update(Message::ForceTlsToggled(false));
+        assert!(!screen.settings.force_tls);
     }
 }

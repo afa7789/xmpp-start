@@ -6,6 +6,7 @@
 
 use iced::widget::image as iced_image;
 use iced::widget::scrollable::{AbsoluteOffset, Id};
+use iced::widget::text::Shaping;
 use iced::widget::text::Span as IcedSpan;
 use iced::{
     font,
@@ -1000,7 +1001,7 @@ impl ConversationView {
                     };
                     let mid = m.id.clone();
                     quick_row = quick_row.push(tooltip(
-                        button(text(emoji).size(10))
+                        button(text(emoji).size(10).shaping(Shaping::Advanced))
                             .on_press(Message::ToggleReaction(mid, emoji.to_string()))
                             .padding([2, 4]),
                         text(tip).size(12),
@@ -1084,7 +1085,7 @@ impl ConversationView {
                 };
 
                 let text_col = if show_sender {
-                    let mut header_row = row![text(sender.clone()).size(11), copy_btn, reply_btn,]
+                    let mut header_row = row![text(sender.clone()).size(11).shaping(Shaping::Advanced), copy_btn, reply_btn,]
                         .spacing(8)
                         .align_y(Alignment::Center);
                     if let Some(btn) = moderate_btn {
@@ -1131,7 +1132,7 @@ impl ConversationView {
                 let text_col = if show_sender {
                     let mut col = column![
                         row![
-                            text(sender.clone()).size(11),
+                            text(sender.clone()).size(11).shaping(Shaping::Advanced),
                             copy_btn,
                             reply_btn,
                             edit_btn,
@@ -1206,10 +1207,10 @@ impl ConversationView {
                         let tip = reactors.join(", ");
                         let mid = m.id.clone();
                         pill_row = pill_row.push(tooltip(
-                            button(text(label).size(12))
+                            button(text(label).size(12).shaping(Shaping::Advanced))
                                 .on_press(Message::ToggleReaction(mid, emoji_str))
                                 .padding([2, 6]),
-                            text(tip).size(12),
+                            text(tip).size(12).shaping(Shaping::Advanced),
                             tooltip::Position::Top,
                         ));
                     }

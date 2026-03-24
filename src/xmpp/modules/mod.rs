@@ -42,3 +42,11 @@ pub mod push_cleanup; // Task P6.5 — XEP-0357 push-disable / WebPush VAPID uns
 pub mod registration;
 pub mod vcard_edit; // K2: XEP-0054 own vCard editing
 pub mod xmpp_uri; // Task P6.3 — XEP-0147 xmpp: URI parser
+
+// Low-priority features
+pub mod bob; // Q2: XEP-0231 Bits of Binary
+pub mod geoloc; // L3: XEP-0080 User Location
+pub mod spam_report; // L5: XEP-0377 Spam Reporting
+
+// MEMO: OMEMO E2E encryption (XEP-0384)
+pub mod omemo;

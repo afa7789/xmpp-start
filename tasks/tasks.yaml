@@ -43,9 +43,6 @@ pending:
   high:
 
   medium:
-    - id: M5
-      title: "Network settings — proxy SOCKS5/HTTP, manual SRV"
-      priority: medium
 
   low:
     - id: L1-new
@@ -155,3 +152,4 @@ completed:
   - { id: H2, title: "Own avatar upload (XEP-0084 PEP)", completed: "2026-03-23" }
   - { id: UNICODE, title: "Unicode & Emoji Rendering Support", completed: "2026-03-23" }
   - { id: F5, title: "Avatar fetching (XEP-0084 + vCard fallback)", completed: "2026-03-23" }
+  - { id: M5, title: "Network settings panel (proxy, SRV override, force TLS)", completed: "2026-03-23" }
