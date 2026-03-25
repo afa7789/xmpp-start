@@ -16,11 +16,10 @@ use base64::Engine;
 use tokio_xmpp::minidom::Element;
 use uuid::Uuid;
 
-use super::{NS_CLIENT, NS_PUBSUB, NS_VCARD};
+use super::{NS_CLIENT, NS_PUBSUB, NS_PUBSUB_EVENT, NS_VCARD};
 
 const NS_AVATAR_DATA: &str = "urn:xmpp:avatar:data";
 const NS_AVATAR_META: &str = "urn:xmpp:avatar:metadata";
-const NS_PUBSUB_EVENT: &str = "http://jabber.org/protocol/pubsub#event";
 
 // ---------------------------------------------------------------------------
 // Domain types

@@ -14,7 +14,7 @@ use tokio_xmpp::jid::Jid;
 use tokio_xmpp::minidom::Element;
 use uuid::Uuid;
 
-use super::{NS_CLIENT, NS_MUC, NS_X_CONFERENCE};
+use super::{NS_CLIENT, NS_MUC, NS_MUC_USER, NS_X_CONFERENCE};
 
 // ---------------------------------------------------------------------------
 // Domain types
@@ -169,8 +169,6 @@ impl MucManager {
         let mut role = Role::None;
         let mut affiliation = Affiliation::None;
         let mut real_jid: Option<String> = None;
-
-        const NS_MUC_USER: &str = "http://jabber.org/protocol/muc#user";
 
         for child in el.children() {
             if child.name() == "x" && child.ns() == NS_MUC_USER {

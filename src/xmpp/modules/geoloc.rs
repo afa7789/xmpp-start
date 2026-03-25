@@ -7,9 +7,7 @@
 use tokio_xmpp::minidom::Element;
 use uuid::Uuid;
 
-use super::{find_child_recursive, NS_CLIENT, NS_PUBSUB};
-
-const NS_GEOLOC: &str = "http://jabber.org/protocol/geoloc";
+use super::{find_child_recursive, NS_CLIENT, NS_GEOLOC, NS_PUBSUB};
 
 // ---------------------------------------------------------------------------
 // Domain type

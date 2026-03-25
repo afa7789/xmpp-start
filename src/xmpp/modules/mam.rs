@@ -14,9 +14,7 @@ use std::collections::HashMap;
 use tokio_xmpp::minidom::Element;
 use uuid::Uuid;
 
-use super::{NS_CLIENT, NS_DATA, NS_FORWARD, NS_MAM};
-
-const NS_RSM: &str = "http://jabber.org/protocol/rsm";
+use super::{NS_CLIENT, NS_DATA, NS_FORWARD, NS_MAM, NS_RSM};
 const NS_DELAY: &str = "urn:ietf:params:xml:ns:xmpp-delay";
 
 // ---------------------------------------------------------------------------

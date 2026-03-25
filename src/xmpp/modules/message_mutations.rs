@@ -10,11 +10,10 @@
 use tokio_xmpp::minidom::Element;
 use uuid::Uuid;
 
-use super::{NS_CLIENT, NS_REACTIONS};
+use super::{NS_CLIENT, NS_FASTEN, NS_REACTIONS};
 
 const NS_CORRECTION: &str = "urn:xmpp:message-correct:0";
 const NS_RETRACTION: &str = "urn:xmpp:message-retract:1";
-const NS_FASTEN: &str = "urn:xmpp:fasten:0";
 
 // ---------------------------------------------------------------------------
 // Public types
