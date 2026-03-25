@@ -46,12 +46,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install Linux deps
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libasound2-dev
-      - name: Set up Docker
-        run: docker compose up -d
-      - name: Wait for server
-        run: sleep 5
       - name: Run e2e tests
         run: make test-e2e
       - name: Cleanup
         if: always()
-        run: docker compose down
+        run: docker compose -f docker-compose.test.yml down
