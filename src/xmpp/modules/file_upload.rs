@@ -34,11 +34,11 @@ pub struct UploadSlot {
 #[derive(Debug, Clone)]
 pub struct SlotRequest {
     /// IQ id used for correlation with the server's result.
-    pub id: String,
-    pub filename: String,
-    pub size: u64,
-    pub content_type: String,
-    pub upload_service_jid: String,
+    pub _id: String,
+    pub _filename: String,
+    pub _size: u64,
+    pub _content_type: String,
+    pub _upload_service_jid: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -108,11 +108,11 @@ impl FileUploadManager {
         self.pending.insert(
             iq_id.clone(),
             SlotRequest {
-                id: iq_id.clone(),
-                filename: filename.to_string(),
-                size,
-                content_type: content_type.to_string(),
-                upload_service_jid: upload_service_jid.to_string(),
+                _id: iq_id.clone(),
+                _filename: filename.to_string(),
+                _size: size,
+                _content_type: content_type.to_string(),
+                _upload_service_jid: upload_service_jid.to_string(),
             },
         );
 

@@ -79,27 +79,27 @@ pub struct OwnIdentity {
 pub struct StoredPreKey {
     pub prekey_id: u32,
     pub key_data: Vec<u8>,
-    pub consumed: bool,
+    pub _consumed: bool,
 }
 
 /// A peer device row from `omemo_devices`.
 #[derive(Debug, Clone)]
 pub struct PeerDevice {
-    pub peer_jid: String,
+    pub _peer_jid: String,
     pub device_id: u32,
     pub trust: TrustState,
-    pub label: Option<String>,
-    pub active: bool,
+    pub _label: Option<String>,
+    pub _active: bool,
 }
 
 /// An Olm session row from `omemo_sessions`.
 #[derive(Debug, Clone)]
 pub struct StoredSession {
-    pub peer_jid: String,
-    pub device_id: u32,
+    pub _peer_jid: String,
+    pub _device_id: u32,
     /// Opaque vodozemac session bytes.
     pub session_data: Vec<u8>,
-    pub updated_at: i64,
+    pub _updated_at: i64,
 }
 
 // ---------------------------------------------------------------------------
@@ -202,12 +202,13 @@ impl OmemoStore {
             .map(|r| StoredPreKey {
                 prekey_id: r.get::<i64, _>("prekey_id") as u32,
                 key_data: r.get("key_data"),
-                consumed: false,
+                _consumed: false,
             })
             .collect())
     }
 
     /// Mark a pre-key as consumed (called when a remote device claims it).
+    #[allow(dead_code)]
     pub async fn mark_prekey_consumed(&self, account_jid: &str, prekey_id: u32) -> Result<()> {
         sqlx::query(
             "UPDATE omemo_prekeys SET consumed = 1
@@ -254,10 +255,10 @@ impl OmemoStore {
         .await?;
 
         Ok(row.map(|r| StoredSession {
-            peer_jid: r.get("peer_jid"),
-            device_id: r.get::<i64, _>("device_id") as u32,
+            _peer_jid: r.get("peer_jid"),
+            _device_id: r.get::<i64, _>("device_id") as u32,
             session_data: r.get("session_data"),
-            updated_at: r.get("updated_at"),
+            _updated_at: r.get("updated_at"),
         }))
     }
 
@@ -286,6 +287,7 @@ impl OmemoStore {
     }
 
     /// Delete a session (e.g., after a device is untrusted or key exchange fails).
+    #[allow(dead_code)]
     pub async fn delete_session(
         &self,
         account_jid: &str,
@@ -322,11 +324,11 @@ impl OmemoStore {
         Ok(rows
             .iter()
             .map(|r| PeerDevice {
-                peer_jid: r.get("peer_jid"),
+                _peer_jid: r.get("peer_jid"),
                 device_id: r.get::<i64, _>("device_id") as u32,
                 trust: TrustState::from_str(r.get("trust")),
-                label: r.get("label"),
-                active: r.get::<i64, _>("active") != 0,
+                _label: r.get("label"),
+                _active: r.get::<i64, _>("active") != 0,
             })
             .collect())
     }

@@ -48,6 +48,7 @@ impl std::fmt::Display for AccountId {
 /// When multiple engine instances are running concurrently the UI needs to
 /// know which account an event came from so it can update the right account state.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct AccountEvent {
     /// The account this event originated from.
     pub account_id: AccountId,
@@ -57,6 +58,7 @@ pub struct AccountEvent {
 
 impl AccountEvent {
     /// Convenience constructor.
+    #[allow(dead_code)]
     pub fn new(account_id: AccountId, event: XmppEvent) -> Self {
         Self { account_id, event }
     }
@@ -94,6 +96,7 @@ pub struct IncomingMessage {
 /// Events emitted by the XMPP engine to the UI layer.
 /// Sent through the iced subscription channel.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum XmppEvent {
     // Connection lifecycle
     Connected {
@@ -204,15 +207,15 @@ pub enum XmppEvent {
     CorrectionReceived {
         /// The original message ID being replaced.
         original_id: String,
-        from_jid: String,
+        _from_jid: String,
         new_body: String,
     },
 
     // E2: Incoming XEP-0424 message retraction.
     RetractionReceived {
         /// The origin-id of the retracted message.
-        origin_id: String,
-        from_jid: String,
+        _origin_id: String,
+        _from_jid: String,
     },
 
     // L3: A message in a MUC room was moderated (tombstoned by a moderator).
@@ -232,8 +235,8 @@ pub enum XmppEvent {
 
     // J9: XEP-0077 Account Registration
     RegistrationFormReceived {
-        server: String,
-        form: Element,
+        _server: String,
+        _form: Element,
     },
     RegistrationSuccess,
     RegistrationFailure(String),
@@ -253,8 +256,8 @@ pub enum XmppEvent {
 
     // L3: Peer published a new location (XEP-0080).
     LocationReceived {
-        from: String,
-        location: modules::geoloc::GeoLocation,
+        _from: String,
+        _location: modules::geoloc::GeoLocation,
     },
 
     // Q2: Bits of Binary data received in response to a request (XEP-0231).
@@ -304,6 +307,7 @@ pub enum XmppEvent {
 
 /// Commands sent from the UI to the XMPP engine.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum XmppCommand {
     /// Start (or restart) a connection with the given credentials.
     Connect(ConnectConfig),

@@ -112,6 +112,9 @@ fn palette_commands() -> Vec<command_palette::Command> {
     ]
 }
 
+// DC-21: shared optional receiver for the multi-account event channel
+type MultiEventRx = std::sync::Arc<std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<(AccountId, XmppEvent)>>>>;
+
 /// Top-level application state.
 pub struct App {
     screen: Screen,
@@ -152,9 +155,7 @@ pub struct App {
     // DC-21: tx end of the multi-account event channel
     multi_event_tx: tokio::sync::mpsc::Sender<(AccountId, XmppEvent)>,
     // DC-21: rx end, shared so the iced subscription can take it once
-    multi_event_rx: std::sync::Arc<
-        std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<(AccountId, XmppEvent)>>>,
-    >,
+    multi_event_rx: MultiEventRx,
     // DC-21: true while navigating to Login to add a second account
     is_adding_account: bool,
 }
@@ -168,6 +169,7 @@ enum IdleState {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum Message {
     Login(login::Message),
     Benchmark(benchmark::Message),
@@ -283,7 +285,7 @@ impl App {
                 spam_report_modal: None,
                 account_state_mgr: AccountStateManager::new(),
                 multi_engine: MultiEngineManager::new(AccountId::new(String::new())),
-                multi_event_tx: multi_event_tx,
+                multi_event_tx,
                 multi_event_rx: multi_event_rx_shared,
                 is_adding_account: false,
             },
@@ -1206,7 +1208,7 @@ impl App {
                         ));
                         return Task::batch([roster_prefill, conv_prefill, toast]);
                     }
-                    XmppEvent::RegistrationFormReceived { server: _, form: _ } => {
+                    XmppEvent::RegistrationFormReceived { .. } => {
                         // For now, just show a toast. In a full impl, we'd show the Data Form.
                         return self.update(Message::ShowToast(
                             "Registration form received (XEP-0077)".into(),

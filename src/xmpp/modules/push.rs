@@ -192,6 +192,7 @@ impl PushManager {
     }
 
     /// Get all active subscriptions.
+    #[allow(dead_code)]
     pub fn active_subscriptions(&self) -> Vec<&PushSubscription> {
         self.subscriptions.values().filter(|s| s.enabled).collect()
     }

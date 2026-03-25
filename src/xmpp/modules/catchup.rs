@@ -25,6 +25,7 @@ use crate::xmpp::modules::mam::{MamFilter, MamQuery, RsmQuery};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CatchupState {
     /// No active fetch for this conversation.
+    #[allow(dead_code)]
     Idle,
     /// A query has been issued and we are waiting for <result>s and <fin>.
     Fetching {

@@ -60,11 +60,6 @@ impl OccupantPanel {
         self.occupants = occupants;
     }
 
-    /// Returns the room JID this panel belongs to.
-    pub fn room_jid(&self) -> &str {
-        &self.room_jid
-    }
-
     /// Returns the number of occupants currently stored.
     pub fn occupant_count(&self) -> usize {
         self.occupants.len()

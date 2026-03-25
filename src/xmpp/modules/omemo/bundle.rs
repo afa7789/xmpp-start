@@ -185,7 +185,7 @@ pub fn parse_bundle(element: &Element) -> Option<OmemoBundle> {
 /// of these three components.
 pub struct OmemoManager {
     pub device_mgr: DeviceManager,
-    pub session_mgr: OmemoSessionManager,
+    pub _session_mgr: OmemoSessionManager,
     pub store: OmemoStore,
     /// Maps pending bundle-fetch IQ ids to `(peer_jid, device_id)`.
     /// Populated by `track_bundle_fetch`, consumed by `take_bundle_fetch`.
@@ -199,7 +199,7 @@ impl OmemoManager {
     pub fn new(store: OmemoStore) -> Self {
         Self {
             device_mgr: DeviceManager::new(),
-            session_mgr: OmemoSessionManager::new(),
+            _session_mgr: OmemoSessionManager::new(),
             store,
             pending_bundle_fetches: HashMap::new(),
             pending_device_list_fetches: HashMap::new(),
@@ -469,7 +469,6 @@ mod tests {
 
     #[test]
     fn track_and_take_device_list_fetch() {
-        use super::*;
         // OmemoManager cannot be constructed without a real SqlitePool; test the
         // tracking methods via the pending map directly by exercising the public API
         // through a HashMap to verify the contract.

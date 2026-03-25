@@ -1191,7 +1191,7 @@ async fn dispatch_stanza(
                     let from = el.attr("from").unwrap_or("").to_string();
                     if let Some(location) = geoloc::parse_geoloc(&el) {
                         let _ = event_tx
-                            .send(XmppEvent::LocationReceived { from, location })
+                            .send(XmppEvent::LocationReceived { _from: from, _location: location })
                             .await;
                     }
                     return;
@@ -2246,7 +2246,7 @@ async fn handle_message(
                 let _ = event_tx
                     .send(XmppEvent::CorrectionReceived {
                         original_id: correction.target_id,
-                        from_jid: correction.from_jid,
+                        _from_jid: correction.from_jid,
                         new_body: correction.new_body,
                     })
                     .await;
@@ -2263,8 +2263,8 @@ async fn handle_message(
             if !blocking_mgr.is_blocked(&bare_from) {
                 let _ = event_tx
                     .send(XmppEvent::RetractionReceived {
-                        origin_id: retraction.target_id,
-                        from_jid: retraction.from_jid,
+                        _origin_id: retraction.target_id,
+                        _from_jid: retraction.from_jid,
                     })
                     .await;
             }
@@ -2657,8 +2657,8 @@ async fn run_registration_session(
                         if let Some(query) = RegistrationManager::parse_registration_query(&el) {
                             // Send form to UI for user interaction.
                             let _ = event_tx.send(XmppEvent::RegistrationFormReceived {
-                                server: config.server.clone(),
-                                form: query,
+                                _server: config.server.clone(),
+                                _form: query,
                             }).await;
                         } else if el.name() == "iq" && el.attr("type") == Some("result") {
                             // IQ result without query often means successful registration submission.
