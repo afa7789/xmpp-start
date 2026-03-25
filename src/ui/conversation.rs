@@ -1048,7 +1048,7 @@ impl ConversationView {
             let edit_msg_id = m.id.clone();
             let edit_body = m.body.clone();
             let edit_btn = tooltip(
-                button(text("Ed").size(10))
+                button(text("✎").size(10).shaping(Shaping::Advanced))
                     .on_press(Message::StartEdit(edit_msg_id, edit_body))
                     .padding([2, 4]),
                 "Edit message",
@@ -1057,7 +1057,7 @@ impl ConversationView {
             // E2: retract button (own messages only)
             let retract_msg_id = m.id.clone();
             let retract_btn = tooltip(
-                button(text("Del").size(10))
+                button(text("✕").size(10))
                     .on_press(Message::RetractMessage(retract_msg_id))
                     .padding([2, 4]),
                 "Retract message",
@@ -1071,7 +1071,7 @@ impl ConversationView {
                 if is_hovered && is_moderator && !m.retracted {
                     let mod_msg_id = m.id.clone();
                     Some(tooltip(
-                        button(text("Mod").size(10))
+                        button(text("⊘").size(10).shaping(Shaping::Advanced))
                             .on_press(Message::OpenModerateDialog(mod_msg_id))
                             .padding([2, 4]),
                         "Moderate (remove) message",
@@ -1285,7 +1285,7 @@ impl ConversationView {
 
         // ---- Jump-to-bottom button (only visible when not at bottom) ----
         let jump_btn = tooltip(
-            button(text("v").size(12))
+            button(text("↓").size(12))
                 .on_press(Message::ScrollToBottom)
                 .padding([4, 10]),
             "Jump to bottom",
@@ -1297,18 +1297,22 @@ impl ConversationView {
             if let Some(msg) = last_own {
                 let state = self.message_states.get(&msg.id).copied();
                 let label = match state {
-                    None => ".", // sending
-                    Some(MessageState::Sending) => ".",
-                    Some(MessageState::Sent) => "v",
-                    Some(MessageState::Delivered) => "vv",
-                    Some(MessageState::Read) => "vv",
+                    None => "·", // sending
+                    Some(MessageState::Sending) => "·",
+                    Some(MessageState::Sent) => "✓",
+                    Some(MessageState::Delivered) => "✓✓",
+                    Some(MessageState::Read) => "✓✓",
                 };
                 let color = if state == Some(MessageState::Read) {
                     iced::Color::from_rgb(0.0, 0.67, 1.0) // blue for read
                 } else {
                     iced::Color::from_rgb(0.5, 0.5, 0.5) // gray for sent/delivered
                 };
-                text(label).size(12).color(color).into()
+                text(label)
+                    .size(12)
+                    .color(color)
+                    .shaping(Shaping::Advanced)
+                    .into()
             } else {
                 text("").size(12).into()
             }
@@ -1321,7 +1325,7 @@ impl ConversationView {
         // ---- Composer ----
         // G3: reply quote strip
         let reply_strip: Option<Element<Message>> = self.reply_to.as_ref().map(|(_id, preview)| {
-            let cancel_btn = button(text("X").size(10))
+            let cancel_btn = button(text("✕").size(10))
                 .on_press(Message::CancelReply)
                 .padding([2, 4]);
             let strip = row![
@@ -1336,7 +1340,7 @@ impl ConversationView {
 
         // E1: edit-mode strip above composer
         let edit_strip: Option<Element<Message>> = self.edit_mode.as_ref().map(|(_id, _orig)| {
-            let cancel_btn = button(text("X").size(10))
+            let cancel_btn = button(text("✕").size(10))
                 .on_press(Message::CancelEdit)
                 .padding([2, 4]);
             let strip = row![
@@ -1430,13 +1434,13 @@ impl ConversationView {
             None
         };
 
-        let emoji_btn = button(text(":)").size(14))
+        let emoji_btn = button(text("☺").size(14))
             .on_press(Message::EmojiPickerToggled)
             .padding([6, 8]);
 
         // E4/I3: paperclip button for file picker
         let attach_btn = tooltip(
-            button(text("+").size(14))
+            button(text("⊕").size(14))
                 .on_press(Message::OpenFilePicker)
                 .padding([6, 8]),
             "Attach file",
@@ -1448,7 +1452,7 @@ impl ConversationView {
             VoiceState::Idle => {
                 // Normal composer with mic button on the right of attach
                 let mic_btn = tooltip(
-                    button(text("mic").size(14))
+                    button(text("♪").size(14))
                         .on_press(Message::StartRecording)
                         .padding([6, 8]),
                     "Record voice message",
@@ -1500,7 +1504,7 @@ impl ConversationView {
             for (i, att) in self.pending_attachments.iter().enumerate() {
                 let size_kb = att.size / 1024;
                 let label = format!("{} ({}KB)", att.name, size_kb);
-                let remove_btn = button(text("X").size(10))
+                let remove_btn = button(text("✕").size(10))
                     .on_press(Message::RemoveAttachment(i))
                     .padding([2, 4]);
                 let progress_bar = container(
@@ -1542,7 +1546,7 @@ impl ConversationView {
         };
 
         let close_btn = tooltip(
-            button(text("X").size(14))
+            button(text("✕").size(14))
                 .on_press(Message::Close)
                 .padding([4, 10]),
             "Close conversation",

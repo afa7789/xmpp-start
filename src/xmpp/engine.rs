@@ -1038,11 +1038,7 @@ async fn handle_client_event(
             catchup_mgr.reset();
 
             // BUG-7: detect auth failures — do not reconnect, surface the error instead
-            let err_lower = err_str.to_lowercase();
-            let is_auth_error = err_lower.contains("not-authorized")
-                || err_lower.contains("authentication")
-                || err_lower.contains("credentials")
-                || err_lower.contains("sasl");
+            let is_auth_error = is_auth_error(&err_str);
             if is_auth_error {
                 tracing::warn!("engine: auth failure detected, not reconnecting");
                 let _ = event_tx
@@ -1709,6 +1705,18 @@ async fn run_registration_session(
     }
 }
 
+/// Returns true if the error string indicates an authentication failure.
+///
+/// When true, the engine should emit `Disconnected` instead of `Reconnecting`
+/// because retrying with the same credentials would never succeed.
+pub fn is_auth_error(err: &str) -> bool {
+    let lower = err.to_lowercase();
+    lower.contains("not-authorized")
+        || lower.contains("authentication")
+        || lower.contains("credentials")
+        || lower.contains("sasl")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1960,5 +1968,51 @@ mod tests {
             push_service_jid: None,
         };
         assert!(cfg.proxy_config().is_none());
+    }
+
+    // --- StanzaRateLimiter ---
+
+    #[test]
+    fn try_consume_succeeds_up_to_capacity() {
+        let capacity = 5.0_f64;
+        let mut limiter = StanzaRateLimiter::new(capacity, 1.0);
+        for _ in 0..capacity as usize {
+            assert!(limiter.try_consume());
+        }
+    }
+
+    #[test]
+    fn try_consume_fails_when_exhausted() {
+        let capacity = 3.0_f64;
+        let mut limiter = StanzaRateLimiter::new(capacity, 1.0);
+        for _ in 0..capacity as usize {
+            limiter.try_consume();
+        }
+        assert!(!limiter.try_consume());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn tokens_refill_over_time() {
+        let mut limiter = StanzaRateLimiter::new(5.0, 5.0);
+        // Drain all tokens.
+        for _ in 0..5 {
+            assert!(limiter.try_consume());
+        }
+        assert!(!limiter.try_consume());
+
+        // Advance time by 1 second — refill rate is 5/s so at least one token should be available.
+        tokio::time::advance(std::time::Duration::from_secs(1)).await;
+
+        assert!(limiter.try_consume());
+    }
+
+    #[test]
+    fn warn_if_high_depth_does_not_panic() {
+        let limiter = StanzaRateLimiter::new(10.0, 10.0);
+        limiter.warn_if_high_depth(0);
+        limiter.warn_if_high_depth(MAX_OUTBOX_DEPTH - 1);
+        limiter.warn_if_high_depth(MAX_OUTBOX_DEPTH);
+        limiter.warn_if_high_depth(MAX_OUTBOX_DEPTH + 1);
+        limiter.warn_if_high_depth(usize::MAX);
     }
 }

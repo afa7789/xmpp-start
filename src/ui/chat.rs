@@ -717,6 +717,15 @@ impl ChatScreen {
 
                 // E3: intercept SendReaction to queue a reaction command for the engine.
                 if let super::conversation::Message::SendReaction(ref msg_id, ref emoji) = cmsg {
+                    // Optimistically add emoji to local state so the UI updates immediately.
+                    if let Some(convo) = self.conversations.get_mut(&jid) {
+                        let own = self.own_jid.clone();
+                        let by_jid = convo.reactions.entry(msg_id.clone()).or_default();
+                        let emojis = by_jid.entry(own).or_default();
+                        if !emojis.contains(emoji) {
+                            emojis.push(emoji.clone());
+                        }
+                    }
                     self.pending_commands
                         .push(crate::xmpp::XmppCommand::SendReaction {
                             to: jid.clone(),
@@ -1175,13 +1184,14 @@ impl ChatScreen {
             .on_press(Message::OpenSettings)
             .padding([2, 8]);
         // C2: presence status picker buttons
-        let available_btn = iced::widget::button(text("[+] Available").size(11))
-            .on_press(Message::SetPresence(PresenceStatus::Available))
-            .padding([2, 8]);
-        let away_btn = iced::widget::button(text("[-] Away").size(11))
+        let available_btn =
+            iced::widget::button(text("● Available").size(11).shaping(Shaping::Advanced))
+                .on_press(Message::SetPresence(PresenceStatus::Available))
+                .padding([2, 8]);
+        let away_btn = iced::widget::button(text("○ Away").size(11))
             .on_press(Message::SetPresence(PresenceStatus::Away))
             .padding([2, 8]);
-        let dnd_btn = iced::widget::button(text("[x] DND").size(11))
+        let dnd_btn = iced::widget::button(text("✕ DND").size(11))
             .on_press(Message::SetPresence(PresenceStatus::DoNotDisturb))
             .padding([2, 8]);
         let status_bar = container(

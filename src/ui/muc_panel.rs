@@ -106,7 +106,7 @@ impl OccupantPanel {
             col = col.push(text(*group_label).size(12));
 
             for entry in members {
-                let indicator = if entry.available { "*" } else { "o" };
+                let indicator = if entry.available { "●" } else { "○" };
                 let label = format!("{} {}", indicator, entry.nick);
 
                 // Role/affiliation badge

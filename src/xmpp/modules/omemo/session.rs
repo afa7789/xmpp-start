@@ -454,6 +454,57 @@ mod tests {
         assert_ne!(p1.ciphertext, p2.ciphertext);
     }
 
+    // -----------------------------------------------------------------------
+    // AES-256-GCM crypto flow: roundtrip + wrong-key + wrong-nonce
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn encrypt_decrypt_roundtrip() {
+        let plaintext = "known plaintext for roundtrip test";
+        let payload = OmemoSessionManager::encrypt_payload(plaintext).unwrap();
+
+        let decrypted =
+            OmemoSessionManager::decrypt_payload(&payload.key, &payload.nonce, &payload.ciphertext)
+                .unwrap();
+
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn decrypt_with_wrong_key_fails() {
+        let plaintext = "secret payload";
+        let payload = OmemoSessionManager::encrypt_payload(plaintext).unwrap();
+
+        // Generate a completely different random key.
+        let mut wrong_key = vec![0u8; AES_KEY_LEN];
+        OsRng.fill_bytes(&mut wrong_key);
+        // Ensure it is actually different from the original key (astronomically
+        // unlikely to collide, but guard anyway).
+        assert_ne!(wrong_key, payload.key);
+
+        let result =
+            OmemoSessionManager::decrypt_payload(&wrong_key, &payload.nonce, &payload.ciphertext);
+        assert!(result.is_err(), "decryption with a wrong key must fail");
+    }
+
+    #[test]
+    fn decrypt_with_wrong_nonce_fails() {
+        let plaintext = "secret payload";
+        let payload = OmemoSessionManager::encrypt_payload(plaintext).unwrap();
+
+        // Generate a completely different random nonce.
+        let mut wrong_nonce = vec![0u8; AES_NONCE_LEN];
+        OsRng.fill_bytes(&mut wrong_nonce);
+        assert_ne!(wrong_nonce, payload.nonce);
+
+        let result =
+            OmemoSessionManager::decrypt_payload(&payload.key, &wrong_nonce, &payload.ciphertext);
+        assert!(
+            result.is_err(),
+            "decryption with the correct key but wrong nonce must fail"
+        );
+    }
+
     #[test]
     fn encrypt_payload_nonces_are_unique_across_many_calls() {
         // AES-GCM nonce reuse under the same key breaks confidentiality and

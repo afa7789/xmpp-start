@@ -296,15 +296,27 @@ impl SidebarScreen {
                 .into()
         });
 
-        let add_btn = button("+")
-            .on_press(Message::ToggleAddContact)
-            .padding([2, 6]);
-        let join_btn = button("#")
-            .on_press(Message::ToggleJoinRoom)
-            .padding([2, 6]);
-        let create_btn = button("*")
-            .on_press(Message::ToggleCreateRoom)
-            .padding([2, 6]);
+        let add_btn = tooltip(
+            button("+")
+                .on_press(Message::ToggleAddContact)
+                .padding([2, 6]),
+            "Add Contact",
+            tooltip::Position::Bottom,
+        );
+        let join_btn = tooltip(
+            button("#")
+                .on_press(Message::ToggleJoinRoom)
+                .padding([2, 6]),
+            "Join Room",
+            tooltip::Position::Bottom,
+        );
+        let create_btn = tooltip(
+            button("⊞")
+                .on_press(Message::ToggleCreateRoom)
+                .padding([2, 6]),
+            "Create Room",
+            tooltip::Position::Bottom,
+        );
         let _ = default_conference_service; // used for default pre-fill (set via ToggleCreateRoom caller)
         let header_row = row![
             text("Contacts").size(16).width(Length::Fill),
@@ -385,7 +397,7 @@ impl SidebarScreen {
             .iter()
             .map(|c| {
                 let available = self.presence.get(c.jid.as_str()).copied().unwrap_or(false);
-                let indicator = if available { "*" } else { "o" };
+                let indicator = if available { "●" } else { "○" };
                 let display_name = c.name.as_deref().unwrap_or(&c.jid);
                 // G6: append [draft] if this JID has a non-empty draft
                 let has_draft = drafts.iter().any(|d| d == &c.jid);
@@ -452,7 +464,7 @@ impl SidebarScreen {
                 let current_name = c.name.clone().unwrap_or_else(|| c.jid.clone());
                 let jid_for_rename = c.jid.clone();
                 let rename_btn = tooltip(
-                    button(text("~").size(10))
+                    button(text("✎").size(10).shaping(Shaping::Advanced))
                         .on_press(Message::StartRename(jid_for_rename, current_name))
                         .padding([2, 4]),
                     "Rename",
@@ -462,7 +474,7 @@ impl SidebarScreen {
                 // H3: remove button
                 let jid_for_remove = c.jid.clone();
                 let remove_btn = tooltip(
-                    button(text("X").size(10))
+                    button(text("✕").size(10))
                         .on_press(Message::RemoveContact(jid_for_remove))
                         .padding([2, 4]),
                     "Remove contact",
@@ -479,7 +491,7 @@ impl SidebarScreen {
                     let confirm_btn = button(text("OK").size(10))
                         .on_press(Message::SubmitRename)
                         .padding([2, 5]);
-                    let cancel_btn = button(text("X").size(10))
+                    let cancel_btn = button(text("✕").size(10))
                         .on_press(Message::CancelRename)
                         .padding([2, 4]);
                     row![rename_input, confirm_btn, cancel_btn]
@@ -530,13 +542,28 @@ impl SidebarScreen {
             let name = contact
                 .and_then(|c| c.name.as_deref())
                 .unwrap_or(jid.as_str());
-            let close_btn = button(text("X").size(10))
+            let close_btn = button(text("✕").size(10))
                 .on_press(Message::CloseProfile)
                 .padding([2, 4]);
+
+            // H5: large avatar for profile popover (64x64)
+            let avatar_color = jid_color(jid.as_str());
+            let avatar_initial = jid_initial(jid.as_str()).to_string();
+            let profile_avatar = container(text(avatar_initial).size(28))
+                .width(64)
+                .height(64)
+                .style(move |_theme: &iced::Theme| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(avatar_color)),
+                    ..Default::default()
+                })
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center);
+
             let profile_col = column![
                 row![text("Profile").size(12).width(Length::Fill), close_btn,]
                     .spacing(4)
                     .align_y(Alignment::Center),
+                profile_avatar,
                 text(name).size(13).shaping(Shaping::Advanced),
                 text(jid.as_str()).size(11),
             ]

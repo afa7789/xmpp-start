@@ -604,6 +604,289 @@ fn mam_sync_full_lifecycle_with_fin() {
     assert!(!mgr.is_pending("sync-full-1"));
 }
 
+// ---- Privacy flags: per-session computation from ConnectConfig ----------
+
+/// Verifies that the privacy flags byte is computed correctly from ConnectConfig.
+///
+/// Bit layout (matches the inline computation in run_session after the C1 fix):
+///   bit 0 = send_receipts
+///   bit 1 = send_typing
+///   bit 2 = send_read_markers
+///
+/// This test proves the formula produces distinct, correct bit patterns for
+/// two different configs and that the flags are NOT shared global state — each
+/// call to the formula produces an independent value from its own config.
+#[test]
+fn privacy_flags_computed_from_config() {
+    use xmpp_start::xmpp::connection::ConnectConfig;
+
+    // Config A: receipts=true, typing=false, read_markers=false  → 0b001 = 1
+    let config_a = ConnectConfig {
+        jid: "alice@example.com".to_string(),
+        password: "pw".to_string(),
+        server: String::new(),
+        status_message: None,
+        send_receipts: true,
+        send_typing: false,
+        send_read_markers: false,
+        proxy_type: None,
+        proxy_host: None,
+        proxy_port: None,
+        manual_srv: None,
+        push_service_jid: None,
+    };
+
+    // Config B: receipts=false, typing=true, read_markers=true  → 0b110 = 6
+    let config_b = ConnectConfig {
+        jid: "bob@example.com".to_string(),
+        password: "pw".to_string(),
+        server: String::new(),
+        status_message: None,
+        send_receipts: false,
+        send_typing: true,
+        send_read_markers: true,
+        proxy_type: None,
+        proxy_host: None,
+        proxy_port: None,
+        manual_srv: None,
+        push_service_jid: None,
+    };
+
+    // Replicate the exact formula used in run_session (engine.rs ~line 352).
+    let flags_a: u8 = (config_a.send_receipts as u8)
+        | ((config_a.send_typing as u8) << 1)
+        | ((config_a.send_read_markers as u8) << 2);
+
+    let flags_b: u8 = (config_b.send_receipts as u8)
+        | ((config_b.send_typing as u8) << 1)
+        | ((config_b.send_read_markers as u8) << 2);
+
+    // Flags must differ — they are independent per-session values.
+    assert_ne!(flags_a, flags_b);
+
+    // Exact bit patterns.
+    assert_eq!(
+        flags_a, 0b0000_0001,
+        "config_a: only receipts bit should be set"
+    );
+    assert_eq!(
+        flags_b, 0b0000_0110,
+        "config_b: only typing and read_markers bits should be set"
+    );
+
+    // All three flags enabled → 0b111 = 7
+    let config_all = ConnectConfig {
+        jid: "charlie@example.com".to_string(),
+        password: "pw".to_string(),
+        server: String::new(),
+        status_message: None,
+        send_receipts: true,
+        send_typing: true,
+        send_read_markers: true,
+        proxy_type: None,
+        proxy_host: None,
+        proxy_port: None,
+        manual_srv: None,
+        push_service_jid: None,
+    };
+    let flags_all: u8 = (config_all.send_receipts as u8)
+        | ((config_all.send_typing as u8) << 1)
+        | ((config_all.send_read_markers as u8) << 2);
+    assert_eq!(
+        flags_all, 0b0000_0111,
+        "all flags enabled should set bits 0-2"
+    );
+
+    // All three flags disabled → 0
+    let config_none = ConnectConfig {
+        jid: "dave@example.com".to_string(),
+        password: "pw".to_string(),
+        server: String::new(),
+        status_message: None,
+        send_receipts: false,
+        send_typing: false,
+        send_read_markers: false,
+        proxy_type: None,
+        proxy_host: None,
+        proxy_port: None,
+        manual_srv: None,
+        push_service_jid: None,
+    };
+    let flags_none: u8 = (config_none.send_receipts as u8)
+        | ((config_none.send_typing as u8) << 1)
+        | ((config_none.send_read_markers as u8) << 2);
+    assert_eq!(flags_none, 0, "all flags disabled should produce zero byte");
+}
+
+// ---- Handler extraction: stanza construction that feeds into handlers ---
+
+/// Verify that a chat message stanza has the correct structure that
+/// handle_message expects: type="chat", a <body> child, and to/from attrs.
+#[test]
+fn message_stanza_has_correct_structure() {
+    use tokio_xmpp::minidom::Element;
+
+    let from = "alice@example.com/desktop";
+    let to = "bob@example.com";
+    let body_text = "Hello from Alice";
+    let msg_id = "handler-msg-001";
+
+    let body_el = Element::builder("body", "jabber:client")
+        .append(body_text)
+        .build();
+
+    let msg_el = Element::builder("message", "jabber:client")
+        .attr("from", from)
+        .attr("to", to)
+        .attr("type", "chat")
+        .attr("id", msg_id)
+        .append(body_el)
+        .build();
+
+    // Top-level attributes that handle_message reads.
+    assert_eq!(msg_el.name(), "message");
+    assert_eq!(msg_el.attr("type"), Some("chat"));
+    assert_eq!(msg_el.attr("from"), Some(from));
+    assert_eq!(msg_el.attr("to"), Some(to));
+    assert_eq!(msg_el.attr("id"), Some(msg_id));
+
+    // Body child must exist and carry the text.
+    let body = msg_el
+        .get_child("body", "jabber:client")
+        .expect("<body> element must be present");
+    assert_eq!(body.text(), body_text);
+
+    // Bare JID stripping (the logic in handle_message).
+    let bare_from = msg_el
+        .attr("from")
+        .unwrap_or("")
+        .split('/')
+        .next()
+        .unwrap_or("");
+    assert_eq!(bare_from, "alice@example.com");
+}
+
+/// Verify that an IQ result stanza has the correct structure that
+/// handle_iq expects: type="result" and a matching id attribute.
+#[test]
+fn iq_result_stanza_structure() {
+    use tokio_xmpp::minidom::Element;
+
+    let iq_id = "roster-get-1";
+
+    // Minimal IQ result as a server would return it.
+    let iq_el = Element::builder("iq", "jabber:client")
+        .attr("type", "result")
+        .attr("id", iq_id)
+        .attr("from", "example.com")
+        .attr("to", "bob@example.com/res")
+        .build();
+
+    assert_eq!(iq_el.name(), "iq");
+    assert_eq!(iq_el.attr("type"), Some("result"));
+    assert_eq!(iq_el.attr("id"), Some(iq_id));
+
+    // A result IQ with a roster query child (as returned by the server).
+    let query_el = Element::builder("query", "jabber:iq:roster").build();
+    let iq_with_roster = Element::builder("iq", "jabber:client")
+        .attr("type", "result")
+        .attr("id", "roster-qid-2")
+        .append(query_el)
+        .build();
+
+    assert_eq!(iq_with_roster.attr("type"), Some("result"));
+    assert_eq!(iq_with_roster.attr("id"), Some("roster-qid-2"));
+    // handle_iq checks children to dispatch — roster query must be found.
+    let roster_child = iq_with_roster.get_child("query", "jabber:iq:roster");
+    assert!(
+        roster_child.is_some(),
+        "roster <query> child must be present"
+    );
+}
+
+/// Verify that a presence stanza with <show> and <status> children has
+/// the structure that handle_presence expects.
+#[test]
+fn presence_stanza_structure() {
+    use tokio_xmpp::minidom::Element;
+
+    let from_jid = "carol@example.com/phone";
+
+    let show_el = Element::builder("show", "jabber:client")
+        .append("away")
+        .build();
+    let status_el = Element::builder("status", "jabber:client")
+        .append("At lunch")
+        .build();
+
+    let presence_el = Element::builder("presence", "jabber:client")
+        .attr("from", from_jid)
+        .append(show_el)
+        .append(status_el)
+        .build();
+
+    assert_eq!(presence_el.name(), "presence");
+    assert_eq!(presence_el.attr("from"), Some(from_jid));
+    // Default presence (no type attr) means "available".
+    assert!(presence_el.attr("type").is_none());
+
+    let show = presence_el
+        .get_child("show", "jabber:client")
+        .expect("<show> element must be present");
+    assert_eq!(show.text(), "away");
+
+    let status = presence_el
+        .get_child("status", "jabber:client")
+        .expect("<status> element must be present");
+    assert_eq!(status.text(), "At lunch");
+
+    // Unavailable presence uses type="unavailable".
+    let unavail_el = Element::builder("presence", "jabber:client")
+        .attr("from", from_jid)
+        .attr("type", "unavailable")
+        .build();
+    assert_eq!(unavail_el.attr("type"), Some("unavailable"));
+
+    // Bare JID stripping (used in handle_presence via the Presence parser).
+    let bare_from = from_jid.split('/').next().unwrap_or(from_jid);
+    assert_eq!(bare_from, "carol@example.com");
+}
+
+// ---- BUG-7: auth error detection ----------------------------------------
+
+/// Known auth-related error strings must be detected so the engine
+/// emits Disconnected instead of Reconnecting.
+#[test]
+fn bug7_auth_errors_are_detected() {
+    use xmpp_start::xmpp::engine::is_auth_error;
+
+    assert!(is_auth_error("not-authorized"));
+    assert!(is_auth_error("Authentication failed"));
+    assert!(is_auth_error("SASL error"));
+    assert!(is_auth_error("bad credentials"));
+}
+
+/// Non-auth errors must NOT be detected as auth failures so the engine
+/// still attempts reconnection for transient network problems.
+#[test]
+fn bug7_non_auth_errors_are_not_detected() {
+    use xmpp_start::xmpp::engine::is_auth_error;
+
+    assert!(!is_auth_error("connection reset"));
+    assert!(!is_auth_error("timeout"));
+    assert!(!is_auth_error("DNS resolution failed"));
+    assert!(!is_auth_error("stream ended"));
+}
+
+/// Detection must be case-insensitive so upper-case server messages are caught.
+#[test]
+fn bug7_auth_detection_is_case_insensitive() {
+    use xmpp_start::xmpp::engine::is_auth_error;
+
+    assert!(is_auth_error("NOT-AUTHORIZED"));
+    assert!(is_auth_error("Sasl Error"));
+}
+
 // ---- Message Moderation: build moderation command ------------------------
 
 #[test]

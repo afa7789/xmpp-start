@@ -207,7 +207,7 @@ pub fn render_form<M: Clone + 'static>(form: DataForm) -> Element<'static, M> {
                 let checked = field.value.is_some_and(|v| v == "1" || v == "true");
                 col = col.push(row![
                     text(label).size(14),
-                    text(if checked { "[x]" } else { "[ ]" }).size(14),
+                    text(if checked { "☑" } else { "☐" }).size(14),
                 ]);
             }
             FieldType::ListSingle | FieldType::ListMulti => {
@@ -221,14 +221,14 @@ pub fn render_form<M: Clone + 'static>(form: DataForm) -> Element<'static, M> {
                     let is_selected = selected.contains(&opt_value);
                     let prefix = if field.field_type == FieldType::ListMulti {
                         if is_selected {
-                            "[x]"
+                            "☑"
                         } else {
-                            "[ ]"
+                            "☐"
                         }
                     } else if is_selected {
-                        "(*)"
+                        "◉"
                     } else {
-                        "( )"
+                        "○"
                     };
                     field_col = field_col.push(
                         container(text(format!("  {} {}", prefix, opt_label)).size(13))
@@ -301,7 +301,7 @@ where
                 let checked = field.value.is_some_and(|v| v == "1" || v == "true");
                 col = col.push(row![
                     text(label).size(14),
-                    text(if checked { "[x]" } else { "[ ]" }).size(14),
+                    text(if checked { "☑" } else { "☐" }).size(14),
                 ]);
             }
             FieldType::ListSingle | FieldType::ListMulti => {
@@ -315,14 +315,14 @@ where
                     let is_selected = selected.contains(&opt_value);
                     let prefix = if field.field_type == FieldType::ListMulti {
                         if is_selected {
-                            "[x]"
+                            "☑"
                         } else {
-                            "[ ]"
+                            "☐"
                         }
                     } else if is_selected {
-                        "(*)"
+                        "◉"
                     } else {
-                        "( )"
+                        "○"
                     };
                     field_col = field_col.push(
                         container(text(format!("  {} {}", prefix, opt_label)).size(13))
