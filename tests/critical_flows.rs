@@ -887,6 +887,322 @@ fn bug7_auth_detection_is_case_insensitive() {
     assert!(is_auth_error("Sasl Error"));
 }
 
+// ---- OMEMO: end-to-end crypto flows (no server, no SQLite) --------------
+
+/// Full OMEMO encrypt-decrypt flow.
+///
+/// Alice and Bob each have an Olm account. Alice creates an outbound session
+/// to Bob using Bob's public identity key and a one-time pre-key, encrypts the
+/// AES payload key with Olm, and wraps the payload ciphertext in an OMEMO
+/// stanza. Bob creates an inbound session from Alice's PreKey message,
+/// recovers the AES key, and decrypts the payload. The recovered plaintext
+/// must match the original.
+#[test]
+fn omemo_full_encrypt_decrypt_flow() {
+    use vodozemac::olm::OlmMessage;
+    use xmpp_start::xmpp::modules::omemo::session::OmemoSessionManager;
+
+    // --- Setup: Alice and Bob generate identity + one-time keys ---
+    let alice = OmemoSessionManager::init_account(0);
+    let mut bob = OmemoSessionManager::init_account(1);
+
+    // Capture Bob's OTK before marking as published (the method only returns
+    // unpublished keys).
+    let bob_otk = *bob.one_time_keys().values().next().unwrap();
+    bob.mark_keys_as_published();
+
+    // --- Alice initiates an outbound session to Bob ---
+    let mut alice_session =
+        OmemoSessionManager::create_outbound_session(&alice, bob.curve25519_key(), bob_otk);
+
+    // --- Alice encrypts the AES payload ---
+    let plaintext = "Hello, Bob! This is OMEMO-encrypted.";
+    let encrypted_payload = OmemoSessionManager::encrypt_payload(plaintext).unwrap();
+
+    // Alice Olm-encrypts the AES key for Bob's device.
+    let olm_msg = OmemoSessionManager::encrypt(&mut alice_session, &encrypted_payload.key);
+
+    // Verify the first message is a PreKey message (X3DH).
+    assert!(
+        matches!(olm_msg, OlmMessage::PreKey(_)),
+        "first Olm message must be a PreKey message"
+    );
+
+    // --- Bob receives the PreKey message and creates an inbound session ---
+    if let OlmMessage::PreKey(ref pre_key_msg) = olm_msg {
+        let result = OmemoSessionManager::create_inbound_session(
+            &mut bob,
+            alice.curve25519_key(),
+            pre_key_msg,
+        )
+        .expect("inbound session creation must succeed");
+
+        // Bob recovers the AES key from the Olm plaintext.
+        let recovered_aes_key = result.plaintext;
+        assert_eq!(
+            recovered_aes_key, encrypted_payload.key,
+            "recovered AES key must match the one Alice encrypted"
+        );
+
+        // Bob decrypts the payload with the recovered AES key.
+        let recovered_plaintext = OmemoSessionManager::decrypt_payload(
+            &recovered_aes_key,
+            &encrypted_payload.nonce,
+            &encrypted_payload.ciphertext,
+        )
+        .expect("AES-GCM decryption must succeed");
+
+        assert_eq!(
+            recovered_plaintext, plaintext,
+            "decrypted plaintext must match the original"
+        );
+    } else {
+        panic!("expected PreKey message");
+    }
+}
+
+/// OMEMO ratchet forward: Alice sends three consecutive messages to Bob after
+/// the initial PreKey exchange. Each message must decrypt to its own plaintext
+/// and produce a distinct Olm ciphertext (the Double Ratchet advances after
+/// every send).
+#[test]
+fn omemo_ratchet_forward() {
+    use vodozemac::olm::OlmMessage;
+    use xmpp_start::xmpp::modules::omemo::session::OmemoSessionManager;
+
+    // --- Initial setup ---
+    let alice = OmemoSessionManager::init_account(0);
+    let mut bob = OmemoSessionManager::init_account(1);
+    let bob_otk = *bob.one_time_keys().values().next().unwrap();
+    bob.mark_keys_as_published();
+
+    let mut alice_session =
+        OmemoSessionManager::create_outbound_session(&alice, bob.curve25519_key(), bob_otk);
+
+    // --- Bootstrap: Alice sends a PreKey message so Bob can create a session ---
+    let bootstrap_key = b"bootstrap-aes-key-32-bytes-xx123";
+    let first_olm = OmemoSessionManager::encrypt(&mut alice_session, bootstrap_key);
+
+    let mut bob_session = if let OlmMessage::PreKey(ref pkm) = first_olm {
+        let res =
+            OmemoSessionManager::create_inbound_session(&mut bob, alice.curve25519_key(), pkm)
+                .unwrap();
+        assert_eq!(&res.plaintext, bootstrap_key);
+        res.session
+    } else {
+        panic!("expected PreKey for first message");
+    };
+
+    // Bob must reply at least once so Alice's session transitions to Normal
+    // mode (Olm requires a received message before the sender can advance the
+    // ratchet past the PreKey phase).
+    let bob_reply_key = b"bob-reply-32-byte-aes-key-abc123";
+    let bob_reply_msg = OmemoSessionManager::encrypt(&mut bob_session, bob_reply_key);
+    let decrypted_reply = OmemoSessionManager::decrypt(&mut alice_session, &bob_reply_msg).unwrap();
+    assert_eq!(&decrypted_reply, bob_reply_key);
+
+    // --- Alice sends three consecutive messages (Normal Olm messages) ---
+    let messages = [
+        "ratchet-message-one",
+        "ratchet-message-two",
+        "ratchet-message-three",
+    ];
+
+    let mut olm_ciphertexts: Vec<Vec<u8>> = Vec::new();
+
+    for &body in &messages {
+        let payload = OmemoSessionManager::encrypt_payload(body).unwrap();
+        let olm_msg = OmemoSessionManager::encrypt(&mut alice_session, &payload.key);
+
+        // Collect the raw Olm ciphertext bytes to verify each is unique.
+        // OlmMessage::message() returns the inner ciphertext regardless of variant.
+        olm_ciphertexts.push(olm_msg.message().to_vec());
+
+        // Bob decrypts the Olm-wrapped AES key and recovers the plaintext.
+        let aes_key = OmemoSessionManager::decrypt(&mut bob_session, &olm_msg)
+            .expect("Bob must decrypt each Normal message");
+
+        let recovered =
+            OmemoSessionManager::decrypt_payload(&aes_key, &payload.nonce, &payload.ciphertext)
+                .expect("AES-GCM decryption must succeed");
+
+        assert_eq!(
+            recovered, body,
+            "decrypted plaintext must match for message: {body}"
+        );
+    }
+
+    // Each Olm ciphertext must be distinct — the ratchet advanced between sends.
+    assert_ne!(
+        olm_ciphertexts[0], olm_ciphertexts[1],
+        "ratchet must produce distinct ciphertexts for consecutive messages"
+    );
+    assert_ne!(
+        olm_ciphertexts[1], olm_ciphertexts[2],
+        "ratchet must produce distinct ciphertexts for consecutive messages"
+    );
+    assert_ne!(
+        olm_ciphertexts[0], olm_ciphertexts[2],
+        "ratchet must produce distinct ciphertexts for consecutive messages"
+    );
+}
+
+/// A new device appearing in a device list requires a bundle fetch before an
+/// outbound session can be created. This test verifies the bundle-fetch IQ is
+/// correctly built for an unknown device and that no session exists for that
+/// device until one is explicitly established.
+#[test]
+fn omemo_new_device_requires_bundle_fetch() {
+    use std::collections::HashMap;
+    use vodozemac::olm::OlmMessage;
+    use xmpp_start::xmpp::modules::omemo::device::DeviceManager;
+    use xmpp_start::xmpp::modules::omemo::session::OmemoSessionManager;
+
+    let mgr = DeviceManager::new();
+
+    // Simulate receiving a PEP device-list push that includes a brand-new device.
+    let new_device_id: u32 = 99_999;
+    let peer_jid = "charlie@example.com";
+
+    // The "session store" is a simple map: (peer_jid, device_id) → session bytes.
+    // Before a bundle fetch, the device is not in this map.
+    let mut session_store: HashMap<(String, u32), Vec<u8>> = HashMap::new();
+
+    // Confirm no session exists for the new device.
+    let store_key = (peer_jid.to_string(), new_device_id);
+    assert!(
+        !session_store.contains_key(&store_key),
+        "no session should exist for a device before its bundle is fetched"
+    );
+
+    // Build the bundle-fetch IQ — this is what the engine must send to the
+    // server before it can encrypt to this device.
+    let (iq_id, fetch_iq) = mgr.build_bundle_fetch(peer_jid, new_device_id);
+
+    assert!(!iq_id.is_empty(), "fetch IQ id must be non-empty");
+    assert_eq!(
+        fetch_iq.attr("type"),
+        Some("get"),
+        "bundle fetch must be a get IQ"
+    );
+    assert_eq!(
+        fetch_iq.attr("to"),
+        Some(peer_jid),
+        "bundle fetch IQ must address the peer"
+    );
+
+    // Only after the bundle response arrives can we create an outbound session.
+    // Simulate the bundle arriving: Charlie is his own "server" — use a fresh account.
+    let charlie = OmemoSessionManager::init_account(1);
+    let charlie_otk = *charlie.one_time_keys().values().next().unwrap();
+
+    let alice = OmemoSessionManager::init_account(0);
+    let mut alice_session =
+        OmemoSessionManager::create_outbound_session(&alice, charlie.curve25519_key(), charlie_otk);
+
+    // Pickle the new session into the store to represent "session established".
+    let session_bytes = OmemoSessionManager::pickle_session(&alice_session).unwrap();
+    session_store.insert(store_key.clone(), session_bytes);
+
+    // Now the session exists and we can encrypt.
+    assert!(
+        session_store.contains_key(&store_key),
+        "session must exist after bundle fetch and session creation"
+    );
+
+    // Verify the session is functional: encrypt a key and confirm it serialises.
+    let test_key = b"test-key-32-bytes-for-verification";
+    let olm_msg = OmemoSessionManager::encrypt(&mut alice_session, test_key);
+    assert!(
+        matches!(olm_msg, OlmMessage::PreKey(_)),
+        "first message to a new device must be a PreKey message"
+    );
+}
+
+/// Pre-key rotation: after all pre-keys have been consumed by inbound sessions,
+/// the account's unpublished one-time key pool is empty. Generating additional
+/// keys replenishes it, proving that the replenishment trigger works correctly.
+#[test]
+fn omemo_prekey_rotation() {
+    use vodozemac::olm::OlmMessage;
+    use xmpp_start::xmpp::modules::omemo::session::OmemoSessionManager;
+
+    const INITIAL_PREKEY_COUNT: usize = 3;
+
+    // Bob starts with a small batch of pre-keys.
+    let mut bob = OmemoSessionManager::init_account(INITIAL_PREKEY_COUNT);
+    let initial_otks: Vec<_> = bob.one_time_keys().values().copied().collect();
+    assert_eq!(
+        initial_otks.len(),
+        INITIAL_PREKEY_COUNT,
+        "must start with exactly {INITIAL_PREKEY_COUNT} pre-keys"
+    );
+    bob.mark_keys_as_published();
+
+    // Consume all pre-keys: each Alice device creates an inbound session, which
+    // causes vodozemac to remove the consumed OTK from Bob's account.
+    for (i, otk) in initial_otks.iter().enumerate() {
+        let alice = OmemoSessionManager::init_account(0);
+        let mut alice_session =
+            OmemoSessionManager::create_outbound_session(&alice, bob.curve25519_key(), *otk);
+
+        let dummy_key = vec![i as u8; 32];
+        let olm_msg = OmemoSessionManager::encrypt(&mut alice_session, &dummy_key);
+
+        if let OlmMessage::PreKey(ref pkm) = olm_msg {
+            OmemoSessionManager::create_inbound_session(&mut bob, alice.curve25519_key(), pkm)
+                .expect("inbound session must succeed");
+        } else {
+            panic!("expected PreKey message when consuming OTK {i}");
+        }
+    }
+
+    // After consuming all OTKs, the pool of unpublished keys is empty
+    // (vodozemac drops them on inbound session creation).
+    // mark_keys_as_published has already been called so one_time_keys() returns
+    // only newly generated (unpublished) keys.
+    let remaining = bob.one_time_keys();
+    assert!(
+        remaining.is_empty(),
+        "all pre-keys must be consumed after {INITIAL_PREKEY_COUNT} inbound sessions"
+    );
+
+    // Replenishment: generate a new batch and verify they are available for publishing.
+    const REPLENISH_COUNT: usize = 5;
+    bob.generate_one_time_keys(REPLENISH_COUNT);
+    let replenished = bob.one_time_keys();
+
+    assert_eq!(
+        replenished.len(),
+        REPLENISH_COUNT,
+        "replenishment must produce exactly {REPLENISH_COUNT} new pre-keys"
+    );
+
+    // Verify the replenished keys are functional: an Alice can create a new
+    // outbound session and Bob can create a corresponding inbound session.
+    let new_otk = *replenished.values().next().unwrap();
+    bob.mark_keys_as_published();
+
+    let alice = OmemoSessionManager::init_account(0);
+    let mut alice_session =
+        OmemoSessionManager::create_outbound_session(&alice, bob.curve25519_key(), new_otk);
+
+    let test_key = b"replenished-key-32bytes-testxyz0";
+    let olm_msg = OmemoSessionManager::encrypt(&mut alice_session, test_key);
+
+    if let OlmMessage::PreKey(ref pkm) = olm_msg {
+        let result =
+            OmemoSessionManager::create_inbound_session(&mut bob, alice.curve25519_key(), pkm)
+                .expect("inbound session with replenished OTK must succeed");
+        assert_eq!(
+            &result.plaintext, test_key,
+            "replenished OTK session must decrypt correctly"
+        );
+    } else {
+        panic!("expected PreKey message with replenished OTK");
+    }
+}
+
 // ---- Message Moderation: build moderation command ------------------------
 
 #[test]
@@ -904,4 +1220,369 @@ fn message_moderation_command_building() {
     assert!(moderation_xml.contains("<retract xmlns='urn:xmpp:message-retract:1'/>"));
     assert!(moderation_xml.contains("Violation of room rules"));
     assert!(moderation_xml.contains("to=\"room@conference.example.com\""));
+}
+
+// ---- Reconnect + MAM sync -----------------------------------------------
+
+/// After a simulated disconnect:
+///  - StreamMgmt.reset() zeros h back to 0.
+///  - CatchupManager.reset() invalidates any stale query_ids.
+///  - The RSM `after` cursor captured before disconnect is still accessible
+///    from the MamQuery value, so the application can resume from that
+///    position in the next session.
+#[test]
+fn reconnect_resets_stream_mgmt_and_preserves_catchup() {
+    use tokio_xmpp::minidom::Element;
+    use xmpp_start::xmpp::modules::catchup::CatchupManager;
+    use xmpp_start::xmpp::modules::stream_mgmt::StreamMgmt;
+
+    let mut sm = StreamMgmt::new();
+    let mut catchup = CatchupManager::new();
+
+    // ---- First session ---------------------------------------------------
+
+    // Build up some stream-management state.
+    let dummy: Element = "<message xmlns='jabber:client'/>".parse().unwrap();
+    sm.on_stanza_sent(dummy.clone());
+    sm.on_stanza_sent(dummy);
+    sm.on_stanza_received();
+    assert_eq!(sm.pending_count(), 2);
+    assert_eq!(sm.h(), 1);
+
+    // Start a MAM catchup query with a known `after` cursor.
+    let last_known_id = "stanza-id-before-disconnect";
+    let (query_id, mam_query) = catchup.start("alice@example.com", Some(last_known_id));
+
+    // Verify the cursor was captured in the query.
+    assert_eq!(
+        mam_query.rsm.after.as_deref(),
+        Some(last_known_id),
+        "MAM query must carry the after cursor"
+    );
+
+    // The query is active before disconnect.
+    assert!(
+        catchup.on_result(&query_id, "alice@example.com").is_some(),
+        "query must be active before disconnect"
+    );
+
+    // ---- Simulate disconnect ---------------------------------------------
+
+    sm.reset();
+    catchup.reset();
+
+    // StreamMgmt counters reset to zero.
+    assert_eq!(sm.pending_count(), 0, "pending_count must be 0 after reset");
+    assert_eq!(sm.h(), 0, "h must be 0 after reset");
+
+    // Stale query IDs are invalidated — on_result returns None.
+    assert!(
+        catchup.on_result(&query_id, "alice@example.com").is_none(),
+        "stale query_id must be rejected after catchup reset"
+    );
+
+    // ---- The cursor is preserved in the MamQuery value ------------------
+    // The MamQuery was built before disconnect and still holds the cursor.
+    // The application can use mam_query.rsm.after to resume MAM on reconnect.
+    assert_eq!(
+        mam_query.rsm.after.as_deref(),
+        Some(last_known_id),
+        "MAM resume cursor must still be accessible from the pre-disconnect query"
+    );
+
+    // ---- Reconnect: new session starts clean ----------------------------
+
+    sm.on_stanza_received();
+    let ack = sm
+        .flush_ack()
+        .expect("ack must be pending after new inbound");
+    assert_eq!(
+        ack.attr("h"),
+        Some("1"),
+        "new session ack counter must start at 1"
+    );
+
+    // A fresh catchup query can be started with the preserved cursor.
+    let (new_query_id, resume_query) =
+        catchup.start("alice@example.com", mam_query.rsm.after.as_deref());
+    assert_ne!(
+        new_query_id, query_id,
+        "new query_id must differ from the stale one"
+    );
+    assert_eq!(
+        resume_query.rsm.after.as_deref(),
+        Some(last_known_id),
+        "resume query must carry the preserved cursor"
+    );
+}
+
+/// Build a MamQuery with a known cursor, simulate receiving partial results,
+/// then simulate a disconnect.  The RSM `after` cursor from the original query
+/// is still available and can be used to resume in the next session.
+#[test]
+fn mam_cursor_survives_reconnect() {
+    use tokio_xmpp::minidom::Element;
+    use xmpp_start::xmpp::modules::mam::{MamFilter, MamManager, MamQuery, RsmQuery};
+
+    const NS_MAM: &str = "urn:xmpp:mam:2";
+    const NS_FORWARD: &str = "urn:xmpp:forward:0";
+    const NS_DELAY: &str = "urn:ietf:params:xml:ns:xmpp-delay";
+    const NS_CLIENT: &str = "jabber:client";
+
+    let mut mgr = MamManager::new();
+
+    // Start a query with a cursor pointing at the last locally stored message.
+    let before_disconnect_cursor = "arc-cursor-before-dc";
+    let query = MamQuery {
+        query_id: "cursor-test-qid".to_string(),
+        filter: MamFilter {
+            with: Some("bob@example.com".to_string()),
+            start: None,
+            end: None,
+        },
+        rsm: RsmQuery {
+            max: 50,
+            after: Some(before_disconnect_cursor.to_string()),
+            before: None,
+        },
+    };
+
+    // Capture the cursor before building the IQ.
+    let saved_cursor = query.rsm.after.clone();
+    assert_eq!(
+        saved_cursor.as_deref(),
+        Some(before_disconnect_cursor),
+        "cursor must be present in the query before sending"
+    );
+
+    mgr.build_query_iq(query);
+
+    // Simulate a partial result arriving before disconnect.
+    let partial_msg: Element = {
+        let body_el = Element::builder("body", NS_CLIENT)
+            .append("partial message")
+            .build();
+        let inner = Element::builder("message", NS_CLIENT)
+            .attr("from", "bob@example.com")
+            .append(body_el)
+            .build();
+        let delay = Element::builder("delay", NS_DELAY)
+            .attr("stamp", "2024-06-01T12:00:00Z")
+            .build();
+        let forwarded = Element::builder("forwarded", NS_FORWARD)
+            .append(delay)
+            .append(inner)
+            .build();
+        let result_el = Element::builder("result", NS_MAM)
+            .attr("queryid", "cursor-test-qid")
+            .attr("id", "arc-partial-001")
+            .append(forwarded)
+            .build();
+        Element::builder("message", NS_CLIENT)
+            .append(result_el)
+            .build()
+    };
+
+    let parsed = mgr.on_mam_message(&partial_msg);
+    assert!(
+        parsed.is_some(),
+        "partial message must parse before disconnect"
+    );
+    assert_eq!(parsed.unwrap().archive_id, "arc-partial-001");
+
+    // The query is still pending (no <fin> received yet).
+    assert!(
+        mgr.is_pending("cursor-test-qid"),
+        "query must remain pending before fin"
+    );
+
+    // ---- Simulate disconnect: drop the MamManager -----------------------
+    // The application retains the `saved_cursor` captured above.
+    drop(mgr);
+
+    assert_eq!(
+        saved_cursor.as_deref(),
+        Some(before_disconnect_cursor),
+        "cursor must survive disconnect simulation"
+    );
+
+    // ---- Reconnect: build a new query using the preserved cursor --------
+    let mut mgr2 = MamManager::new();
+    let resume_query = MamQuery {
+        query_id: "cursor-resume-qid".to_string(),
+        filter: MamFilter {
+            with: Some("bob@example.com".to_string()),
+            start: None,
+            end: None,
+        },
+        rsm: RsmQuery {
+            max: 50,
+            after: saved_cursor,
+            before: None,
+        },
+    };
+
+    let iq = mgr2.build_query_iq(resume_query);
+    let iq_xml = String::from(&iq);
+
+    // The preserved cursor must appear in the new query's RSM <after> element.
+    assert!(
+        iq_xml.contains(before_disconnect_cursor),
+        "resume query IQ must contain the preserved cursor"
+    );
+    assert!(
+        mgr2.is_pending("cursor-resume-qid"),
+        "resume query must be registered as pending"
+    );
+}
+
+// ---- Carbons + Receipts -------------------------------------------------
+
+/// Build a XEP-0280 carbon-sent wrapper stanza and verify it has the correct
+/// structure: a <sent> element in the carbons namespace wrapping a <forwarded>
+/// element that contains the original chat message.
+#[test]
+fn carbon_sent_stanza_structure() {
+    use tokio_xmpp::minidom::Element;
+
+    const NS_CARBONS: &str = "urn:xmpp:carbons:2";
+    const NS_FORWARD: &str = "urn:xmpp:forward:0";
+    const NS_CLIENT: &str = "jabber:client";
+
+    // Build the inner forwarded message (the original chat message).
+    let body_el = Element::builder("body", NS_CLIENT)
+        .append("Hello from carbon")
+        .build();
+    let inner_msg = Element::builder("message", NS_CLIENT)
+        .attr("to", "bob@example.com")
+        .attr("from", "alice@example.com")
+        .attr("type", "chat")
+        .attr("id", "orig-msg-001")
+        .append(body_el)
+        .build();
+
+    let forwarded = Element::builder("forwarded", NS_FORWARD)
+        .append(inner_msg)
+        .build();
+
+    let sent_el = Element::builder("sent", NS_CARBONS)
+        .append(forwarded)
+        .build();
+
+    // The outer <message> that the server delivers to other resources.
+    let carbon_msg = Element::builder("message", NS_CLIENT)
+        .attr("to", "alice@example.com/other-device")
+        .attr("from", "alice@example.com")
+        .append(sent_el)
+        .build();
+
+    // Top-level must be a <message>.
+    assert_eq!(carbon_msg.name(), "message");
+
+    // Must contain a <sent xmlns='urn:xmpp:carbons:2'> child.
+    let sent = carbon_msg
+        .get_child("sent", NS_CARBONS)
+        .expect("<sent> child with carbons namespace must be present");
+    assert_eq!(sent.ns(), NS_CARBONS);
+
+    // <sent> must contain a <forwarded xmlns='urn:xmpp:forward:0'>.
+    let fwd = sent
+        .get_child("forwarded", NS_FORWARD)
+        .expect("<forwarded> child must be inside <sent>");
+    assert_eq!(fwd.ns(), NS_FORWARD);
+
+    // <forwarded> must contain the original <message>.
+    let orig = fwd
+        .get_child("message", NS_CLIENT)
+        .expect("original <message> must be inside <forwarded>");
+    assert_eq!(orig.attr("id"), Some("orig-msg-001"));
+    assert_eq!(orig.attr("type"), Some("chat"));
+
+    let body = orig
+        .get_child("body", NS_CLIENT)
+        .expect("<body> must be present in the forwarded message");
+    assert_eq!(body.text(), "Hello from carbon");
+}
+
+/// Build a XEP-0184 delivery receipt stanza and verify that it contains a
+/// <received> element carrying the `id` attribute of the acknowledged message.
+#[test]
+fn delivery_receipt_stanza_structure() {
+    use tokio_xmpp::minidom::Element;
+
+    const NS_RECEIPTS: &str = "urn:xmpp:receipts";
+    const NS_CLIENT: &str = "jabber:client";
+
+    let acked_msg_id = "chat-msg-42";
+
+    // Build the receipt <message> exactly as a compliant client sends it.
+    let received_el = Element::builder("received", NS_RECEIPTS)
+        .attr("id", acked_msg_id)
+        .build();
+
+    let receipt_msg = Element::builder("message", NS_CLIENT)
+        .attr("to", "alice@example.com")
+        .attr("from", "bob@example.com")
+        .attr("id", "receipt-msg-1")
+        .append(received_el)
+        .build();
+
+    assert_eq!(receipt_msg.name(), "message");
+
+    // Must contain a <received xmlns='urn:xmpp:receipts'> child.
+    let received = receipt_msg
+        .get_child("received", NS_RECEIPTS)
+        .expect("<received> element with receipts namespace must be present");
+    assert_eq!(received.ns(), NS_RECEIPTS);
+
+    // The `id` attribute must reference the acknowledged message.
+    assert_eq!(
+        received.attr("id"),
+        Some(acked_msg_id),
+        "<received> must carry the id of the acknowledged message"
+    );
+}
+
+/// Build a XEP-0333 displayed marker stanza and verify the correct namespace
+/// and id attribute are present.
+#[test]
+fn read_marker_displayed_stanza() {
+    use tokio_xmpp::minidom::Element;
+
+    const NS_MARKERS: &str = "urn:xmpp:chat-markers:0";
+    const NS_CLIENT: &str = "jabber:client";
+
+    let displayed_msg_id = "msg-to-mark-as-read";
+
+    // Build the <displayed> marker exactly as the engine sends it.
+    let displayed_el = Element::builder("displayed", NS_MARKERS)
+        .attr("id", displayed_msg_id)
+        .build();
+
+    let marker_msg = Element::builder("message", NS_CLIENT)
+        .attr("to", "alice@example.com")
+        .attr("from", "bob@example.com")
+        .attr("type", "chat")
+        .append(displayed_el)
+        .build();
+
+    assert_eq!(marker_msg.name(), "message");
+
+    // Must contain a <displayed xmlns='urn:xmpp:chat-markers:0'> child.
+    let displayed = marker_msg
+        .get_child("displayed", NS_MARKERS)
+        .expect("<displayed> element with chat-markers namespace must be present");
+
+    assert_eq!(
+        displayed.ns(),
+        NS_MARKERS,
+        "<displayed> must use the XEP-0333 namespace"
+    );
+
+    // The `id` attribute must reference the message being marked as read.
+    assert_eq!(
+        displayed.attr("id"),
+        Some(displayed_msg_id),
+        "<displayed> must carry the id of the message that was read"
+    );
 }

@@ -448,4 +448,67 @@ mod tests {
             "retraction stanza must not carry a <body>"
         );
     }
+
+    // 13. build_reaction (retract-reaction): sending an empty emoji slice is the
+    //     XEP-0444 mechanism for removing all reactions from a message.
+    #[test]
+    fn build_reaction_empty_slice_is_retract_reaction() {
+        let mgr = MutationManager::new();
+        let el = mgr.build_reaction("bob@example.com", "msg-retract", &[]);
+
+        // The outer element must still be a <message>.
+        assert_eq!(el.name(), "message");
+        assert_eq!(el.attr("to"), Some("bob@example.com"));
+
+        // There must be a <reactions id="msg-retract"> with no <reaction> children.
+        let reactions_el = el
+            .children()
+            .find(|c| c.name() == "reactions" && c.ns() == NS_REACTIONS)
+            .expect("<reactions> must exist even for retract-reaction");
+
+        assert_eq!(reactions_el.attr("id"), Some("msg-retract"));
+        assert_eq!(
+            reactions_el
+                .children()
+                .filter(|c| c.name() == "reaction")
+                .count(),
+            0,
+            "retract-reaction must have no <reaction> children"
+        );
+    }
+
+    // 14. parse_reaction: returns None when the element is not a <message>.
+    #[test]
+    fn parse_reaction_returns_none_for_non_message_element() {
+        let mgr = MutationManager::new();
+
+        let presence = Element::builder("presence", NS_CLIENT)
+            .attr("from", "bob@example.com")
+            .build();
+
+        let result = mgr.parse_reaction("bob@example.com", &presence);
+        assert!(result.is_none());
+    }
+
+    // 15. build_reaction: the outer <message> uses type="chat".
+    #[test]
+    fn build_reaction_message_type_is_chat() {
+        let mgr = MutationManager::new();
+        let el = mgr.build_reaction("carol@example.com", "msg-type-check", &["👍"]);
+        assert_eq!(el.attr("type"), Some("chat"));
+    }
+
+    // 16. build_correction: the <body> contains the new text.
+    #[test]
+    fn build_correction_body_contains_new_text() {
+        let mgr = MutationManager::new();
+        let el = mgr.build_correction("alice@example.com", "orig-id", "updated body text");
+
+        let body_el = el
+            .children()
+            .find(|c| c.name() == "body")
+            .expect("<body> must exist");
+
+        assert_eq!(body_el.text(), "updated body text");
+    }
 }

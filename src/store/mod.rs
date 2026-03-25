@@ -401,4 +401,283 @@ mod tests {
         // Original body must be untouched.
         assert_eq!(corrected.body.as_deref(), Some("seed body"));
     }
+
+    // -----------------------------------------------------------------------
+    // Persistence roundtrip tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn send_message_persists_and_reloads() {
+        let db = Database::connect(":memory:")
+            .await
+            .expect("open in-memory db");
+
+        let own_jid = "me@example.com";
+        let peer_jid = "peer@example.com";
+        conversation_repo::upsert(&db.pool, peer_jid)
+            .await
+            .expect("upsert conversation failed");
+
+        let msg = Message {
+            id: "rt-send-1".into(),
+            conversation_jid: peer_jid.into(),
+            from_jid: own_jid.into(),
+            body: Some("hello from me".into()),
+            timestamp: 1_700_001_000_000,
+            stanza_id: Some("s-send-1".into()),
+            origin_id: Some("o-send-1".into()),
+            state: "sent".into(),
+            edited_body: None,
+            retracted: 0,
+        };
+
+        message_repo::insert(&db.pool, &msg)
+            .await
+            .expect("insert failed");
+
+        let results = message_repo::find_by_conversation(&db.pool, peer_jid, 10)
+            .await
+            .expect("find_by_conversation failed");
+
+        assert_eq!(results.len(), 1);
+        let got = &results[0];
+        assert_eq!(got.id, "rt-send-1");
+        assert_eq!(got.from_jid, own_jid);
+        assert_eq!(got.conversation_jid, peer_jid);
+        assert_eq!(got.body.as_deref(), Some("hello from me"));
+        assert_eq!(got.timestamp, 1_700_001_000_000);
+        assert_eq!(got.origin_id.as_deref(), Some("o-send-1"));
+        assert_eq!(got.state, "sent");
+        assert_eq!(got.retracted, 0);
+    }
+
+    #[tokio::test]
+    async fn receive_message_persists() {
+        let db = Database::connect(":memory:")
+            .await
+            .expect("open in-memory db");
+
+        let peer_jid = "sender@example.com";
+        let own_jid = "me@example.com";
+        conversation_repo::upsert(&db.pool, peer_jid)
+            .await
+            .expect("upsert conversation failed");
+
+        let msg = Message {
+            id: "rt-recv-1".into(),
+            conversation_jid: peer_jid.into(),
+            from_jid: peer_jid.into(),
+            body: Some("hello from peer".into()),
+            timestamp: 1_700_002_000_000,
+            stanza_id: Some("s-recv-1".into()),
+            origin_id: Some("o-recv-1".into()),
+            state: "received".into(),
+            edited_body: None,
+            retracted: 0,
+        };
+
+        message_repo::insert(&db.pool, &msg)
+            .await
+            .expect("insert failed");
+
+        let results = message_repo::find_by_conversation(&db.pool, peer_jid, 10)
+            .await
+            .expect("find_by_conversation failed");
+
+        assert_eq!(results.len(), 1);
+        let got = &results[0];
+        assert_eq!(got.id, "rt-recv-1");
+        assert_eq!(got.from_jid, peer_jid);
+        // conversation_jid represents the "to" side (the chat window).
+        assert_eq!(got.conversation_jid, peer_jid);
+        // own_jid is not stored on the row; verify the expected recipient separately.
+        let _ = own_jid; // acknowledged: stored on the account level, not per-message
+        assert_eq!(got.body.as_deref(), Some("hello from peer"));
+        assert_eq!(got.timestamp, 1_700_002_000_000);
+        assert_eq!(got.origin_id.as_deref(), Some("o-recv-1"));
+        assert_eq!(got.state, "received");
+        assert_eq!(got.retracted, 0);
+    }
+
+    #[tokio::test]
+    async fn edit_message_updates_body() {
+        let db = Database::connect(":memory:")
+            .await
+            .expect("open in-memory db");
+
+        let jid = "edit-peer@example.com";
+        conversation_repo::upsert(&db.pool, jid)
+            .await
+            .expect("upsert conversation failed");
+
+        let msg = Message {
+            id: "rt-edit-1".into(),
+            conversation_jid: jid.into(),
+            from_jid: "me@example.com".into(),
+            body: Some("original body".into()),
+            timestamp: 1_700_003_000_000,
+            stanza_id: None,
+            origin_id: Some("o-edit-1".into()),
+            state: "sent".into(),
+            edited_body: None,
+            retracted: 0,
+        };
+        message_repo::insert(&db.pool, &msg)
+            .await
+            .expect("insert failed");
+
+        // Verify edited_body starts as None.
+        let before = message_repo::find_by_origin_id(&db.pool, "o-edit-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(before.body.as_deref(), Some("original body"));
+        assert!(before.edited_body.is_none());
+
+        message_repo::update_body(&db.pool, "o-edit-1", "edited body")
+            .await
+            .expect("update_body failed");
+
+        let after = message_repo::find_by_origin_id(&db.pool, "o-edit-1")
+            .await
+            .unwrap()
+            .unwrap();
+        // Original body must remain unchanged.
+        assert_eq!(after.body.as_deref(), Some("original body"));
+        // edited_body must reflect the correction.
+        assert_eq!(after.edited_body.as_deref(), Some("edited body"));
+    }
+
+    #[tokio::test]
+    async fn retract_message_marks_retracted() {
+        let db = Database::connect(":memory:")
+            .await
+            .expect("open in-memory db");
+
+        let jid = "retract-peer@example.com";
+        conversation_repo::upsert(&db.pool, jid)
+            .await
+            .expect("upsert conversation failed");
+
+        let msg = Message {
+            id: "rt-retract-1".into(),
+            conversation_jid: jid.into(),
+            from_jid: "me@example.com".into(),
+            body: Some("to be retracted".into()),
+            timestamp: 1_700_004_000_000,
+            stanza_id: None,
+            origin_id: Some("o-retract-1".into()),
+            state: "sent".into(),
+            edited_body: None,
+            retracted: 0,
+        };
+        message_repo::insert(&db.pool, &msg)
+            .await
+            .expect("insert failed");
+
+        // Confirm retracted starts at 0.
+        let before = message_repo::find_by_origin_id(&db.pool, "o-retract-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(before.retracted, 0);
+
+        message_repo::mark_retracted(&db.pool, "rt-retract-1")
+            .await
+            .expect("mark_retracted failed");
+
+        let after = message_repo::find_by_origin_id(&db.pool, "o-retract-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(after.retracted, 1);
+    }
+
+    #[tokio::test]
+    async fn messages_ordered_by_timestamp() {
+        let db = Database::connect(":memory:")
+            .await
+            .expect("open in-memory db");
+
+        let jid = "order-peer@example.com";
+        conversation_repo::upsert(&db.pool, jid)
+            .await
+            .expect("upsert conversation failed");
+
+        // Insert three messages deliberately out of order.
+        for (i, ts) in [
+            ("ord-2", 2_000_i64),
+            ("ord-3", 3_000_i64),
+            ("ord-1", 1_000_i64),
+        ] {
+            let msg = Message {
+                id: i.into(),
+                conversation_jid: jid.into(),
+                from_jid: "me@example.com".into(),
+                body: Some(format!("msg at {}", ts)),
+                timestamp: ts,
+                stanza_id: None,
+                origin_id: None,
+                state: "sent".into(),
+                edited_body: None,
+                retracted: 0,
+            };
+            message_repo::insert(&db.pool, &msg)
+                .await
+                .expect("insert failed");
+        }
+
+        let results = message_repo::find_by_conversation(&db.pool, jid, 10)
+            .await
+            .expect("find_by_conversation failed");
+
+        assert_eq!(results.len(), 3);
+        // find_by_conversation orders by timestamp ASC.
+        assert_eq!(results[0].id, "ord-1");
+        assert_eq!(results[1].id, "ord-2");
+        assert_eq!(results[2].id, "ord-3");
+    }
+
+    #[tokio::test]
+    async fn origin_id_lookup() {
+        let db = Database::connect(":memory:")
+            .await
+            .expect("open in-memory db");
+
+        let jid = "lookup-peer@example.com";
+        conversation_repo::upsert(&db.pool, jid)
+            .await
+            .expect("upsert conversation failed");
+
+        let msg = Message {
+            id: "rt-lookup-1".into(),
+            conversation_jid: jid.into(),
+            from_jid: "me@example.com".into(),
+            body: Some("findable message".into()),
+            timestamp: 1_700_005_000_000,
+            stanza_id: None,
+            origin_id: Some("unique-origin-id-xyz".into()),
+            state: "sent".into(),
+            edited_body: None,
+            retracted: 0,
+        };
+        message_repo::insert(&db.pool, &msg)
+            .await
+            .expect("insert failed");
+
+        // Positive lookup.
+        let found = message_repo::find_by_origin_id(&db.pool, "unique-origin-id-xyz")
+            .await
+            .expect("find_by_origin_id failed")
+            .expect("expected Some, got None");
+        assert_eq!(found.id, "rt-lookup-1");
+        assert_eq!(found.body.as_deref(), Some("findable message"));
+        assert_eq!(found.origin_id.as_deref(), Some("unique-origin-id-xyz"));
+
+        // Negative lookup — absent origin_id must return None.
+        let not_found = message_repo::find_by_origin_id(&db.pool, "nonexistent-origin-id")
+            .await
+            .expect("find_by_origin_id failed");
+        assert!(not_found.is_none());
+    }
 }

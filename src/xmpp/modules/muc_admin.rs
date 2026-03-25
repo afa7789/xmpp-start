@@ -100,3 +100,122 @@ impl Default for MucAdminManager {
         Self::new()
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 1. build_affiliation_query: GrantMember produces an IQ with affiliation="member".
+    #[test]
+    fn affiliation_grant_member_sets_correct_affiliation() {
+        let mut mgr = MucAdminManager::new();
+        let (id, iq) = mgr.build_affiliation_query(
+            "room@conference.example.com",
+            AffiliationAction::GrantMember("alice@example.com".to_string()),
+        );
+
+        assert!(!id.is_empty());
+        assert_eq!(iq.attr("type"), Some("set"));
+        assert_eq!(iq.attr("to"), Some("room@conference.example.com"));
+
+        let query = iq
+            .get_child("query", NS_MUC_ADMIN)
+            .expect("<query> must exist");
+        let item = query
+            .get_child("item", NS_MUC_ADMIN)
+            .expect("<item> must exist");
+
+        assert_eq!(item.attr("affiliation"), Some("member"));
+        assert_eq!(item.attr("jid"), Some("alice@example.com"));
+    }
+
+    // 2. build_affiliation_query: Ban produces affiliation="outcast".
+    #[test]
+    fn affiliation_ban_sets_outcast() {
+        let mut mgr = MucAdminManager::new();
+        let (_id, iq) = mgr.build_affiliation_query(
+            "room@conference.example.com",
+            AffiliationAction::Ban("troll@example.com".to_string()),
+        );
+
+        let item = iq
+            .get_child("query", NS_MUC_ADMIN)
+            .and_then(|q| q.get_child("item", NS_MUC_ADMIN))
+            .expect("<item> must exist");
+
+        assert_eq!(item.attr("affiliation"), Some("outcast"));
+        assert_eq!(item.attr("jid"), Some("troll@example.com"));
+    }
+
+    // 3. build_affiliation_query: RevokeMembership produces affiliation="none".
+    #[test]
+    fn affiliation_revoke_sets_none() {
+        let mut mgr = MucAdminManager::new();
+        let (_id, iq) = mgr.build_affiliation_query(
+            "room@conference.example.com",
+            AffiliationAction::RevokeMembership("bob@example.com".to_string()),
+        );
+
+        let item = iq
+            .get_child("query", NS_MUC_ADMIN)
+            .and_then(|q| q.get_child("item", NS_MUC_ADMIN))
+            .expect("<item> must exist");
+
+        assert_eq!(item.attr("affiliation"), Some("none"));
+        assert_eq!(item.attr("jid"), Some("bob@example.com"));
+    }
+
+    // 4. build_role_query: moderator role uses nick attribute, not jid.
+    #[test]
+    fn role_query_moderator_uses_nick() {
+        let mut mgr = MucAdminManager::new();
+        let (id, iq) = mgr.build_role_query("room@conference.example.com", "Alice", "moderator");
+
+        assert!(!id.is_empty());
+        assert_eq!(iq.attr("type"), Some("set"));
+
+        let item = iq
+            .get_child("query", NS_MUC_ADMIN)
+            .and_then(|q| q.get_child("item", NS_MUC_ADMIN))
+            .expect("<item> must exist");
+
+        assert_eq!(item.attr("nick"), Some("Alice"));
+        assert_eq!(item.attr("role"), Some("moderator"));
+        // Role changes use nick, never jid.
+        assert!(item.attr("jid").is_none());
+    }
+
+    // 5. build_role_query: kick is expressed as role="none".
+    #[test]
+    fn role_query_kick_sets_role_none() {
+        let mut mgr = MucAdminManager::new();
+        let (_id, iq) = mgr.build_role_query("room@conference.example.com", "Troublemaker", "none");
+
+        let item = iq
+            .get_child("query", NS_MUC_ADMIN)
+            .and_then(|q| q.get_child("item", NS_MUC_ADMIN))
+            .expect("<item> must exist");
+
+        assert_eq!(item.attr("nick"), Some("Troublemaker"));
+        assert_eq!(item.attr("role"), Some("none"));
+    }
+
+    // 6. build_affiliation_query: each call produces a unique IQ id.
+    #[test]
+    fn affiliation_query_ids_are_unique() {
+        let mut mgr = MucAdminManager::new();
+        let (id1, _) = mgr.build_affiliation_query(
+            "room@conference.example.com",
+            AffiliationAction::GrantMember("a@example.com".to_string()),
+        );
+        let (id2, _) = mgr.build_affiliation_query(
+            "room@conference.example.com",
+            AffiliationAction::GrantMember("b@example.com".to_string()),
+        );
+        assert_ne!(id1, id2);
+    }
+}

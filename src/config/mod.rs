@@ -447,4 +447,124 @@ mod tests {
         // Each account's password_key is distinct, so keychain slots do not clash.
         assert_ne!(alice.password_key, bob.password_key);
     }
+
+    // -----------------------------------------------------------------------
+    // Settings persistence (file roundtrip)
+    // -----------------------------------------------------------------------
+
+    /// Serialize a Settings with non-default values to a temp file, read it
+    /// back, and confirm every field survived the round-trip.
+    #[test]
+    fn save_and_load_settings_roundtrip() {
+        use std::collections::HashSet;
+
+        let original = Settings {
+            theme: Theme::Dark,
+            font_size: 18,
+            show_timestamps: true,
+            notifications_enabled: false,
+            sound_enabled: false,
+            last_jid: "roundtrip@example.com".to_owned(),
+            last_server: "xmpp.example.com".to_owned(),
+            muted_jids: HashSet::new(),
+            status_message: Some("In a meeting".to_owned()),
+            remember_me: true,
+            send_receipts: true,
+            send_typing: false,
+            send_read_markers: true,
+            mam_default_mode: Some("roster".to_owned()),
+            use_system_theme: false,
+            time_format: TimeFormat::TwelveHour,
+            avatar_data: None,
+            contact_sort: "recent".to_owned(),
+            mam_fetch_limit: 25,
+            show_join_leave: false,
+            show_typing_indicators: true,
+            compact_layout: true,
+            accounts: vec![AccountConfig::new("roundtrip@example.com")],
+            proxy_type: None,
+            proxy_host: None,
+            proxy_port: None,
+            manual_srv: None,
+            force_tls: true,
+            push_service_jid: None,
+        };
+
+        // Write to a temp file using the same logic as `save()`.
+        let dir = std::env::temp_dir().join("xmpp_start_test_settings");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings_roundtrip.json");
+        let json = serde_json::to_string_pretty(&original).unwrap();
+        std::fs::write(&path, &json).unwrap();
+
+        // Read back using the same logic as `load()`.
+        let loaded: Settings = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .expect("should deserialize settings from temp file");
+
+        assert_eq!(loaded.theme, Theme::Dark);
+        assert_eq!(loaded.font_size, 18);
+        assert_eq!(loaded.time_format, TimeFormat::TwelveHour);
+        assert!(!loaded.send_typing, "send_typing should be false");
+        assert!(!loaded.show_join_leave, "show_join_leave should be false");
+        assert!(loaded.compact_layout, "compact_layout should be true");
+        assert_eq!(loaded.contact_sort, "recent");
+        assert_eq!(loaded.mam_fetch_limit, 25);
+        assert_eq!(loaded.last_jid, "roundtrip@example.com");
+        assert_eq!(loaded.status_message, Some("In a meeting".to_owned()));
+        assert_eq!(loaded.accounts.len(), 1);
+        assert_eq!(loaded.accounts[0].jid, "roundtrip@example.com");
+
+        // Clean up.
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Confirm that `Settings::default()` contains reasonable, safe values.
+    #[test]
+    fn default_settings_have_sane_values() {
+        let s = Settings::default();
+
+        // Theme defaults to dark (existing test covers this; verify here too).
+        assert_eq!(s.theme, Theme::Dark);
+
+        // Font size should be in a legible range.
+        assert!(
+            s.font_size >= 10 && s.font_size <= 32,
+            "default font_size {} is outside the expected range 10–32",
+            s.font_size
+        );
+
+        // Timestamps, notifications, and sounds should be on by default.
+        assert!(s.show_timestamps, "timestamps should be shown by default");
+        assert!(
+            s.notifications_enabled,
+            "notifications should be enabled by default"
+        );
+        assert!(s.sound_enabled, "sound should be enabled by default");
+
+        // Privacy-sensitive defaults: receipts and markers on.
+        assert!(s.send_receipts, "send_receipts should default to true");
+        assert!(s.send_typing, "send_typing should default to true");
+        assert!(
+            s.send_read_markers,
+            "send_read_markers should default to true"
+        );
+
+        // MAM fetch limit should be a sensible positive number.
+        assert!(s.mam_fetch_limit > 0, "mam_fetch_limit should be positive");
+
+        // TLS should be required by default.
+        assert!(s.force_tls, "force_tls should default to true");
+
+        // No accounts pre-configured.
+        assert!(s.accounts.is_empty(), "accounts should be empty by default");
+
+        // JID fields should be empty strings, not garbage.
+        assert!(s.last_jid.is_empty(), "last_jid should be empty by default");
+        assert!(
+            s.last_server.is_empty(),
+            "last_server should be empty by default"
+        );
+    }
 }
