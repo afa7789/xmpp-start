@@ -163,6 +163,8 @@ pub struct DisplayMessage {
     pub retracted: bool,
     /// OMEMO: true if the message was decrypted via OMEMO (XEP-0384)
     pub is_encrypted: bool,
+    /// OMEMO: true if the sender's device key is trusted
+    pub is_trusted: bool,
 }
 
 /// M2/K5: message delivery/read state for own messages (shown as ✓ indicators)
@@ -403,6 +405,7 @@ mod tests {
             edited: false,
             retracted: false,
             is_encrypted: false,
+            is_trusted: false,
         }
     }
 

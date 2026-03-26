@@ -108,14 +108,19 @@ impl ConversationView {
                 build_styled_text(&styled_spans)
             };
 
-            // OMEMO: wrap body with lock icon when the message was decrypted via OMEMO
+            // OMEMO: wrap body with lock/shield icon when the message was decrypted via OMEMO
             let body_widget: Element<Message> = if m.is_encrypted {
                 let peer_jid_for_trust = m.from.split('/').next().unwrap_or(&m.from).to_string();
+                let tip_text = if m.is_trusted {
+                    "OMEMO encrypted (trusted) — click to view fingerprints"
+                } else {
+                    "OMEMO encrypted (untrusted) — click to view fingerprints"
+                };
                 let lock_badge = tooltip(
-                    button(encryption_badge::<Message>(true))
+                    button(encryption_badge::<Message>(true, m.is_trusted))
                         .on_press(Message::OpenOmemoTrust(peer_jid_for_trust))
                         .padding([0, 4]),
-                    "OMEMO encrypted — click to view fingerprints",
+                    tip_text,
                     tooltip::Position::Top,
                 );
                 row![lock_badge, body_widget]

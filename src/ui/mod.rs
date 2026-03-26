@@ -537,6 +537,7 @@ impl App {
                                 edited: r.edited_body.is_some(),
                                 retracted: r.retracted != 0,
                                 is_encrypted: false,
+                                is_trusted: false,
                             })
                             .collect();
                         convo.load_history(display);
