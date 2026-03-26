@@ -69,7 +69,7 @@ fn settings_section_with_desc<'a>(
                         ..palette.background.strong.color
                     },
                     width: 1.0,
-                    radius: 12.0.into(),
+                    radius: 2.0.into(),
                 },
                 shadow: iced::Shadow {
                     color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.06),
@@ -132,7 +132,7 @@ fn segmented_btn(
                 border: iced::Border {
                     color: palette.primary.base.color,
                     width: 1.0,
-                    radius: 6.0.into(),
+                    radius: 4.0.into(),
                 },
                 ..Default::default()
             }
@@ -150,7 +150,7 @@ fn segmented_btn(
                 border: iced::Border {
                     color: palette.background.strong.color,
                     width: 1.0,
-                    radius: 6.0.into(),
+                    radius: 4.0.into(),
                 },
                 ..Default::default()
             }
@@ -887,7 +887,7 @@ impl SettingsScreen {
                     background: Some(iced::Background::Color(bg)),
                     text_color: palette.danger.base.text,
                     border: iced::Border {
-                        radius: 6.0.into(),
+                        radius: 4.0.into(),
                         ..Default::default()
                     },
                     ..Default::default()

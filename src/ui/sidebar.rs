@@ -636,7 +636,7 @@ impl SidebarScreen {
                         border: iced::Border {
                             color: palette::BORDER_SUBTLE,
                             width: 1.0,
-                            radius: 6.0.into(),
+                            radius: 2.0.into(),
                         },
                         ..Default::default()
                     });
@@ -702,7 +702,7 @@ impl SidebarScreen {
                         border: iced::Border {
                             color: palette::BORDER_SUBTLE,
                             width: 1.0,
-                            radius: 6.0.into(),
+                            radius: 2.0.into(),
                         },
                         ..Default::default()
                     });

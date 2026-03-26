@@ -84,7 +84,7 @@ pub fn render_preview_card(
             border: iced::Border {
                 color: palette::BORDER_SUBTLE,
                 width: 1.0,
-                radius: 8.0.into(),
+                radius: 2.0.into(),
             },
             ..Default::default()
         });

@@ -544,7 +544,7 @@ impl ConversationView {
                     border: iced::Border {
                         color: palette::QUOTE_BORDER,
                         width: 1.0,
-                        radius: 4.0.into(),
+                        radius: 2.0.into(),
                     },
                     ..Default::default()
                 })
@@ -909,7 +909,7 @@ impl ConversationView {
                 border: iced::Border {
                     color: palette::BORDER_SUBTLE,
                     width: 1.0,
-                    radius: 8.0.into(),
+                    radius: 2.0.into(),
                 },
                 shadow: iced::Shadow {
                     color: palette::BACKDROP_DIM,

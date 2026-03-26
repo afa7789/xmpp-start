@@ -71,7 +71,7 @@ pub fn cancel_btn_style(_theme: &iced::Theme, status: button::Status) -> button:
             })),
             text_color: palette::QUOTE_TEXT,
             border: Border {
-                radius: 3.0.into(),
+                radius: 4.0.into(),
                 ..Border::default()
             },
             shadow: Default::default(),
@@ -80,7 +80,7 @@ pub fn cancel_btn_style(_theme: &iced::Theme, status: button::Status) -> button:
             background: Some(Background::Color(Color::from_rgba(0.9, 0.3, 0.3, 0.25))),
             text_color: Color::from_rgb(0.95, 0.3, 0.3),
             border: Border {
-                radius: 3.0.into(),
+                radius: 4.0.into(),
                 ..Border::default()
             },
             shadow: Default::default(),
@@ -89,7 +89,7 @@ pub fn cancel_btn_style(_theme: &iced::Theme, status: button::Status) -> button:
             background: Some(Background::Color(Color::from_rgba(0.9, 0.3, 0.3, 0.35))),
             text_color: palette::DANGER_RED,
             border: Border {
-                radius: 3.0.into(),
+                radius: 4.0.into(),
                 ..Border::default()
             },
             shadow: Default::default(),
