@@ -120,6 +120,14 @@ pub(crate) async fn handle_iq(
             .await;
         return;
     }
+    // E4: detect upload slot error (e.g. 503 service-unavailable)
+    if let Some((_iq_id, reason)) = file_upload_mgr.on_slot_error(&el) {
+        tracing::warn!("file_upload: slot request failed: {reason}");
+        let _ = event_tx
+            .send(XmppEvent::UploadSlotError { reason })
+            .await;
+        return;
+    }
     // J6: detect XEP-0084 avatar data result (PubSub items node='urn:xmpp:avatar:data')
     if el.attr("type") == Some("result") {
         let is_avatar_data = el.children().any(|c| {

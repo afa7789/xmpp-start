@@ -185,11 +185,12 @@ impl FileUploadManager {
         })
     }
 
-    /// Parse an error IQ. Returns the IQ id if it matched a pending request.
+    /// Parse an error IQ. Returns `(iq_id, reason)` if it matched a pending
+    /// request.  The reason is extracted from the XMPP error condition element
+    /// (e.g. `<service-unavailable/>`) or falls back to a generic string.
     ///
     /// Removes the matching request from pending on error.
-    #[allow(dead_code)]
-    pub fn on_slot_error(&mut self, el: &Element) -> Option<String> {
+    pub fn on_slot_error(&mut self, el: &Element) -> Option<(String, String)> {
         if el.name() != "iq" {
             return None;
         }
@@ -200,7 +201,16 @@ impl FileUploadManager {
         let iq_id = el.attr("id")?;
 
         if self.pending.remove(iq_id).is_some() {
-            Some(iq_id.to_string())
+            let reason = el
+                .children()
+                .find(|c| c.name() == "error")
+                .and_then(|err| {
+                    err.children()
+                        .find(|c| c.ns() == "urn:ietf:params:xml:ns:xmpp-stanzas")
+                        .map(|cond| cond.name().to_string())
+                })
+                .unwrap_or_else(|| "unknown-error".to_string());
+            Some((iq_id.to_string(), reason))
         } else {
             None
         }
@@ -258,6 +268,21 @@ mod tests {
         Element::builder("iq", NS_CLIENT)
             .attr("type", "error")
             .attr("id", iq_id)
+            .build()
+    }
+
+    // Helper: build an error IQ with a structured XMPP error condition.
+    fn make_error_iq_with_condition(iq_id: &str, condition: &str) -> Element {
+        let cond_el =
+            Element::builder(condition, "urn:ietf:params:xml:ns:xmpp-stanzas").build();
+        let error_el = Element::builder("error", NS_CLIENT)
+            .attr("type", "cancel")
+            .append(cond_el)
+            .build();
+        Element::builder("iq", NS_CLIENT)
+            .attr("type", "error")
+            .attr("id", iq_id)
+            .append(error_el)
             .build()
     }
 
@@ -366,18 +391,19 @@ mod tests {
         assert!(!mgr.is_pending(&id), "pending must be cleared after result");
     }
 
-    // 7. on_slot_error removes the request from pending and returns the id.
+    // 7. on_slot_error removes the request from pending and returns the id + reason.
     #[test]
     fn on_slot_error_clears_pending() {
         let mut mgr = FileUploadManager::new();
         let (id, _el) = mgr.request_slot("photo.jpg", 1024, "image/jpeg", "upload.example.com");
 
         let error_iq = make_error_iq(&id);
-        let returned_id = mgr
+        let (returned_id, reason) = mgr
             .on_slot_error(&error_iq)
             .expect("must return id on error");
 
         assert_eq!(returned_id, id);
+        assert_eq!(reason, "unknown-error");
         assert!(!mgr.is_pending(&id), "pending must be cleared after error");
     }
 
@@ -434,5 +460,35 @@ mod tests {
 
         assert!(mgr.is_pending(&id_a));
         assert!(!mgr.is_pending(&id_c));
+    }
+
+    // 10. on_slot_error extracts service-unavailable (503) condition.
+    #[test]
+    fn on_slot_error_extracts_service_unavailable() {
+        let mut mgr = FileUploadManager::new();
+        let (id, _el) = mgr.request_slot("photo.jpg", 1024, "image/jpeg", "upload.example.com");
+
+        let error_iq = make_error_iq_with_condition(&id, "service-unavailable");
+        let (returned_id, reason) = mgr
+            .on_slot_error(&error_iq)
+            .expect("must return id on error");
+
+        assert_eq!(returned_id, id);
+        assert_eq!(reason, "service-unavailable");
+        assert!(!mgr.is_pending(&id));
+    }
+
+    // 11. on_slot_error extracts not-allowed condition.
+    #[test]
+    fn on_slot_error_extracts_not_allowed() {
+        let mut mgr = FileUploadManager::new();
+        let (id, _el) = mgr.request_slot("big.zip", 999999999, "application/zip", "upload.example.com");
+
+        let error_iq = make_error_iq_with_condition(&id, "not-allowed");
+        let (_, reason) = mgr
+            .on_slot_error(&error_iq)
+            .expect("must return id on error");
+
+        assert_eq!(reason, "not-allowed");
     }
 }

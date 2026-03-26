@@ -59,6 +59,16 @@ use crate::xmpp::{
 use account_state::AccountStateManager;
 use toast::{Toast, ToastKind};
 
+// E4: upload progress visible to the user
+#[derive(Debug, Clone, PartialEq)]
+pub enum UploadStatus {
+    Idle,
+    Requesting,
+    Uploading(f32),
+    Done,
+    Error(String),
+}
+
 // F2: command palette entries — built once and searched via command_palette::search().
 fn palette_commands() -> Vec<command_palette::Command> {
     use command_palette::Command;
@@ -155,6 +165,8 @@ pub struct App {
     palette_query: String,
     // E4: pending upload (target_jid, file_path) — set when RequestUploadSlot is sent
     pub(crate) pending_upload: Option<(String, std::path::PathBuf)>,
+    // E4: upload progress state visible to the user
+    pub(crate) upload_status: UploadStatus,
     // O2: own presence — skip notifications when DND
     pub(crate) own_presence: PresenceStatus,
     // S1: idle state tracking
@@ -305,6 +317,7 @@ impl App {
                 show_palette: false,
                 palette_query: String::new(),
                 pending_upload: None,
+                upload_status: UploadStatus::Idle,
                 own_presence: PresenceStatus::Available,
                 last_activity: std::time::Instant::now(),
                 idle_state: IdleState::Active,
@@ -828,6 +841,7 @@ impl App {
                     let upload_targets = chat.drain_upload_targets();
                     if !upload_targets.is_empty() && self.pending_upload.is_none() {
                         self.pending_upload = upload_targets.into_iter().next();
+                        self.upload_status = UploadStatus::Requesting;
                     }
                     let cmds = chat.drain_commands();
                     if !cmds.is_empty() {

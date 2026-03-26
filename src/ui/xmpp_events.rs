@@ -344,11 +344,11 @@ pub(crate) fn handle(app: &mut App, event: XmppEvent) -> Task<Message> {
             headers,
         } => {
             tracing::info!("E4: upload slot received put={put_url} get={get_url}");
-            // E4: perform HTTP PUT and send get_url as message (fire-and-forget)
             if let Some((target_jid, file_path)) = app.pending_upload.take() {
+                app.upload_status = super::UploadStatus::Uploading(0.0);
                 if let Some(ref tx) = app.xmpp_tx {
                     let tx = tx.clone();
-                    tokio::spawn(async move {
+                    return Task::future(async move {
                         let file_bytes = tokio::fs::read(&file_path).await;
                         match file_bytes {
                             Ok(bytes) => {
@@ -366,22 +366,57 @@ pub(crate) fn handle(app: &mut App, event: XmppEvent) -> Task<Message> {
                                                 id: uuid::Uuid::new_v4().to_string(),
                                             })
                                             .await;
+                                        Message::XmppEvent(XmppEvent::UploadProgress(1.0))
                                     }
                                     Ok(resp) => {
-                                        tracing::warn!("E4: PUT failed: {}", resp.status());
+                                        let status = resp.status();
+                                        tracing::warn!("E4: PUT failed: {status}");
+                                        Message::XmppEvent(XmppEvent::UploadError(
+                                            format!("HTTP PUT failed: {status}"),
+                                        ))
                                     }
                                     Err(e) => {
                                         tracing::warn!("E4: PUT error: {e}");
+                                        Message::XmppEvent(XmppEvent::UploadError(
+                                            format!("HTTP PUT error: {e}"),
+                                        ))
                                     }
                                 }
                             }
                             Err(e) => {
                                 tracing::warn!("E4: failed to read file {:?}: {e}", file_path);
+                                Message::XmppEvent(XmppEvent::UploadError(
+                                    format!("Failed to read file: {e}"),
+                                ))
                             }
                         }
                     });
                 }
             }
+        }
+        XmppEvent::UploadSlotError { ref reason } => {
+            tracing::warn!("E4: upload slot rejected: {reason}");
+            app.upload_status = super::UploadStatus::Error(reason.clone());
+            app.pending_upload = None;
+            return app.update(Message::ShowToast(
+                format!("File upload failed: {reason}"),
+                ToastKind::Error,
+            ));
+        }
+        XmppEvent::UploadProgress(progress) => {
+            if progress >= 1.0 {
+                app.upload_status = super::UploadStatus::Done;
+            } else {
+                app.upload_status = super::UploadStatus::Uploading(progress);
+            }
+        }
+        XmppEvent::UploadError(ref reason) => {
+            tracing::warn!("E4: upload error: {reason}");
+            app.upload_status = super::UploadStatus::Error(reason.clone());
+            return app.update(Message::ShowToast(
+                format!("File upload failed: {reason}"),
+                ToastKind::Error,
+            ));
         }
         XmppEvent::ConsoleEntry { direction, xml } => {
             let ts = std::time::SystemTime::now()

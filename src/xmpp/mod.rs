@@ -112,6 +112,17 @@ pub enum XmppEvent {
         headers: Vec<(String, String)>,
     },
 
+    // E4: Upload slot request rejected by server (e.g. 503 service-unavailable)
+    UploadSlotError {
+        reason: String,
+    },
+
+    // E4: HTTP PUT upload progress (0.0 .. 1.0)
+    UploadProgress(f32),
+
+    // E4: HTTP PUT upload failed
+    UploadError(String),
+
     // H1: Avatar received from vCard (XEP-0153)
     AvatarReceived {
         jid: String,
