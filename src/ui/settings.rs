@@ -830,11 +830,11 @@ impl SettingsScreen {
         .spacing(10)
         .align_y(Alignment::Center);
         let status_row = row![
-            text("Status message").size(14),
-            horizontal_space(),
+            text("Status message").size(14).width(Length::Fixed(130.0)),
             text_input("e.g. In a meeting", &self.status_input)
                 .on_input(Message::StatusInputChanged)
-                .width(Length::Fixed(220.0)),
+                .width(Length::Fill)
+                .padding([4, 8]),
         ]
         .spacing(10)
         .align_y(Alignment::Center);
@@ -965,7 +965,7 @@ impl SettingsScreen {
             ($label:expr, $value:expr) => {{
                 let val: String = $value.clone();
                 let e: Element<'_, Message> = row![
-                    text($label).size(13).width(Length::Fixed(140.0)),
+                    text($label).size(13).width(Length::Fixed(130.0)),
                     text_input("", &val)
                         .size(13)
                         .width(Length::Fill)
@@ -989,7 +989,7 @@ impl SettingsScreen {
             copyable_row!("Resource", resource),
             setting_divider(),
             row![
-                text("Status").size(13).width(Length::Fixed(140.0)),
+                text("Status").size(13).width(Length::Fixed(130.0)),
                 text(status_str).size(13).width(Length::Fill),
             ]
             .spacing(8),
@@ -1013,7 +1013,7 @@ impl SettingsScreen {
             text_input("50", &self.mam_fetch_limit_input)
                 .on_input(Message::MamFetchLimitChanged)
                 .on_submit(Message::MamFetchLimitConfirm)
-                .width(Length::Fixed(70.0))
+                .width(Length::Fixed(80.0))
                 .padding([4, 8]),
             button(text("Apply").size(13))
                 .on_press(Message::MamFetchLimitConfirm)
@@ -1135,7 +1135,7 @@ impl SettingsScreen {
         // Proxy host + port: only shown when a proxy type is selected
         let proxy_detail: Option<Element<Message>> = if self.settings.proxy_type.is_some() {
             let host_row: Element<Message> = row![
-                text("Proxy host").size(14).width(Length::Fixed(120.0)),
+                text("Proxy host").size(14).width(Length::Fixed(130.0)),
                 text_input("hostname or IP", &self.proxy_host_input)
                     .on_input(Message::ProxyHostChanged)
                     .width(Length::Fill)
@@ -1145,7 +1145,7 @@ impl SettingsScreen {
             .align_y(Alignment::Center)
             .into();
             let port_row: Element<Message> = row![
-                text("Proxy port").size(14).width(Length::Fixed(120.0)),
+                text("Proxy port").size(14).width(Length::Fixed(130.0)),
                 text_input("1080", &self.proxy_port_input)
                     .on_input(Message::ProxyPortChanged)
                     .width(Length::Fixed(80.0))
@@ -1160,7 +1160,7 @@ impl SettingsScreen {
         };
 
         let srv_row: Element<Message> = row![
-            text("Manual SRV").size(14).width(Length::Fixed(120.0)),
+            text("Manual SRV").size(14).width(Length::Fixed(130.0)),
             text_input("_xmpp-client._tcp\u{2026}", &self.manual_srv_input)
                 .on_input(Message::ManualSrvChanged)
                 .width(Length::Fill)

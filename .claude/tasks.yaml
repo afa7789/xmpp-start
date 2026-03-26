@@ -13,33 +13,63 @@
   created_at: '2026-03-25T17:09:59.680376Z'
   updated_at: '2026-03-25T17:36:04.278726Z'
 - id: bug-13
-  title: 'BUG-13: Voice message recording doesn''t send on stop'
+  title: 'BUG-13: XMPP Stream Management (XEP-0198) unacked queue desync - Investigate desync between pending stanzas and server ''h'' counter. Causes message loss on unstable networks. Check stanza read counter in xmpp::engine.'
   description: null
   status: Done
-  priority: 2
+  priority: 1
   deps: []
   files: []
   tags:
-  - bug
+  - protocol,critical
   metadata:
     agent: afa
-    started_at: '2026-03-25T17:13:52.243180+00:00'
-  created_at: '2026-03-25T17:09:59.704094Z'
-  updated_at: '2026-03-25T17:56:21.549047Z'
+    started_at: '2026-03-26T12:36:48.975774+00:00'
+  created_at: '2026-03-26T12:11:54.699409Z'
+  updated_at: '2026-03-26T12:42:42.799534Z'
 - id: bug-14
-  title: 'BUG-14: Remember me / auto-login doesn''t persist with cargo run'
+  title: 'BUG-14: MUC Presence logic leak - Group chats appearing without Join. MUC presence stanzas are being processed and inserted into global chat state before join confirmation or after exit. Refactor xmpp_events to filter presences from unsubscribed groups.'
   description: null
   status: Done
-  priority: 2
+  priority: 1
   deps: []
   files: []
   tags:
-  - bug
+  - xmpp,muc
   metadata:
-    started_at: '2026-03-25T17:13:52.266399+00:00'
+    started_at: '2026-03-26T12:36:53.837479+00:00'
     agent: afa
-  created_at: '2026-03-25T17:09:59.727778Z'
-  updated_at: '2026-03-25T17:27:54.013448Z'
+  created_at: '2026-03-26T12:11:55.927910Z'
+  updated_at: '2026-03-26T12:43:49.409378Z'
+- id: bug-15
+  title: 'BUG-15: HTTP File Upload (XEP-0363) - 503 Service Unavailable & Progress feedback. Upload fails with 503 (slot or S3 error). UI doesn''t reflect progress state (Requested -> PUT -> Done/Error). Add UploadProgress(f32) and UploadError states to model.'
+  description: null
+  status: Done
+  priority: 1
+  deps: []
+  files: []
+  tags:
+  - bug,file-upload
+  metadata:
+    started_at: '2026-03-26T12:36:58.554679+00:00'
+    agent: afa
+  created_at: '2026-03-26T12:11:57.440957Z'
+  updated_at: '2026-03-26T12:49:38.355944Z'
+- id: bug-16
+  title: 'BUG-16: OMEMO Encryption toggle non-functional'
+  description: null
+  status: Done
+  priority: 1
+  deps:
+  - bug-13
+  - bug-14
+  files: []
+  tags:
+  - security,omemo,logic
+  metadata:
+    agent: afa
+    started_at: '2026-03-26T12:45:25.342521+00:00'
+  created_at: '2026-03-26T12:44:36.726679Z'
+  updated_at: '2026-03-26T12:54:26.133875Z'
 - id: bug-avatar-persist
   title: Persist avatar cache to disk so images survive app restart/re-render
   description: null
@@ -49,20 +79,22 @@
   files: []
   tags: []
   metadata:
-    started_at: '2026-03-25T19:00:35.416985+00:00'
-    agent: senior-dev-beta
+    agent: senior-dev-2
+    started_at: '2026-03-26T12:23:16.577044+00:00'
   created_at: '2026-03-25T18:57:34.282227Z'
-  updated_at: '2026-03-25T19:10:17.953217Z'
+  updated_at: '2026-03-26T12:32:04.029472Z'
 - id: bug-border-consistency
   title: Unify border style across app — remove mixed rounded cards, use flat dividers consistently
   description: null
-  status: Pending
+  status: InProgress
   priority: 5
   deps:
   - bug-palette-unify
   files: []
   tags: []
-  metadata: {}
+  metadata:
+    agent: afa
+    started_at: '2026-03-26T14:07:06.631319+00:00'
   created_at: '2026-03-25T18:57:34.282230Z'
   updated_at: '2026-03-25T18:57:34.282230Z'
 - id: bug-muc-distinction
@@ -74,14 +106,14 @@
   files: []
   tags: []
   metadata:
-    started_at: '2026-03-25T19:27:02.114098+00:00'
     agent: '1'
+    started_at: '2026-03-25T19:27:02.114098+00:00'
   created_at: '2026-03-25T18:57:34.282227Z'
   updated_at: '2026-03-25T19:37:55.071742Z'
 - id: bug-palette-unify
   title: Define BRAND_BLUE, SURFACE_GREY, DANGER_RED constants in styles.rs; replace all hardcoded colors
   description: null
-  status: InProgress
+  status: Done
   priority: 5
   deps: []
   files: []
@@ -90,11 +122,11 @@
     started_at: '2026-03-25T19:00:42.352691+00:00'
     agent: afa
   created_at: '2026-03-25T18:57:34.282229Z'
-  updated_at: '2026-03-25T18:57:34.282229Z'
+  updated_at: '2026-03-26T13:35:34.495861Z'
 - id: bug-placeholder-text
   title: Replace hardcoded 'You received a message' with actual message body in notifications/preview
   description: null
-  status: InProgress
+  status: Done
   priority: 5
   deps:
   - bug-sidebar-preview
@@ -104,19 +136,21 @@
     started_at: '2026-03-25T19:27:08.778041+00:00'
     agent: '1'
   created_at: '2026-03-25T18:57:34.282229Z'
-  updated_at: '2026-03-25T18:57:34.282229Z'
+  updated_at: '2026-03-26T13:35:34.517009Z'
 - id: bug-settings-alignment
   title: Normalize text input widths in settings.rs — apply consistent width to all inputs
   description: null
-  status: Pending
+  status: Done
   priority: 5
   deps:
   - bug-palette-unify
   files: []
   tags: []
-  metadata: {}
+  metadata:
+    agent: afa
+    started_at: '2026-03-26T14:07:14.181903+00:00'
   created_at: '2026-03-25T18:57:34.282230Z'
-  updated_at: '2026-03-25T18:57:34.282230Z'
+  updated_at: '2026-03-26T14:11:44.737393Z'
 - id: bug-settings-nav
   title: Fix Settings button navigation — ensure it pushes Screen::Settings onto stack
   description: null
@@ -126,8 +160,8 @@
   files: []
   tags: []
   metadata:
-    started_at: '2026-03-25T19:27:05.709905+00:00'
     agent: '1'
+    started_at: '2026-03-25T19:27:05.709905+00:00'
   created_at: '2026-03-25T18:57:34.282228Z'
   updated_at: '2026-03-25T19:37:55.201440Z'
 - id: bug-sidebar-preview
@@ -142,7 +176,7 @@
     agent: afa
     started_at: '2026-03-25T19:00:53.929997+00:00'
   created_at: '2026-03-25T18:57:34.282213Z'
-  updated_at: '2026-03-25T19:10:05.895570Z'
+  updated_at: '2026-03-26T12:32:04.001783Z'
 - id: bug-status-menu-wire
   title: Wire status dropdown (Available/Away/DND) to PresenceMachine and send stanza
   description: null
@@ -182,8 +216,8 @@
   tags:
   - ui,avatar
   metadata:
-    agent: builder
     started_at: '2026-03-25T14:35:53.918807+00:00'
+    agent: builder
   created_at: '2026-03-25T14:35:40.097449Z'
   updated_at: '2026-03-25T14:39:24.668902Z'
 - id: fix-duplicate-login
@@ -242,8 +276,8 @@
   files: []
   tags: []
   metadata:
-    started_at: '2026-03-25T17:13:52.367369+00:00'
     agent: afa
+    started_at: '2026-03-25T17:13:52.367369+00:00'
   created_at: '2026-03-25T15:32:10.074355Z'
   updated_at: '2026-03-25T17:17:54.163240Z'
 - id: fix-reaction-alignment
@@ -257,8 +291,8 @@
   tags:
   - ui,ux
   metadata:
-    agent: builder
     started_at: '2026-03-25T14:38:23.610747+00:00'
+    agent: builder
   created_at: '2026-03-25T14:38:23.586258Z'
   updated_at: '2026-03-25T14:41:27.422864Z'
 - id: fix-reactions-sync
@@ -313,6 +347,154 @@
   metadata: {}
   created_at: '2026-03-25T15:43:04.085978Z'
   updated_at: '2026-03-25T17:08:42.316269Z'
+- id: fix-window-icon
+  title: 'Fix: Add window icon configuration using window::Settings with icon field'
+  description: null
+  status: Done
+  priority: 10
+  deps: []
+  files: []
+  tags: []
+  metadata: {}
+  created_at: '2026-03-25T19:41:15.275086Z'
+  updated_at: '2026-03-26T13:35:34.543854Z'
+- id: fix-window-title
+  title: 'Fix: Change window title from static string to dynamic closure in iced::application'
+  description: null
+  status: Done
+  priority: 10
+  deps: []
+  files: []
+  tags: []
+  metadata: {}
+  created_at: '2026-03-25T19:41:14.148253Z'
+  updated_at: '2026-03-26T13:35:34.571573Z'
+- id: iced-action-blocklist
+  title: Convert blocklist.rs from Option<BlocklistCommand> to Action enum pattern
+  description: null
+  status: Done
+  priority: 7
+  deps: []
+  files: []
+  tags: []
+  metadata:
+    agent: senior-dev-3
+    started_at: '2026-03-26T12:23:35.617698+00:00'
+  created_at: '2026-03-26T03:04:40.140262Z'
+  updated_at: '2026-03-26T12:32:04.052645Z'
+- id: iced-action-login
+  title: Add Action enum to LoginScreen — return Action from update() (AttemptLogin, GoToBenchmark)
+  description: null
+  status: Done
+  priority: 7
+  deps:
+  - refactor-action-app
+  files: []
+  tags: []
+  metadata:
+    agent: afa
+    started_at: '2026-03-26T03:39:14.789575+00:00'
+  created_at: '2026-03-26T03:04:40.140261Z'
+  updated_at: '2026-03-26T03:39:24.421670Z'
+- id: iced-action-modals
+  title: 'Add Action enum to all modal screens: About, VCardEditor, Adhoc, AccountSwitcher, OmemoTrust'
+  description: null
+  status: Done
+  priority: 7
+  deps:
+  - refactor-action-app
+  files: []
+  tags: []
+  metadata:
+    agent: afa
+    started_at: '2026-03-26T03:32:34.961324+00:00'
+  created_at: '2026-03-26T03:04:40.140261Z'
+  updated_at: '2026-03-26T04:16:49.031820Z'
+- id: iced-action-muc
+  title: Add update() + Action enum to MucPanel (currently display-only, needs InviteUser action)
+  description: null
+  status: Done
+  priority: 7
+  deps: []
+  files: []
+  tags: []
+  metadata:
+    started_at: '2026-03-26T12:23:41.848590+00:00'
+    agent: senior-dev-3
+  created_at: '2026-03-26T03:04:40.140263Z'
+  updated_at: '2026-03-26T12:32:04.080639Z'
+- id: iced-action-settings
+  title: Add Action enum to SettingsScreen — return Action from update() instead of Task<Message>
+  description: null
+  status: Done
+  priority: 7
+  deps:
+  - refactor-action-app
+  files: []
+  tags: []
+  metadata:
+    started_at: '2026-03-26T03:33:55.480862+00:00'
+    agent: afa
+  created_at: '2026-03-26T03:04:40.140257Z'
+  updated_at: '2026-03-26T03:40:46.365608Z'
+- id: iced-action-spam
+  title: Convert spam_report.rs from Option<SpamReportCommand> to Action enum pattern
+  description: null
+  status: Done
+  priority: 7
+  deps: []
+  files: []
+  tags: []
+  metadata:
+    started_at: '2026-03-26T03:05:57.310220+00:00'
+    agent: senior-dev-3
+  created_at: '2026-03-26T03:04:40.140262Z'
+  updated_at: '2026-03-26T12:22:37.028631Z'
+- id: iced-map-routing
+  title: Standardize .map() routing in mod.rs — all screens return Action, parent converts uniformly
+  description: null
+  status: Done
+  priority: 7
+  deps:
+  - iced-action-settings
+  - iced-action-login
+  - iced-action-modals
+  files: []
+  tags: []
+  metadata:
+    started_at: '2026-03-26T10:02:28.950073+00:00'
+    agent: afa
+  created_at: '2026-03-26T03:04:40.140263Z'
+  updated_at: '2026-03-26T10:21:23.469548Z'
+- id: iced-split-conversation
+  title: 'Split conversation.rs (1896 lines) into sub-components: Composer, MessageList, MessageActions'
+  description: null
+  status: Done
+  priority: 7
+  deps:
+  - iced-map-routing
+  files: []
+  tags: []
+  metadata:
+    started_at: '2026-03-26T10:25:12.538873+00:00'
+    agent: afa
+  created_at: '2026-03-26T03:04:40.140264Z'
+  updated_at: '2026-03-26T10:32:32.024464Z'
+- id: iced-validate
+  title: 'Final validation: cargo test + cargo clippy on all iced-* refactor changes'
+  description: null
+  status: Done
+  priority: 7
+  deps:
+  - iced-split-conversation
+  - iced-map-routing
+  files: []
+  tags: []
+  metadata:
+    agent: afa
+    started_at: '2026-03-26T10:38:39.702637+00:00'
+  created_at: '2026-03-26T03:04:40.140264Z'
+  updated_at: '2026-03-26T10:38:39.725196Z'
 - id: link-parser
   title: Add SpanStyle::Link and multi-scheme URL detection to styling.rs parser
   description: null
@@ -325,6 +507,7 @@
   - parser
   - core
   metadata:
+    started_at: '2026-03-25T18:12:02.868214+00:00'
     details: |
       - Add Link variant to SpanStyle enum
       - Move split_urls() from conversation.rs into styling.rs as private helper
@@ -333,7 +516,6 @@
       - Handle trailing punctuation (.  , ) ] ) — strip if not part of URL
       - URL boundary: terminate at whitespace or unmatched closing bracket
     agent: afa
-    started_at: '2026-03-25T18:12:02.868214+00:00'
   created_at: '2026-03-25T18:08:29.698389Z'
   updated_at: '2026-03-25T18:16:27.789218Z'
 - id: link-render
@@ -349,7 +531,6 @@
   - render
   - core
   metadata:
-    agent: afa
     started_at: '2026-03-25T18:17:20.666464+00:00'
     details: |
       - Remove split_urls() function from conversation.rs
@@ -357,6 +538,7 @@
       - Simplify build_styled_text() — no more per-span URL splitting loop
       - Add SpanStyle::Link arm to apply_style() or handle inline
       - Link spans: span(text).color(LINK_COLOR).underline(true).link(Message::OpenLink(text))
+    agent: afa
   created_at: '2026-03-25T18:08:29.698393Z'
   updated_at: '2026-03-25T18:19:49.849342Z'
 - id: link-styles
@@ -375,8 +557,8 @@
       - Remove #[allow(dead_code)] from link_style
       - Add pub const LINK_COLOR to styles.rs
       - Wire link_style into link preview card Open button if applicable
-    started_at: '2026-03-25T18:28:00.253564+00:00'
     agent: afa
+    started_at: '2026-03-25T18:28:00.253564+00:00'
   created_at: '2026-03-25T18:08:29.698393Z'
   updated_at: '2026-03-25T18:32:36.981193Z'
 - id: link-tests
@@ -391,8 +573,6 @@
   tags:
   - tests
   metadata:
-    agent: afa
-    started_at: '2026-03-25T18:17:28.812605+00:00'
     details: |
       - URL in plain text: "check https://example.com out"
       - URL with styling: "*bold* https://example.com"
@@ -404,6 +584,8 @@
       - Multiple URLs in one message
       - URL-only message
       - URL at start/end of line
+    agent: afa
+    started_at: '2026-03-25T18:17:28.812605+00:00'
   created_at: '2026-03-25T18:08:29.698394Z'
   updated_at: '2026-03-25T18:26:57.802566Z'
 - id: link-validate
@@ -421,12 +603,12 @@
   - validation
   - ci
   metadata:
-    started_at: '2026-03-25T18:33:18.831600+00:00'
     details: |
       - All existing tests must continue to pass
       - No clippy warnings (-D warnings)
       - Verify no dead_code warnings remain
     agent: afa
+    started_at: '2026-03-25T18:33:18.831600+00:00'
   created_at: '2026-03-25T18:08:29.698395Z'
   updated_at: '2026-03-25T18:34:03.415066Z'
 - id: login-avatar-lost
@@ -438,8 +620,8 @@
   files: []
   tags: []
   metadata:
-    started_at: '2026-03-25T17:13:52.342310+00:00'
     agent: afa
+    started_at: '2026-03-25T17:13:52.342310+00:00'
   created_at: '2026-03-25T15:25:18.245814Z'
   updated_at: '2026-03-25T17:23:31.442858Z'
 - id: login-enter-submit
@@ -451,8 +633,8 @@
   files: []
   tags: []
   metadata:
-    started_at: '2026-03-25T17:13:52.294175+00:00'
     agent: afa
+    started_at: '2026-03-25T17:13:52.294175+00:00'
   created_at: '2026-03-25T15:25:14.995652Z'
   updated_at: '2026-03-25T17:16:28.053895Z'
 - id: login-tab-switch
@@ -471,7 +653,7 @@
 - id: refactor-action-app
   title: 'App::update: match on child Action enums, remove if-let chains'
   description: null
-  status: Pending
+  status: Done
   priority: 2
   deps:
   - refactor-action-chat
@@ -485,13 +667,14 @@
       - Update App::update to handle ChatScreen::Action, SettingsScreen::Action
       - Remove all if-let peek patterns (OpenSettings, OpenAccountSwitcher, etc.)
       - Clean thin dispatch: match action { OpenSettings => ..., SendCommand(cmd) => ..., RunTask(t) => t }
-    agent: senior-developer
+    agent: afa
+    started_at: '2026-03-26T03:31:20.675439+00:00'
   created_at: '2026-03-25T18:49:20.230062Z'
-  updated_at: '2026-03-25T18:49:20.230062Z'
+  updated_at: '2026-03-26T03:31:20.693461Z'
 - id: refactor-action-chat
   title: 'ChatScreen: return Action enum, wire child Actions'
   description: null
-  status: Pending
+  status: Done
   priority: 2
   deps:
   - refactor-action-conversation
@@ -502,18 +685,19 @@
   - phase1
   - action-pattern
   metadata:
+    agent: afa
     details: |
       - Define `pub enum Action { None, RunTask(Task<Message>), OpenSettings, OpenAccountSwitcher, OpenOmemoTrust(String), SendCommand(XmppCommand) }`
       - Change `update()` to return `Action`
       - Replace if-let interception chains with match on child Action enums
       - App::update matches on ChatScreen::Action instead of peeking at chat::Message
-    agent: senior-developer
+    started_at: '2026-03-26T02:51:47.079217+00:00'
   created_at: '2026-03-25T18:49:20.230061Z'
-  updated_at: '2026-03-25T18:49:20.230061Z'
+  updated_at: '2026-03-26T03:29:13.020531Z'
 - id: refactor-action-conversation
   title: 'ConversationView: return Action enum instead of Task<Message>'
   description: null
-  status: InProgress
+  status: Done
   priority: 1
   deps: []
   files:
@@ -522,15 +706,15 @@
   - phase1
   - action-pattern
   metadata:
+    started_at: '2026-03-25T18:50:15.082035+00:00'
     details: |
       - Define `pub enum Action { None, RunTask(Task<Message>), OpenLink(String), ToggleMute, Close, BlockPeer(String), UnblockPeer(String), StartEdit(String), Retract(String) }`
       - Change `update()` to return `Action` instead of `Task<conversation::Message>`
       - Remove message variants that only exist to bubble up to parent (ToggleMute, Close, BlockPeer, etc.)
       - ChatScreen::update will match on Action instead of peeking at child messages with if-let
     agent: afa
-    started_at: '2026-03-25T18:50:15.082035+00:00'
   created_at: '2026-03-25T18:49:20.230049Z'
-  updated_at: '2026-03-25T18:49:20.230058Z'
+  updated_at: '2026-03-26T02:51:08.688193Z'
 - id: refactor-action-sidebar
   title: 'SidebarScreen: return Action enum instead of Task<Message>'
   description: null
@@ -543,18 +727,18 @@
   - phase1
   - action-pattern
   metadata:
-    agent: afa
-    started_at: '2026-03-25T18:50:20.129542+00:00'
     details: |
       - Define `pub enum Action { None, RunTask(Task<Message>), SelectContact(String), AddContact(String), JoinRoom(String), OpenSettings }`
       - Change `update()` to return `Action`
       - ChatScreen::update matches on Action for sidebar events
+    agent: afa
+    started_at: '2026-03-25T18:50:20.129542+00:00'
   created_at: '2026-03-25T18:49:20.230059Z'
   updated_at: '2026-03-25T19:00:00.456740Z'
 - id: refactor-avatar-dedup
   title: Remove ChatScreen avatar cache duplication, borrow from App
   description: null
-  status: Pending
+  status: Done
   priority: 9
   deps:
   - refactor-phase3-validate
@@ -565,19 +749,20 @@
   - phase4
   - avatar
   metadata:
+    started_at: '2026-03-26T10:51:31.048685+00:00'
+    agent: afa
     details: |
       - Remove ChatScreen.avatars: HashMap<String, Vec<u8>>
       - App passes &avatar_cache to ChatScreen::view via ViewContext (already done in Phase 2)
       - For update() paths that need avatars, pass &avatar_cache as parameter
       - Remove any avatar sync logic between App and ChatScreen
       - Single source of truth: App.avatar_cache
-    agent: senior-developer
   created_at: '2026-03-25T18:49:20.230070Z'
-  updated_at: '2026-03-25T18:49:20.230070Z'
+  updated_at: '2026-03-26T10:53:05.914174Z'
 - id: refactor-phase1-validate
   title: 'Phase 1 validation: cargo test + clippy clean'
   description: null
-  status: Pending
+  status: Done
   priority: 3
   deps:
   - refactor-action-app
@@ -586,17 +771,18 @@
   - phase1
   - validation
   metadata:
-    agent: senior-developer
+    agent: afa
     details: |
       - cargo test — all tests pass
       - cargo clippy -q --bin rexisce -- -D warnings — zero warnings
       - Verify no behavioral changes (Action pattern is a refactor, not a feature)
+    started_at: '2026-03-26T03:31:53.875270+00:00'
   created_at: '2026-03-25T18:49:20.230063Z'
-  updated_at: '2026-03-25T18:49:20.230063Z'
+  updated_at: '2026-03-26T03:32:05.868971Z'
 - id: refactor-phase2-validate
   title: 'Phase 2 validation: cargo test + clippy clean'
   description: null
-  status: Pending
+  status: Done
   priority: 5
   deps:
   - refactor-viewctx-wire
@@ -605,16 +791,17 @@
   - phase2
   - validation
   metadata:
-    agent: senior-developer
     details: |
       - cargo test + cargo clippy clean
       - Verify view signatures are cleaner (fewer params)
+    agent: afa
+    started_at: '2026-03-26T10:23:19.256802+00:00'
   created_at: '2026-03-25T18:49:20.230066Z'
-  updated_at: '2026-03-25T18:49:20.230066Z'
+  updated_at: '2026-03-26T10:23:19.277118Z'
 - id: refactor-phase3-validate
   title: 'Phase 3 validation: mod.rs under 800 lines, tests + clippy clean'
   description: null
-  status: Pending
+  status: Done
   priority: 8
   deps:
   - refactor-split-xmpp-events
@@ -623,17 +810,18 @@
   - phase3
   - validation
   metadata:
-    agent: senior-developer
+    agent: afa
     details: |
       - cargo test + cargo clippy clean
       - mod.rs should be under 800 lines (from 2326)
       - Verify no pub visibility leaks — extracted modules should use pub(crate)
+    started_at: '2026-03-26T10:50:12.539749+00:00'
   created_at: '2026-03-25T18:49:20.230069Z'
-  updated_at: '2026-03-25T18:49:20.230069Z'
+  updated_at: '2026-03-26T10:50:12.559064Z'
 - id: refactor-phase4-validate
   title: 'Phase 4 validation: no duplicate avatar HashMap, tests clean'
   description: null
-  status: Pending
+  status: Done
   priority: 10
   deps:
   - refactor-avatar-dedup
@@ -642,17 +830,18 @@
   - phase4
   - validation
   metadata:
-    agent: senior-developer
     details: |
       - cargo test + cargo clippy clean
       - grep confirms no `avatars: HashMap<String, Vec<u8>>` in chat.rs
       - Only App.avatar_cache holds avatar data
+    agent: afa
+    started_at: '2026-03-26T10:53:53.873145+00:00'
   created_at: '2026-03-25T18:49:20.230071Z'
-  updated_at: '2026-03-25T18:49:20.230071Z'
+  updated_at: '2026-03-26T10:53:53.893190Z'
 - id: refactor-split-navigation
   title: Extract navigation logic from mod.rs into ui/navigation.rs
   description: null
-  status: Pending
+  status: Done
   priority: 6
   deps:
   - refactor-phase2-validate
@@ -663,17 +852,18 @@
   - phase3
   - split
   metadata:
-    agent: senior-developer
+    started_at: '2026-03-26T10:30:52.100041+00:00'
+    agent: afa
     details: |
       - Extract GoToSettings, GoBack, GoToAbout, GoToVCardEditor, GoToAdhoc, GoToAccountSwitcher handlers
       - Create navigate_to() helper that handles Screen wrapping (Settings stores previous screen etc.)
       - Keep App::update as thin dispatch calling navigation::handle(app, msg)
   created_at: '2026-03-25T18:49:20.230066Z'
-  updated_at: '2026-03-25T18:49:20.230066Z'
+  updated_at: '2026-03-26T10:37:12.102635Z'
 - id: refactor-split-subscriptions
   title: Extract subscription setup from mod.rs into ui/subscriptions.rs
   description: null
-  status: Pending
+  status: Done
   priority: 6
   deps:
   - refactor-phase2-validate
@@ -684,17 +874,18 @@
   - phase3
   - split
   metadata:
-    agent: senior-developer
     details: |
       - Move subscription() method body into own module
       - XMPP event stream, idle tick, keyboard shortcuts — each as a function
       - App::subscription() calls subscriptions::all(state)
+    agent: afa
+    started_at: '2026-03-26T10:25:37.120092+00:00'
   created_at: '2026-03-25T18:49:20.230067Z'
-  updated_at: '2026-03-25T18:49:20.230067Z'
+  updated_at: '2026-03-26T10:29:49.004788Z'
 - id: refactor-split-xmpp-events
   title: Extract XmppEvent handling from mod.rs into ui/xmpp_events.rs
   description: null
-  status: Pending
+  status: Done
   priority: 7
   deps:
   - refactor-split-navigation
@@ -706,17 +897,18 @@
   - phase3
   - split
   metadata:
-    agent: senior-developer
+    agent: afa
     details: |
       - The XmppEvent match arm in App::update is huge — extract into handle_xmpp_event(app, event)
       - Covers: message received, presence, avatar, roster, MUC events, OMEMO etc.
       - mod.rs update() becomes: Message::XmppEvent(e) => xmpp_events::handle(self, e)
+    started_at: '2026-03-26T10:39:03.319598+00:00'
   created_at: '2026-03-25T18:49:20.230068Z'
-  updated_at: '2026-03-25T18:49:20.230068Z'
+  updated_at: '2026-03-26T10:49:12.972446Z'
 - id: refactor-viewctx-struct
   title: Define ViewContext struct for shared view parameters
   description: null
-  status: Pending
+  status: Done
   priority: 4
   deps:
   - refactor-phase1-validate
@@ -726,17 +918,18 @@
   - phase2
   - props
   metadata:
+    agent: afa
+    started_at: '2026-03-26T10:02:35.560062+00:00'
     details: |
       - Define pub struct ViewContext<'a> { avatars: &'a HashMap<String, Vec<u8>>, time_format: TimeFormat, own_jid: &'a str, omemo_enabled: bool }
       - Construct in App::view() from self fields
       - Pass to ChatScreen::view(ctx) instead of individual params
-    agent: senior-developer
   created_at: '2026-03-25T18:49:20.230064Z'
-  updated_at: '2026-03-25T18:49:20.230064Z'
+  updated_at: '2026-03-26T10:11:06.218404Z'
 - id: refactor-viewctx-wire
   title: Wire ViewContext through ChatScreen, Sidebar, ConversationView
   description: null
-  status: Pending
+  status: Done
   priority: 4
   deps:
   - refactor-viewctx-struct
@@ -755,7 +948,139 @@
       - Occupants and own_nick still passed separately (per-conversation, not global)
     agent: senior-developer
   created_at: '2026-03-25T18:49:20.230065Z'
-  updated_at: '2026-03-25T18:49:20.230065Z'
+  updated_at: '2026-03-26T10:11:16.819022Z'
+- id: task-08
+  title: 'TASK-08: UI Refactor - Unify Design Language (Settings vs Main). Settings screen has excessive border-radius and inconsistent paddings compared to contact sidebar. Create centralized StyleSheet for Containers and Buttons to fix ''Frankenstein'' appearance.'
+  description: null
+  status: Done
+  priority: 2
+  deps: []
+  files: []
+  tags:
+  - ui,refactor
+  metadata:
+    agent: afa
+    started_at: '2026-03-26T12:37:04.787574+00:00'
+  created_at: '2026-03-26T12:12:00.229183Z'
+  updated_at: '2026-03-26T12:49:38.399797Z'
+- id: task-09
+  title: 'TASK-09: Implement MUC (Group Chat) Sidebar Tab. MUCs polluting 1:1 contact list. Create clear separation in sidebar for ''Rooms/Groups'' as seen in Gajim/Fluux reference implementations.'
+  description: null
+  status: Done
+  priority: 2
+  deps:
+  - task-08
+  files: []
+  tags:
+  - ui,architecture
+  metadata:
+    agent: afa
+    started_at: '2026-03-26T12:50:27.709320+00:00'
+  created_at: '2026-03-26T12:12:14.603132Z'
+  updated_at: '2026-03-26T12:56:57.302769Z'
+- id: task-10
+  title: 'TASK-10: Fix Status Menu & Navigation routing. Status menu (Available/DND/Settings) is broken. Ensure clicking ''Settings'' fires correct navigation message and status change sends <presence> via engine.'
+  description: null
+  status: Done
+  priority: 2
+  deps:
+  - task-08
+  files: []
+  tags:
+  - ui,logic
+  metadata:
+    started_at: '2026-03-26T12:50:39.095549+00:00'
+    agent: afa
+  created_at: '2026-03-26T12:12:15.747571Z'
+  updated_at: '2026-03-26T13:08:53.998910Z'
+- id: task-11
+  title: 'TASK-11: Empty State Management & Padding. Remove meaningless empty spaces in account view and settings. Implement ''Empty States'' (e.g., ''No files shared'') instead of leaving containers empty.'
+  description: null
+  status: Done
+  priority: 3
+  deps:
+  - task-08
+  files: []
+  tags:
+  - ux
+  metadata:
+    started_at: '2026-03-26T12:50:43.167481+00:00'
+    agent: afa
+  created_at: '2026-03-26T12:12:16.662023Z'
+  updated_at: '2026-03-26T13:00:06.392062Z'
+- id: task-12
+  title: 'TASK-12: Implement XEP-0384 (OMEMO) Trust Management logic. Implement device fingerprint storage and trust decision logic. Mark device_id as Trusted, Untrusted, or BlindTrust. Reference BTBV logic to allow automatic messages on new devices until user decides manually.'
+  description: null
+  status: Done
+  priority: 1
+  deps: []
+  files: []
+  tags:
+  - security,omemo,backend
+  metadata:
+    started_at: '2026-03-26T12:37:09.442872+00:00'
+    agent: afa
+  created_at: '2026-03-26T12:16:56.892055Z'
+  updated_at: '2026-03-26T12:48:06.580808Z'
+- id: task-13
+  title: 'TASK-13: Crypto Protocol Selector (XEP-0384, XEP-0027, XEP-0373). Menu selection (Disabled, OMEMO, OpenPGP, PGP) must change EncryptionMode of active chat. Each mode requires different <message> stanza serialization. Implement plaintext fallback if key negotiation fails.'
+  description: null
+  status: Done
+  priority: 1
+  deps:
+  - task-12
+  files: []
+  tags:
+  - security,logic
+  metadata: {}
+  created_at: '2026-03-26T12:16:58.260346Z'
+  updated_at: '2026-03-26T13:01:34.878731Z'
+- id: task-14
+  title: 'TASK-14: UI Component - Fingerprint Management View. Create detailed fingerprint view per contact. List Fingerprint (String), Device ID, and trust status. Include Trust/Distrust buttons and ''Show Inactive Devices'' toggle.'
+  description: null
+  status: Done
+  priority: 2
+  deps:
+  - task-12
+  files: []
+  tags:
+  - ui,security
+  metadata:
+    started_at: '2026-03-26T12:48:58.418700+00:00'
+    agent: afa
+  created_at: '2026-03-26T12:16:59.871488Z'
+  updated_at: '2026-03-26T12:58:38.958492Z'
+- id: task-15
+  title: 'TASK-15: UI Popover - Encryption Type Selector. Implement lock icon popover menu. Radio button state must reflect current chat mode and fire Message::ChangeEncryption(Mode) to main update.'
+  description: null
+  status: Done
+  priority: 2
+  deps:
+  - task-13
+  files: []
+  tags:
+  - ui,ux
+  metadata:
+    agent: afa
+    started_at: '2026-03-26T13:02:29.925196+00:00'
+  created_at: '2026-03-26T12:17:00.893722Z'
+  updated_at: '2026-03-26T13:12:17.264550Z'
+- id: task-16
+  title: 'TASK-16: Encryption Status Indicators in Chat'
+  description: null
+  status: Done
+  priority: 3
+  deps:
+  - task-14
+  - task-15
+  files: []
+  tags:
+  - ui,ux
+  metadata:
+    started_at: '2026-03-26T13:19:20.537851+00:00'
+    agent: afa
+  created_at: '2026-03-26T13:13:08.362305Z'
+  updated_at: '2026-03-26T13:35:34.593675Z'
 - id: test-bookmarks
   title: Bookmarks tests (currently only 1 test)
   description: 'Add tests for bookmarks.rs: parse bookmark list, add bookmark, remove bookmark, auto-join flag handling.'
@@ -767,8 +1092,8 @@
   tags:
   - test,bookmarks
   metadata:
-    started_at: '2026-03-25T13:05:32.193641+00:00'
     agent: builder
+    started_at: '2026-03-25T13:05:32.193641+00:00'
   created_at: '2026-03-25T13:05:17.684246Z'
   updated_at: '2026-03-25T13:14:03.544090Z'
 - id: test-carbons-receipts
@@ -797,8 +1122,8 @@
   tags:
   - test,critical,storage
   metadata:
-    started_at: '2026-03-25T13:05:32.112509+00:00'
     agent: builder
+    started_at: '2026-03-25T13:05:32.112509+00:00'
   created_at: '2026-03-25T13:05:17.621534Z'
   updated_at: '2026-03-25T13:10:31.645908Z'
 - id: test-muc-admin
@@ -812,8 +1137,8 @@
   tags:
   - test,muc
   metadata:
-    started_at: '2026-03-25T13:05:32.144684+00:00'
     agent: builder
+    started_at: '2026-03-25T13:05:32.144684+00:00'
   created_at: '2026-03-25T13:05:17.642169Z'
   updated_at: '2026-03-25T13:14:03.495190Z'
 - id: test-multi-account-isolation
@@ -842,8 +1167,8 @@
   tags:
   - test,omemo,e2e
   metadata:
-    started_at: '2026-03-25T13:12:55.757073+00:00'
     agent: builder
+    started_at: '2026-03-25T13:12:55.757073+00:00'
   created_at: '2026-03-25T13:09:38.427215Z'
   updated_at: '2026-03-25T13:22:00.412966Z'
 - id: test-reactions-flow
@@ -857,8 +1182,8 @@
   tags:
   - test,reactions
   metadata:
-    started_at: '2026-03-25T13:05:32.167280+00:00'
     agent: builder
+    started_at: '2026-03-25T13:05:32.167280+00:00'
   created_at: '2026-03-25T13:05:17.663023Z'
   updated_at: '2026-03-25T13:14:03.521170Z'
 - id: test-reconnect-mam
@@ -907,7 +1232,7 @@
 - id: ux-1
   title: 'UX-1: Settings panel redesign — cards, sections, hierarchy'
   description: null
-  status: InProgress
+  status: Done
   priority: 3
   deps: []
   files: []
@@ -917,7 +1242,7 @@
     started_at: '2026-03-25T17:24:52.295865+00:00'
     agent: afa
   created_at: '2026-03-25T17:09:59.749832Z'
-  updated_at: '2026-03-25T17:09:59.749832Z'
+  updated_at: '2026-03-26T13:35:34.619006Z'
 - id: ux-2
   title: 'UX-2: Account avatar click → presence/settings popover'
   description: null
@@ -928,8 +1253,8 @@
   tags:
   - ux
   metadata:
-    started_at: '2026-03-25T17:24:52.330417+00:00'
     agent: afa
+    started_at: '2026-03-25T17:24:52.330417+00:00'
   created_at: '2026-03-25T17:09:59.774029Z'
   updated_at: '2026-03-25T17:37:28.098034Z'
 - id: ux-4
