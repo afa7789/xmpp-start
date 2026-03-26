@@ -28,6 +28,7 @@ use iced::{
 };
 
 use crate::ui::palette;
+use crate::ui::styles::RADIUS_CARD;
 use crate::xmpp::modules::link_preview::LinkPreview;
 
 // We need to refer to the conversation Message type. Import it via pub use so
@@ -84,7 +85,7 @@ pub fn render_preview_card(
             border: iced::Border {
                 color: palette::BORDER_SUBTLE,
                 width: 1.0,
-                radius: 8.0.into(),
+                radius: RADIUS_CARD.into(),
             },
             ..Default::default()
         });

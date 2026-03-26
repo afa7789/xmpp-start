@@ -9,6 +9,7 @@ use iced::{
 
 use super::account_details::AccountInfo;
 use super::blocklist::BlocklistPanel;
+use super::styles::{self, PADDING_CARD, RADIUS_BUTTON};
 use crate::config::{self, Settings, Theme};
 
 // ---------------------------------------------------------------------------
@@ -22,20 +23,9 @@ fn settings_section<'a>(title: &str, content: Element<'a, Message>) -> Element<'
     });
 
     container(column![heading, content].spacing(10))
-        .padding(15)
+        .padding(PADDING_CARD)
         .width(Length::Fill)
-        .style(|theme: &iced::Theme| {
-            let palette = theme.extended_palette();
-            iced::widget::container::Style {
-                background: Some(iced::Background::Color(palette.background.weak.color)),
-                border: iced::Border {
-                    color: palette.background.strong.color,
-                    width: 1.0,
-                    radius: 10.0.into(),
-                },
-                ..Default::default()
-            }
-        })
+        .style(styles::card_container_style)
         .into()
 }
 
@@ -59,7 +49,7 @@ fn segmented_btn(
                 border: iced::Border {
                     color: palette.primary.base.color,
                     width: 1.0,
-                    radius: 6.0.into(),
+                    radius: RADIUS_BUTTON.into(),
                 },
                 ..Default::default()
             }
@@ -77,7 +67,7 @@ fn segmented_btn(
                 border: iced::Border {
                     color: palette.background.strong.color,
                     width: 1.0,
-                    radius: 6.0.into(),
+                    radius: RADIUS_BUTTON.into(),
                 },
                 ..Default::default()
             }
@@ -772,7 +762,7 @@ impl SettingsScreen {
                     background: Some(iced::Background::Color(bg)),
                     text_color: palette.danger.base.text,
                     border: iced::Border {
-                        radius: 6.0.into(),
+                        radius: RADIUS_BUTTON.into(),
                         ..Default::default()
                     },
                     ..Default::default()

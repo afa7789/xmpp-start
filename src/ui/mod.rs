@@ -1164,18 +1164,7 @@ impl App {
             let modal_box = container(trust_view)
                 .width(Length::Fixed(480.0))
                 .height(Length::Fixed(480.0))
-                .style(|theme: &iced::Theme| {
-                    let palette = theme.extended_palette();
-                    iced::widget::container::Style {
-                        background: Some(iced::Background::Color(palette.background.base.color)),
-                        border: iced::Border {
-                            color: palette.primary.base.color,
-                            width: 1.0,
-                            radius: 8.0.into(),
-                        },
-                        ..Default::default()
-                    }
-                });
+                .style(styles::modal_container_style);
             let modal_overlay = container(
                 column![
                     Space::new(Length::Fill, Length::Fixed(80.0)),
@@ -1277,23 +1266,13 @@ impl App {
                     .width(480)
                     .padding(16)
                     .style(|theme: &iced::Theme| {
-                        let palette = theme.extended_palette();
-                        iced::widget::container::Style {
-                            background: Some(iced::Background::Color(
-                                palette.background.base.color,
-                            )),
-                            border: iced::Border {
-                                color: palette.primary.base.color,
-                                width: 1.0,
-                                radius: 8.0.into(),
-                            },
-                            shadow: iced::Shadow {
-                                color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
-                                offset: iced::Vector::new(0.0, 4.0),
-                                blur_radius: 16.0,
-                            },
-                            ..Default::default()
-                        }
+                        let mut s = styles::modal_container_style(theme);
+                        s.shadow = iced::Shadow {
+                            color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
+                            offset: iced::Vector::new(0.0, 4.0),
+                            blur_radius: 16.0,
+                        };
+                        s
                     });
 
             // Dark semi-transparent backdrop + centered palette

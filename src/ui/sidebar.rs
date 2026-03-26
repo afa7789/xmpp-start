@@ -15,6 +15,7 @@ use iced::{
 
 use crate::ui::account_state::account_color;
 use crate::ui::avatar::{jid_color, jid_initial};
+use crate::ui::styles;
 
 use crate::xmpp::{modules::presence_machine::PresenceStatus, AccountId, RosterContact};
 
@@ -627,20 +628,9 @@ impl SidebarScreen {
             ]
             .spacing(2)
             .padding(4);
-            let menu_panel =
-                container(menu_col)
-                    .width(Length::Fill)
-                    .style(|_theme: &iced::Theme| iced::widget::container::Style {
-                        background: Some(iced::Background::Color(iced::Color::from_rgb(
-                            0.13, 0.13, 0.16,
-                        ))),
-                        border: iced::Border {
-                            color: iced::Color::from_rgb(0.3, 0.3, 0.35),
-                            width: 1.0,
-                            radius: 6.0.into(),
-                        },
-                        ..Default::default()
-                    });
+            let menu_panel = container(menu_col)
+                .width(Length::Fill)
+                .style(styles::card_container_style);
             col = col.push(menu_panel);
         }
         col = col.push(header_row);
@@ -695,20 +685,9 @@ impl SidebarScreen {
             ]
             .spacing(4)
             .padding(8);
-            let profile_panel =
-                container(profile_col)
-                    .width(Length::Fill)
-                    .style(|_theme: &iced::Theme| iced::widget::container::Style {
-                        background: Some(iced::Background::Color(iced::Color::from_rgb(
-                            0.13, 0.13, 0.16,
-                        ))),
-                        border: iced::Border {
-                            color: iced::Color::from_rgb(0.3, 0.3, 0.35),
-                            width: 1.0,
-                            radius: 6.0.into(),
-                        },
-                        ..Default::default()
-                    });
+            let profile_panel = container(profile_col)
+                .width(Length::Fill)
+                .style(styles::card_container_style);
             col = col.push(profile_panel);
         }
 

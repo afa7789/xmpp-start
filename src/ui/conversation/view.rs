@@ -17,6 +17,7 @@ use crate::ui::link_preview::{domain_label, render_preview_card};
 use crate::ui::muc_panel::OccupantEntry;
 use crate::ui::omemo_trust::encryption_badge;
 use crate::ui::palette;
+use crate::ui::styles::RADIUS_CARD;
 use crate::ui::styling::{self, SpanStyle};
 
 use super::{
@@ -904,7 +905,7 @@ impl ConversationView {
                 border: iced::Border {
                     color: palette::BORDER_SUBTLE,
                     width: 1.0,
-                    radius: 8.0.into(),
+                    radius: RADIUS_CARD.into(),
                 },
                 shadow: iced::Shadow {
                     color: palette::BACKDROP_DIM,
