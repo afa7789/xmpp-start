@@ -484,6 +484,9 @@ pub enum XmppCommand {
     /// Mark `device_id` for `jid` as trusted by the user.
     OmemoTrustDevice { jid: String, device_id: u32 },
 
+    /// Fetch the OMEMO device list for `jid`, triggering bundle fetches and key negotiation.
+    OmemoFetchDevices { jid: String },
+
     // L1: Sticker packs (XEP-0449)
     /// Send a sticker to `to` from the given pack.
     SendSticker {

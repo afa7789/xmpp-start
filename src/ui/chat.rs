@@ -810,6 +810,23 @@ impl ChatScreen {
                     return Action::OpenOmemoTrust(peer_jid.clone());
                 }
 
+                // OMEMO: intercept ToggleEncryption to trigger key negotiation when enabling
+                if let super::conversation::Message::ToggleEncryption = cmsg {
+                    if let Some(convo) = self.conversations.get_mut(&jid) {
+                        let was_enabled = convo.is_encryption_enabled;
+                        let jid2 = jid.clone();
+                        let task = convo
+                            .update(cmsg)
+                            .map(move |m| Message::Conversation(jid2.clone(), m));
+                        if !was_enabled {
+                            self.pending_commands
+                                .push(XmppCommand::OmemoFetchDevices { jid });
+                        }
+                        return Action::Task(task);
+                    }
+                    return Action::None;
+                }
+
                 // E4/I3: intercept OpenFilePicker to spawn picker task
                 if let super::conversation::Message::OpenFilePicker = cmsg {
                     if let Some(convo) = self.conversations.get_mut(&jid) {

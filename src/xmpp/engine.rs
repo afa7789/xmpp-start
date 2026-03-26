@@ -896,6 +896,17 @@ async fn run_session(
                             }
                         }
                     }
+                    // MEMO: Fetch peer device list to initiate OMEMO key negotiation (XEP-0384).
+                    Some(XmppCommand::OmemoFetchDevices { jid }) => {
+                        if let Some(ref mut mgr) = omemo_mgr {
+                            let (iq_id, iq) = mgr.device_mgr.build_device_list_fetch(&jid);
+                            mgr.track_device_list_fetch(iq_id, jid.clone());
+                            outbox.push_back(iq);
+                            tracing::info!("omemo: fetching device list for {jid} (toggle)");
+                        } else {
+                            tracing::warn!("omemo: OmemoFetchDevices received but no DB pool");
+                        }
+                    }
                 }
             }
         }
