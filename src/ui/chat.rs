@@ -10,8 +10,8 @@ use iced::{
 };
 
 use crate::xmpp::{
-    modules::presence_machine::PresenceStatus, AccountId, IncomingMessage, RosterContact,
-    XmppCommand,
+    modules::presence_machine::PresenceStatus, AccountId, EncryptionMode, IncomingMessage,
+    RosterContact, XmppCommand,
 };
 
 use super::{
@@ -990,42 +990,71 @@ impl ChatScreen {
                         }
                         Message::Conversation(jid_for_preview, super::conversation::Message::Send)
                     });
-                    let use_omemo = self
+                    let enc_mode = self
                         .conversations
                         .get(&jid_for_cmd)
-                        .is_some_and(|cv| cv.is_encryption_enabled);
-                    if use_omemo {
-                        self.pending_commands
-                            .push(XmppCommand::OmemoEncryptMessage {
+                        .map_or(EncryptionMode::Disabled, |cv| cv.encryption_mode);
+                    match enc_mode {
+                        EncryptionMode::Omemo => {
+                            self.pending_commands
+                                .push(XmppCommand::OmemoEncryptMessage {
+                                    to: jid_for_cmd,
+                                    body: body_clone,
+                                });
+                        }
+                        EncryptionMode::OpenPgp | EncryptionMode::Pgp => {
+                            // OpenPGP/PGP not yet wired — plaintext fallback
+                            tracing::warn!(
+                                "crypto: {} not implemented, sending plaintext fallback",
+                                enc_mode.label()
+                            );
+                            self.pending_commands.push(XmppCommand::SendMessage {
                                 to: jid_for_cmd,
                                 body: body_clone,
+                                id: msg_id.clone(),
                             });
-                    } else {
-                        self.pending_commands.push(XmppCommand::SendMessage {
-                            to: jid_for_cmd,
-                            body: body_clone,
-                            id: msg_id.clone(),
-                        });
+                        }
+                        EncryptionMode::Disabled => {
+                            self.pending_commands.push(XmppCommand::SendMessage {
+                                to: jid_for_cmd,
+                                body: body_clone,
+                                id: msg_id.clone(),
+                            });
+                        }
                     }
                     return preview_task;
                 }
 
-                let use_omemo = self
+                let enc_mode = self
                     .conversations
                     .get(&jid)
-                    .is_some_and(|cv| cv.is_encryption_enabled);
-                if use_omemo {
-                    self.pending_commands
-                        .push(XmppCommand::OmemoEncryptMessage {
+                    .map_or(EncryptionMode::Disabled, |cv| cv.encryption_mode);
+                match enc_mode {
+                    EncryptionMode::Omemo => {
+                        self.pending_commands
+                            .push(XmppCommand::OmemoEncryptMessage {
+                                to: jid.clone(),
+                                body,
+                            });
+                    }
+                    EncryptionMode::OpenPgp | EncryptionMode::Pgp => {
+                        tracing::warn!(
+                            "crypto: {} not implemented, sending plaintext fallback",
+                            enc_mode.label()
+                        );
+                        self.pending_commands.push(XmppCommand::SendMessage {
                             to: jid.clone(),
                             body,
+                            id: msg_id,
                         });
-                } else {
-                    self.pending_commands.push(XmppCommand::SendMessage {
-                        to: jid.clone(),
-                        body,
-                        id: msg_id,
-                    });
+                    }
+                    EncryptionMode::Disabled => {
+                        self.pending_commands.push(XmppCommand::SendMessage {
+                            to: jid.clone(),
+                            body,
+                            id: msg_id,
+                        });
+                    }
                 }
             }
         }

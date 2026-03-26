@@ -628,7 +628,8 @@ pub(crate) fn handle(app: &mut App, event: XmppEvent) -> Task<Message> {
         | XmppEvent::ConversationsReceived(_)
         | XmppEvent::RetractionReceived { .. }
         | XmppEvent::PasswordChanged { .. }
-        | XmppEvent::AccountDeleted { .. } => {}
+        | XmppEvent::AccountDeleted { .. }
+        | XmppEvent::EncryptionFallback { .. } => {}
     }
     Task::none()
 }

@@ -16,6 +16,47 @@ use tokio_xmpp::minidom::Element;
 pub use connection::ConnectConfig;
 
 // ---------------------------------------------------------------------------
+// Encryption mode for per-conversation crypto protocol selection
+// ---------------------------------------------------------------------------
+
+/// Crypto protocol used for a conversation (XEP-0384, XEP-0027, XEP-0373).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EncryptionMode {
+    #[default]
+    Disabled,
+    /// OMEMO (XEP-0384) — Signal-based double-ratchet encryption.
+    Omemo,
+    /// OpenPGP for XMPP (XEP-0373) — modern OpenPGP via PubSub.
+    OpenPgp,
+    /// Legacy PGP (XEP-0027) — inline PGP-signed/encrypted messages.
+    Pgp,
+}
+
+impl EncryptionMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Disabled => "Disabled",
+            Self::Omemo => "OMEMO",
+            Self::OpenPgp => "OpenPGP",
+            Self::Pgp => "PGP",
+        }
+    }
+
+    pub const ALL: [EncryptionMode; 4] = [
+        Self::Disabled,
+        Self::Omemo,
+        Self::OpenPgp,
+        Self::Pgp,
+    ];
+}
+
+impl std::fmt::Display for EncryptionMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // MULTI: Account identity newtype
 // ---------------------------------------------------------------------------
 
@@ -258,6 +299,12 @@ pub enum XmppEvent {
     /// A new unrecognized device appeared for `jid` and needs trust resolution.
     OmemoKeyExchangeNeeded {
         jid: String,
+    },
+
+    /// Encryption failed — message was sent as plaintext fallback.
+    EncryptionFallback {
+        jid: String,
+        reason: String,
     },
 
     // L1: Sticker packs (XEP-0449)

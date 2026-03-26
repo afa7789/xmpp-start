@@ -873,14 +873,28 @@ async fn run_session(
                                     }).await;
                                 }
                                 Err(OmemoEncryptError::Other(e)) => {
-                                    tracing::error!("omemo: encrypt failed for {to}: {e}");
-                                    let _ = event_tx.send(XmppEvent::OmemoKeyExchangeNeeded {
+                                    tracing::error!("omemo: encrypt failed for {to}: {e} — sending plaintext fallback");
+                                    // Plaintext fallback: send unencrypted when key negotiation fails.
+                                    let fallback_id = uuid::Uuid::new_v4().to_string();
+                                    if let Ok(to_jid) = to.parse::<Jid>() {
+                                        outbox.push_back(make_message(to_jid, &body, &fallback_id));
+                                    }
+                                    let _ = event_tx.send(XmppEvent::EncryptionFallback {
                                         jid: to.clone(),
+                                        reason: e.to_string(),
                                     }).await;
                                 }
                             }
                         } else {
-                            tracing::warn!("omemo: OmemoEncryptMessage received but no DB pool");
+                            tracing::warn!("omemo: OmemoEncryptMessage received but no DB pool — sending plaintext fallback");
+                            let fallback_id = uuid::Uuid::new_v4().to_string();
+                            if let Ok(to_jid) = to.parse::<Jid>() {
+                                outbox.push_back(make_message(to_jid, &body, &fallback_id));
+                            }
+                            let _ = event_tx.send(XmppEvent::EncryptionFallback {
+                                jid: to.clone(),
+                                reason: "OMEMO not available (no database)".into(),
+                            }).await;
                         }
                     }
                     // MEMO: Update trust for a peer device.

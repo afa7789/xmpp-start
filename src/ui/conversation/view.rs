@@ -19,6 +19,8 @@ use crate::ui::omemo_trust::encryption_badge;
 use crate::ui::palette;
 use crate::ui::styling::{self, SpanStyle};
 
+use crate::xmpp::EncryptionMode;
+
 use super::{
     is_me_action, ConversationView, Message, MessageState, VoiceState, EMOJI_LIST, ME_PREFIX,
 };
@@ -828,26 +830,32 @@ impl ConversationView {
             ]
             .spacing(4)
             .align_y(Alignment::Center);
-            // OMEMO Phase 2: show per-conversation lock button only when OMEMO is globally enabled
+            // Crypto protocol selector — show when OMEMO is globally enabled
             if vctx.omemo_enabled {
-                let lock_icon = if self.is_encryption_enabled {
+                let lock_icon = if self.encryption_mode != EncryptionMode::Disabled {
                     "🔒"
                 } else {
                     "🔓"
                 };
-                let lock_tip = if self.is_encryption_enabled {
-                    "Encryption enabled — click to disable"
-                } else {
-                    "Encryption disabled — click to enable"
-                };
-                let lock_btn = tooltip(
-                    button(text(lock_icon).size(14).shaping(Shaping::Advanced))
-                        .on_press(Message::ToggleEncryption)
-                        .padding([4, 8]),
-                    lock_tip,
-                    tooltip::Position::Bottom,
-                );
-                header_row = header_row.push(lock_btn);
+                let current_label = self.encryption_mode.label();
+                let mut selector_row =
+                    row![text(lock_icon).size(14).shaping(Shaping::Advanced)]
+                        .spacing(4)
+                        .align_y(Alignment::Center);
+                for mode in EncryptionMode::ALL {
+                    let label = mode.label();
+                    let btn = if mode == self.encryption_mode {
+                        button(text(label).size(11)).padding([2, 6])
+                    } else {
+                        button(text(label).size(11))
+                            .on_press(Message::SetEncryptionMode(mode))
+                            .padding([2, 6])
+                    };
+                    selector_row = selector_row.push(btn);
+                }
+                let tip = format!("Encryption: {current_label}");
+                let selector = tooltip(selector_row, text(tip).size(11), tooltip::Position::Bottom);
+                header_row = header_row.push(selector);
             }
             header_row = header_row.push(search_btn).push(close_btn);
             header_row.into()

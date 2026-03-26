@@ -8,6 +8,7 @@ mod update;
 mod view;
 
 use crate::xmpp::modules::link_preview::LinkPreview;
+use crate::xmpp::EncryptionMode;
 use iced::widget::image as iced_image;
 use iced::widget::scrollable::{AbsoluteOffset, Id};
 
@@ -227,8 +228,8 @@ pub struct ConversationView {
     pub pending_moderate_dialog: Option<String>,
     /// L3: Reason text input for message moderation
     pub moderate_reason_input: String,
-    /// OMEMO Phase 2: per-conversation encryption toggle
-    pub is_encryption_enabled: bool,
+    /// Per-conversation encryption mode (Disabled, OMEMO, OpenPGP, PGP).
+    pub encryption_mode: EncryptionMode,
 }
 
 #[derive(Debug, Clone)]
@@ -291,8 +292,8 @@ pub enum Message {
     DismissModerateDialog,
     /// OMEMO: open the trust/fingerprint dialog for the sender of a message
     OpenOmemoTrust(String), // peer_jid
-    /// OMEMO Phase 2: toggle per-conversation encryption on/off
-    ToggleEncryption,
+    /// Set per-conversation encryption mode.
+    SetEncryptionMode(EncryptionMode),
 }
 
 impl ConversationView {
@@ -326,7 +327,7 @@ impl ConversationView {
             voice_elapsed_secs: 0,
             pending_moderate_dialog: None,
             moderate_reason_input: String::new(),
-            is_encryption_enabled: false,
+            encryption_mode: EncryptionMode::Disabled,
         }
     }
 
