@@ -7,6 +7,41 @@
 mod update;
 mod view;
 
+/// Encryption mode for a conversation (task-15).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EncryptionMode {
+    #[default]
+    Disabled,
+    Omemo,
+    OpenPgp,
+    Pgp,
+}
+
+impl EncryptionMode {
+    /// Returns true when any encryption is active.
+    pub fn is_active(self) -> bool {
+        self != Self::Disabled
+    }
+
+    /// Human-readable label for display.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Disabled => "None (plaintext)",
+            Self::Omemo => "OMEMO",
+            Self::OpenPgp => "OpenPGP",
+            Self::Pgp => "PGP (legacy)",
+        }
+    }
+
+    /// All modes in display order.
+    pub const ALL: [EncryptionMode; 4] = [
+        EncryptionMode::Disabled,
+        EncryptionMode::Omemo,
+        EncryptionMode::OpenPgp,
+        EncryptionMode::Pgp,
+    ];
+}
+
 use crate::xmpp::modules::link_preview::LinkPreview;
 use iced::widget::image as iced_image;
 use iced::widget::scrollable::{AbsoluteOffset, Id};
@@ -227,8 +262,10 @@ pub struct ConversationView {
     pub pending_moderate_dialog: Option<String>,
     /// L3: Reason text input for message moderation
     pub moderate_reason_input: String,
-    /// OMEMO Phase 2: per-conversation encryption toggle
-    pub is_encryption_enabled: bool,
+    /// Task-15: per-conversation encryption mode
+    pub encryption_mode: EncryptionMode,
+    /// Task-15: whether the encryption popover is open
+    pub encryption_popover_open: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -291,8 +328,10 @@ pub enum Message {
     DismissModerateDialog,
     /// OMEMO: open the trust/fingerprint dialog for the sender of a message
     OpenOmemoTrust(String), // peer_jid
-    /// OMEMO Phase 2: toggle per-conversation encryption on/off
-    ToggleEncryption,
+    /// Task-15: set encryption mode via popover selector
+    SetEncryptionMode(EncryptionMode),
+    /// Task-15: toggle the encryption popover visibility
+    ToggleEncryptionPopover,
 }
 
 impl ConversationView {
@@ -326,7 +365,8 @@ impl ConversationView {
             voice_elapsed_secs: 0,
             pending_moderate_dialog: None,
             moderate_reason_input: String::new(),
-            is_encryption_enabled: false,
+            encryption_mode: EncryptionMode::default(),
+            encryption_popover_open: false,
         }
     }
 

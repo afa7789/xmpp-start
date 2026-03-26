@@ -4,8 +4,8 @@ use iced::widget::text::Span as IcedSpan;
 use iced::{
     font,
     widget::{
-        button, column, container, image, mouse_area, rich_text, row, scrollable, span, text,
-        text_input, tooltip,
+        button, column, container, image, mouse_area, radio, rich_text, row, scrollable, span,
+        text, text_input, tooltip,
     },
     Alignment, Element, Font, Length,
 };
@@ -20,7 +20,8 @@ use crate::ui::palette;
 use crate::ui::styling::{self, SpanStyle};
 
 use super::{
-    is_me_action, ConversationView, Message, MessageState, VoiceState, EMOJI_LIST, ME_PREFIX,
+    is_me_action, ConversationView, EncryptionMode, Message, MessageState, VoiceState, EMOJI_LIST,
+    ME_PREFIX,
 };
 
 impl ConversationView {
@@ -828,23 +829,19 @@ impl ConversationView {
             ]
             .spacing(4)
             .align_y(Alignment::Center);
-            // OMEMO Phase 2: show per-conversation lock button only when OMEMO is globally enabled
+            // Task-15: encryption mode popover (lock icon + dropdown with radio buttons)
             if vctx.omemo_enabled {
-                let lock_icon = if self.is_encryption_enabled {
+                let lock_icon = if self.encryption_mode.is_active() {
                     "🔒"
                 } else {
                     "🔓"
                 };
-                let lock_tip = if self.is_encryption_enabled {
-                    "Encryption enabled — click to disable"
-                } else {
-                    "Encryption disabled — click to enable"
-                };
+                let lock_tip = format!("Encryption: {}", self.encryption_mode.label());
                 let lock_btn = tooltip(
                     button(text(lock_icon).size(14).shaping(Shaping::Advanced))
-                        .on_press(Message::ToggleEncryption)
+                        .on_press(Message::ToggleEncryptionPopover)
                         .padding([4, 8]),
-                    lock_tip,
+                    text(lock_tip).size(12),
                     tooltip::Position::Bottom,
                 );
                 header_row = header_row.push(lock_btn);
@@ -856,7 +853,40 @@ impl ConversationView {
             .padding([8, 12])
             .width(Length::Fill);
 
-        let mut col = column![header, scroll_area, scroll_bar];
+        // Task-15: encryption mode popover panel (radio buttons for each mode)
+        let encryption_panel: Option<Element<Message>> = if self.encryption_popover_open {
+            let mut panel_col: iced::widget::Column<Message> = column![
+                text("Encryption").size(12),
+            ]
+            .spacing(4)
+            .padding(8);
+            for mode in EncryptionMode::ALL {
+                panel_col = panel_col.push(
+                    radio(
+                        mode.label(),
+                        mode,
+                        Some(self.encryption_mode),
+                        Message::SetEncryptionMode,
+                    )
+                    .size(14)
+                    .text_size(13),
+                );
+            }
+            Some(
+                container(panel_col)
+                    .width(Length::Fill)
+                    .padding([0, 12])
+                    .into(),
+            )
+        } else {
+            None
+        };
+
+        let mut col = column![header];
+        if let Some(panel) = encryption_panel {
+            col = col.push(panel);
+        }
+        col = col.push(scroll_area).push(scroll_bar);
         if let Some(strip) = reply_strip {
             col = col.push(strip);
         }

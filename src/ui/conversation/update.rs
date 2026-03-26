@@ -149,8 +149,13 @@ impl ConversationView {
                 Task::none()
             }
             Message::OpenOmemoTrust(_) => Task::none(), // bubbled to ChatScreen
-            Message::ToggleEncryption => {
-                self.is_encryption_enabled = !self.is_encryption_enabled;
+            Message::SetEncryptionMode(mode) => {
+                self.encryption_mode = mode;
+                self.encryption_popover_open = false;
+                Task::none()
+            }
+            Message::ToggleEncryptionPopover => {
+                self.encryption_popover_open = !self.encryption_popover_open;
                 Task::none()
             }
             Message::AttachmentLoaded(msg_id, handle) => {

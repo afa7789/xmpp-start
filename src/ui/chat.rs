@@ -993,7 +993,7 @@ impl ChatScreen {
                     let use_omemo = self
                         .conversations
                         .get(&jid_for_cmd)
-                        .is_some_and(|cv| cv.is_encryption_enabled);
+                        .is_some_and(|cv| cv.encryption_mode.is_active());
                     if use_omemo {
                         self.pending_commands
                             .push(XmppCommand::OmemoEncryptMessage {
@@ -1013,7 +1013,7 @@ impl ChatScreen {
                 let use_omemo = self
                     .conversations
                     .get(&jid)
-                    .is_some_and(|cv| cv.is_encryption_enabled);
+                    .is_some_and(|cv| cv.encryption_mode.is_active());
                 if use_omemo {
                     self.pending_commands
                         .push(XmppCommand::OmemoEncryptMessage {
