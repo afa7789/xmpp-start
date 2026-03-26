@@ -262,14 +262,33 @@ pub fn trust_color(state: &TrustState) -> Color {
     }
 }
 
-/// Returns a small lock or unlock text badge indicating encryption state.
-pub fn encryption_badge<'a, M: 'a + Clone>(is_encrypted: bool) -> Element<'a, M> {
-    let (label, _color) = if is_encrypted {
-        ("Encrypted", Color::from_rgb(0.20, 0.75, 0.35))
+/// Returns a small lock/shield icon badge indicating encryption and trust state.
+///
+/// - Unencrypted: no icon (empty space)
+/// - Encrypted + untrusted: closed padlock (U+1F512)
+/// - Encrypted + trusted: closed padlock + shield (U+1F512 U+1F6E1)
+pub fn encryption_badge<'a, M: 'a + Clone>(
+    is_encrypted: bool,
+    is_trusted: bool,
+) -> Element<'a, M> {
+    use iced::widget::text::Shaping;
+
+    if !is_encrypted {
+        // No indicator for unencrypted messages
+        text("").size(11).into()
+    } else if is_trusted {
+        text("\u{1F512}\u{FE0F}\u{1F6E1}\u{FE0F}")
+            .size(11)
+            .shaping(Shaping::Advanced)
+            .color(Color::from_rgb(0.20, 0.75, 0.35))
+            .into()
     } else {
-        ("Unencrypted", Color::from_rgb(0.85, 0.25, 0.25))
-    };
-    text(label).size(11).into()
+        text("\u{1F512}\u{FE0F}")
+            .size(11)
+            .shaping(Shaping::Advanced)
+            .color(Color::from_rgb(0.90, 0.70, 0.10))
+            .into()
+    }
 }
 
 // ---------------------------------------------------------------------------
