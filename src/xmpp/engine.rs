@@ -370,7 +370,12 @@ async fn run_session(
                 break;
             }
             // C1: record sent stanza and check for queue desync
-            sm.on_stanza_sent(stanza.clone());
+            // Only count real stanzas (message/presence/iq), not SM nonzas (<a>, <r>).
+            let is_sm_nonza = stanza.ns() == "urn:xmpp:sm:3"
+                && (stanza.name() == "a" || stanza.name() == "r");
+            if !is_sm_nonza {
+                sm.on_stanza_sent(stanza.clone());
+            }
             if sm.has_queue_desync() {
                 tracing::warn!(
                     "stream_mgmt: unacked queue desync — {} pending, h={}",
@@ -1061,9 +1066,14 @@ async fn handle_client_event(
 
         tokio_xmpp::Event::Stanza(el) => {
             // C1: record inbound stanza and maybe send coalesced ack
-            sm.on_stanza_received();
-            if let Some(ack) = sm.maybe_send_ack() {
-                outbox.push_back(ack);
+            // Only count real stanzas for h, not SM nonzas (<a>, <r>).
+            let is_sm_nonza = el.ns() == "urn:xmpp:sm:3"
+                && (el.name() == "a" || el.name() == "r");
+            if !is_sm_nonza {
+                sm.on_stanza_received();
+                if let Some(ack) = sm.maybe_send_ack() {
+                    outbox.push_back(ack);
+                }
             }
             dispatch_stanza(
                 el,
