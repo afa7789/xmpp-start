@@ -3,7 +3,7 @@
 // A panel that shows the current block list, lets the user filter it,
 // add a new JID to block, and unblock existing entries.
 //
-// The panel produces BlocklistCommand values that the caller (SettingsScreen)
+// The panel produces Action values that the caller (SettingsScreen)
 // converts into XmppCommand::BlockJid / XmppCommand::UnblockJid.
 
 use iced::{
@@ -38,12 +38,12 @@ pub enum Message {
 }
 
 // ---------------------------------------------------------------------------
-// Commands returned to the caller
+// Actions returned to the caller
 // ---------------------------------------------------------------------------
 
 /// Side-effects the caller should perform after an update.
-#[derive(Debug, Clone)]
-pub enum BlocklistCommand {
+pub enum Action {
+    None,
     Block(String),
     Unblock(String),
 }
@@ -63,21 +63,21 @@ impl BlocklistPanel {
         }
     }
 
-    /// Update the panel, returning an optional command for the caller.
-    pub fn update(&mut self, msg: Message) -> Option<BlocklistCommand> {
+    /// Update the panel, returning an action for the caller.
+    pub fn update(&mut self, msg: Message) -> Action {
         match msg {
             Message::FilterChanged(v) => {
                 self.filter = v;
-                None
+                Action::None
             }
             Message::NewJidChanged(v) => {
                 self.new_jid = v;
-                None
+                Action::None
             }
             Message::AddJid => {
                 let jid = self.new_jid.trim().to_string();
                 if jid.is_empty() {
-                    return None;
+                    return Action::None;
                 }
                 self.new_jid.clear();
                 // Optimistically add to local list so UI updates immediately.
@@ -85,11 +85,11 @@ impl BlocklistPanel {
                     self.blocked.push(jid.clone());
                     self.blocked.sort();
                 }
-                Some(BlocklistCommand::Block(jid))
+                Action::Block(jid)
             }
             Message::Unblock(jid) => {
                 self.blocked.retain(|b| b != &jid);
-                Some(BlocklistCommand::Unblock(jid))
+                Action::Unblock(jid)
             }
         }
     }

@@ -248,6 +248,9 @@ impl ChatScreen {
             .entry(bare_jid.clone())
             .or_insert_with(|| ConversationView::new(bare_jid.clone(), own_jid));
 
+        // Update last-message preview in sidebar
+        self.sidebar.set_last_message(&bare_jid, &msg.body);
+
         convo.push_message(DisplayMessage {
             id: msg.id.clone(),
             from: msg.from,
@@ -414,6 +417,12 @@ impl ChatScreen {
             .get(jid)
             .and_then(|cv| cv.messages().last())
             .map(|m| m.id.clone())
+    }
+
+    /// Set the last-message preview for a JID in the sidebar.
+    /// Called by the parent (App) when loading history from the database.
+    pub fn set_sidebar_last_message(&mut self, jid: &str, body: &str) {
+        self.sidebar.set_last_message(jid, body);
     }
 
     pub fn update(&mut self, msg: Message) -> Action {

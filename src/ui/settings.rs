@@ -8,7 +8,7 @@ use iced::{
 };
 
 use super::account_details::AccountInfo;
-use super::blocklist::{BlocklistCommand, BlocklistPanel};
+use super::blocklist::BlocklistPanel;
 use crate::config::{self, Settings, Theme};
 
 // ---------------------------------------------------------------------------
@@ -438,17 +438,16 @@ impl SettingsScreen {
 
             // M3: blocklist
             Message::Blocklist(bl_msg) => {
-                if let Some(cmd) = self.blocklist.update(bl_msg) {
-                    match cmd {
-                        BlocklistCommand::Block(jid) => {
-                            self.pending_commands
-                                .push(crate::xmpp::XmppCommand::BlockJid(jid));
-                        }
-                        BlocklistCommand::Unblock(jid) => {
-                            self.pending_commands
-                                .push(crate::xmpp::XmppCommand::UnblockJid(jid));
-                        }
+                match self.blocklist.update(bl_msg) {
+                    super::blocklist::Action::Block(jid) => {
+                        self.pending_commands
+                            .push(crate::xmpp::XmppCommand::BlockJid(jid));
                     }
+                    super::blocklist::Action::Unblock(jid) => {
+                        self.pending_commands
+                            .push(crate::xmpp::XmppCommand::UnblockJid(jid));
+                    }
+                    super::blocklist::Action::None => {}
                 }
                 Action::None
             }
@@ -1079,16 +1078,16 @@ mod tests {
 
     #[test]
     fn blocklist_panel_block_unblock_roundtrip() {
-        use crate::ui::blocklist::{BlocklistPanel, Message as BMsg};
+        use crate::ui::blocklist::{Action as BlAction, BlocklistPanel, Message as BMsg};
         let mut panel = BlocklistPanel::new(vec!["spam@example.com".to_string()]);
         // Stage a new JID then add it
         panel.update(BMsg::NewJidChanged("troll@example.org".into()));
-        let cmd = panel.update(BMsg::AddJid);
-        assert!(matches!(cmd, Some(BlocklistCommand::Block(_))));
+        let action = panel.update(BMsg::AddJid);
+        assert!(matches!(action, BlAction::Block(_)));
         assert_eq!(panel.blocked.len(), 2);
         // Unblock it
-        let cmd = panel.update(BMsg::Unblock("troll@example.org".into()));
-        assert!(matches!(cmd, Some(BlocklistCommand::Unblock(_))));
+        let action = panel.update(BMsg::Unblock("troll@example.org".into()));
+        assert!(matches!(action, BlAction::Unblock(_)));
         assert_eq!(panel.blocked.len(), 1);
     }
 

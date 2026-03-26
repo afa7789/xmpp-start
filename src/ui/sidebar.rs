@@ -24,6 +24,7 @@ pub struct SidebarScreen {
     selected_jid: Option<String>,
     presence: HashMap<String, bool>,
     unread_counts: HashMap<String, u32>, // B5: unread message counts per JID
+    last_messages: HashMap<String, String>, // last-message preview per JID
     // H3: add contact UI state
     show_add_contact: bool,
     add_contact_input: String,
@@ -113,6 +114,7 @@ impl SidebarScreen {
             selected_jid: None,
             presence: HashMap::new(),
             unread_counts: HashMap::new(),
+            last_messages: HashMap::new(),
             show_add_contact: false,
             add_contact_input: String::new(),
             rename_state: None,
@@ -136,6 +138,25 @@ impl SidebarScreen {
     /// B5: clear unread count for a JID.
     pub fn clear_unread(&mut self, jid: &str) {
         self.unread_counts.remove(jid);
+    }
+
+    /// Set the last-message preview for a JID, truncated to 60 chars.
+    pub fn set_last_message(&mut self, jid: &str, body: &str) {
+        let trimmed = body.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        let preview = if trimmed.len() > 60 {
+            // Truncate at a char boundary to avoid panics on multi-byte text.
+            let end = trimmed
+                .char_indices()
+                .nth(60)
+                .map_or(trimmed.len(), |(i, _)| i);
+            format!("{}...", &trimmed[..end])
+        } else {
+            trimmed.to_owned()
+        };
+        self.last_messages.insert(jid.to_owned(), preview);
     }
 
     pub fn on_presence(&mut self, jid: &str, available: bool) {
@@ -462,7 +483,7 @@ impl SidebarScreen {
 
                 // B5: unread badge
                 let unread = self.unread_counts.get(c.jid.as_str()).copied().unwrap_or(0);
-                let name_elem: Element<Message> = if unread > 0 {
+                let name_row: Element<Message> = if unread > 0 {
                     row![
                         text(name_label)
                             .size(13)
@@ -480,7 +501,24 @@ impl SidebarScreen {
                     text(name_label).size(13).shaping(Shaping::Advanced).into()
                 };
 
-                let label_row = row![avatar, name_elem]
+                // Last-message preview (muted grey, smaller text)
+                let info_col: Element<Message> =
+                    if let Some(preview) = self.last_messages.get(c.jid.as_str()) {
+                        column![
+                            name_row,
+                            text(preview.as_str())
+                                .size(11)
+                                .color(iced::Color::from_rgb(0.55, 0.55, 0.55))
+                                .shaping(Shaping::Advanced),
+                        ]
+                        .spacing(1)
+                        .width(Length::Fill)
+                        .into()
+                    } else {
+                        name_row
+                    };
+
+                let label_row = row![avatar, info_col]
                     .spacing(6)
                     .align_y(Alignment::Center)
                     .width(Length::Fill);

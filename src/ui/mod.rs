@@ -298,7 +298,7 @@ impl App {
                 next_toast_id: 0,
                 reconnect_attempt: 0,
                 last_connect_cfg: None,
-                avatar_cache: HashMap::new(),
+                avatar_cache: crate::config::load_avatar_cache(),
                 avatar_fetching: HashSet::new(),
                 xmpp_console: XmppConsole::new(200),
                 show_console: false,
@@ -483,6 +483,16 @@ impl App {
 
             Message::MessagesLoaded(jid, rows) => {
                 if let Screen::Chat(ref mut chat) = self.screen {
+                    // Set sidebar last-message preview from the most recent history row.
+                    if let Some(last_body) = rows
+                        .iter()
+                        .rev()
+                        .filter_map(|r| r.body.as_deref())
+                        .find(|b| !b.trim().is_empty())
+                    {
+                        chat.set_sidebar_last_message(&jid, last_body);
+                    }
+
                     let own_jid = chat.own_jid().to_string();
                     // Strip resource so bare JIDs are compared; stored from_jid may
                     // carry the resource from a previous session with a different suffix.
@@ -565,30 +575,31 @@ impl App {
             }
 
             Message::SpamReport(msg) => {
-                let is_cancel = matches!(msg, spam_report::Message::Cancel);
-                let mut cmd_to_send: Option<(String, Option<String>)> = None;
-                if let Some(ref mut modal) = self.spam_report_modal {
-                    if let Some(spam_cmd) = modal.update(msg) {
-                        cmd_to_send = Some((spam_cmd.jid, spam_cmd.reason));
+                let action = if let Some(ref mut modal) = self.spam_report_modal {
+                    modal.update(msg)
+                } else {
+                    spam_report::Action::None
+                };
+                match action {
+                    spam_report::Action::None => Task::none(),
+                    spam_report::Action::Cancel => {
+                        self.spam_report_modal = None;
+                        Task::none()
+                    }
+                    spam_report::Action::Submit { jid, reason } => {
+                        self.spam_report_modal = None;
+                        if let Some(ref tx) = self.xmpp_tx {
+                            let tx = tx.clone();
+                            tokio::spawn(async move {
+                                let _ = tx.send(XmppCommand::ReportSpam { jid, reason }).await;
+                            });
+                        }
+                        self.update(Message::ShowToast(
+                            "Spam report sent.".into(),
+                            ToastKind::Info,
+                        ))
                     }
                 }
-                if is_cancel {
-                    self.spam_report_modal = None;
-                }
-                if let Some((jid, reason)) = cmd_to_send {
-                    self.spam_report_modal = None;
-                    if let Some(ref tx) = self.xmpp_tx {
-                        let tx = tx.clone();
-                        tokio::spawn(async move {
-                            let _ = tx.send(XmppCommand::ReportSpam { jid, reason }).await;
-                        });
-                    }
-                    return self.update(Message::ShowToast(
-                        "Spam report sent.".into(),
-                        ToastKind::Info,
-                    ));
-                }
-                Task::none()
             }
 
             // MULTI: account switcher screen — populate with live account data.

@@ -34,6 +34,17 @@ pub enum Message {
 }
 
 // ---------------------------------------------------------------------------
+// Actions returned to the caller
+// ---------------------------------------------------------------------------
+
+/// Side-effects the caller should perform after an update.
+#[allow(dead_code)]
+pub enum Action {
+    None,
+    InviteUser { room_jid: String, user_jid: String },
+}
+
+// ---------------------------------------------------------------------------
 // OccupantPanel
 // ---------------------------------------------------------------------------
 
@@ -52,6 +63,19 @@ impl OccupantPanel {
         Self {
             room_jid,
             occupants: Vec::new(),
+        }
+    }
+
+    /// Update the panel, returning an action for the caller.
+    #[allow(dead_code)]
+    pub fn update(&mut self, msg: Message) -> Action {
+        match msg {
+            Message::OpenInviteDialog(_room_jid) => {
+                // The invite dialog is handled by the parent (ChatScreen),
+                // so we just pass through as Action::None. The parent maps
+                // this message directly in the view layer.
+                Action::None
+            }
         }
     }
 

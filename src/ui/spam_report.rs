@@ -2,8 +2,8 @@
 //
 // A simple modal dialog that lets the user report a JID as a spammer.
 // The dialog is pre-filled with the target JID and has an optional reason
-// text area.  It produces a `SpamReportCommand` that the caller converts
-// into `XmppCommand::ReportSpam`.
+// text area.  It produces an `Action` that the caller matches on to
+// perform the appropriate side-effect (e.g. `XmppCommand::ReportSpam`).
 
 use iced::{
     widget::{button, column, container, row, text, text_input},
@@ -11,14 +11,14 @@ use iced::{
 };
 
 // ---------------------------------------------------------------------------
-// Command returned to the caller
+// Action returned to the caller
 // ---------------------------------------------------------------------------
 
-/// The side-effect the caller should perform after the user submits.
 #[derive(Debug, Clone)]
-pub struct SpamReportCommand {
-    pub jid: String,
-    pub reason: Option<String>,
+pub enum Action {
+    None,
+    Submit { jid: String, reason: Option<String> },
+    Cancel,
 }
 
 // ---------------------------------------------------------------------------
@@ -58,35 +58,33 @@ impl SpamReportModal {
         }
     }
 
-    /// Update state.  Returns `Some(SpamReportCommand)` when the user
-    /// submits, or `None` (including when they cancel — the caller must
-    /// close the modal on `Message::Cancel` independently).
-    pub fn update(&mut self, msg: Message) -> Option<SpamReportCommand> {
+    /// Update state.  Returns an `Action` indicating what the caller should do.
+    pub fn update(&mut self, msg: Message) -> Action {
         match msg {
             Message::JidChanged(v) => {
                 self.jid = v;
-                None
+                Action::None
             }
             Message::ReasonChanged(v) => {
                 self.reason = v;
-                None
+                Action::None
             }
             Message::Submit => {
                 let jid = self.jid.trim().to_string();
                 if jid.is_empty() {
-                    return None;
+                    return Action::None;
                 }
                 let reason = self.reason.trim().to_string();
-                Some(SpamReportCommand {
+                Action::Submit {
                     jid,
                     reason: if reason.is_empty() {
                         None
                     } else {
                         Some(reason)
                     },
-                })
+                }
             }
-            Message::Cancel => None,
+            Message::Cancel => Action::Cancel,
         }
     }
 

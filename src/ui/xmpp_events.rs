@@ -319,6 +319,7 @@ pub(crate) fn handle(app: &mut App, event: XmppEvent) -> Task<Message> {
         } => {
             tracing::debug!("H1: avatar received for {jid} ({} bytes)", png_bytes.len());
             app.avatar_cache.insert(jid.clone(), png_bytes.clone());
+            config::save_avatar(jid, png_bytes);
             if let Screen::Chat(ref mut chat) = app.screen {
                 // H2: persist own avatar to settings for instant
                 // restore on next login.
@@ -410,6 +411,7 @@ pub(crate) fn handle(app: &mut App, event: XmppEvent) -> Task<Message> {
         XmppEvent::AvatarUpdated { ref jid, ref data } => {
             tracing::debug!("J6: PubSub avatar updated for {jid} ({} bytes)", data.len());
             app.avatar_cache.insert(jid.clone(), data.clone());
+            config::save_avatar(jid, data);
             if let Screen::Chat(ref mut chat) = app.screen {
                 // H2: persist own avatar to settings for instant
                 // restore on next login.

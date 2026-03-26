@@ -270,6 +270,88 @@ pub fn delete_password(jid: &str) {
 }
 
 // ---------------------------------------------------------------------------
+// Avatar disk cache
+// ---------------------------------------------------------------------------
+
+/// Platform-appropriate data directory for persistent application data.
+fn data_dir() -> PathBuf {
+    let base = std::env::var("HOME").map_or_else(|_| PathBuf::from("."), PathBuf::from);
+    if cfg!(target_os = "macos") {
+        base.join("Library")
+            .join("Application Support")
+            .join("rexisce")
+    } else {
+        base.join(".local").join("share").join("rexisce")
+    }
+}
+
+/// Directory where cached avatar PNGs are stored on disk.
+fn avatar_cache_dir() -> PathBuf {
+    data_dir().join("avatars")
+}
+
+/// Deterministic filename for a JID's avatar (SHA-1 hash of the bare JID).
+fn jid_to_filename(jid: &str) -> String {
+    use sha1::{Digest, Sha1};
+    let bare = jid.split('/').next().unwrap_or(jid);
+    let hash = Sha1::digest(bare.as_bytes());
+    format!("{:x}.png", hash)
+}
+
+/// Persist an avatar to disk so it survives app restarts.
+pub fn save_avatar(jid: &str, png_bytes: &[u8]) {
+    let dir = avatar_cache_dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!("avatar cache: failed to create dir: {e}");
+        return;
+    }
+    let path = dir.join(jid_to_filename(jid));
+    if let Err(e) = std::fs::write(&path, png_bytes) {
+        tracing::warn!("avatar cache: failed to write {}: {e}", path.display());
+    }
+    save_avatar_jid_sidecar(jid);
+}
+
+/// Load all cached avatars from disk into a HashMap keyed by bare JID.
+pub fn load_avatar_cache() -> std::collections::HashMap<String, Vec<u8>> {
+    let dir = avatar_cache_dir();
+    // Also build a reverse lookup: filename → JID.
+    // We can't reverse a SHA-1 hash, so we store a companion ".jid" sidecar
+    // file alongside each avatar.
+    let mut map = std::collections::HashMap::new();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return map,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("png") {
+            continue;
+        }
+        // Read the companion .jid sidecar to recover the bare JID.
+        let jid_path = path.with_extension("jid");
+        let jid = match std::fs::read_to_string(&jid_path) {
+            Ok(j) => j,
+            Err(_) => continue,
+        };
+        if let Ok(bytes) = std::fs::read(&path) {
+            map.insert(jid, bytes);
+        }
+    }
+    map
+}
+
+/// Internal: write the JID sidecar file so `load_avatar_cache` can map
+/// filename back to JID.
+fn save_avatar_jid_sidecar(jid: &str) {
+    let dir = avatar_cache_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let bare = jid.split('/').next().unwrap_or(jid);
+    let sidecar = dir.join(jid_to_filename(jid)).with_extension("jid");
+    let _ = std::fs::write(sidecar, bare);
+}
+
+// ---------------------------------------------------------------------------
 // Per-account keychain helpers (MULTI)
 //
 // These operate on `AccountConfig::password_key` instead of the bare JID so
@@ -586,5 +668,46 @@ mod tests {
             s.last_server.is_empty(),
             "last_server should be empty by default"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Avatar disk cache
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn jid_to_filename_is_deterministic() {
+        let a = super::jid_to_filename("alice@example.com");
+        let b = super::jid_to_filename("alice@example.com");
+        assert_eq!(a, b);
+        assert!(a.ends_with(".png"));
+    }
+
+    #[test]
+    fn jid_to_filename_strips_resource() {
+        let bare = super::jid_to_filename("alice@example.com");
+        let full = super::jid_to_filename("alice@example.com/laptop");
+        assert_eq!(bare, full);
+    }
+
+    #[test]
+    fn avatar_save_and_load_roundtrip() {
+        let dir = std::env::temp_dir().join("rexisce_test_avatars");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // Temporarily override the cache dir by saving directly via the
+        // internal helpers (we can't override data_dir, so we test the
+        // public API which writes to the real cache dir, then clean up).
+        let jid = "roundtrip-test@example.com";
+        let png = b"fake-png-data-for-test";
+
+        super::save_avatar(jid, png);
+        let loaded = super::load_avatar_cache();
+        assert_eq!(loaded.get(jid).map(|v| v.as_slice()), Some(png.as_slice()));
+
+        // Clean up the file we wrote.
+        let cache_dir = super::avatar_cache_dir();
+        let fname = super::jid_to_filename(jid);
+        let _ = std::fs::remove_file(cache_dir.join(&fname));
+        let _ = std::fs::remove_file(cache_dir.join(fname).with_extension("jid"));
     }
 }
