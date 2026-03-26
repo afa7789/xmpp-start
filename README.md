@@ -4,7 +4,6 @@
 
 Native XMPP desktop messenger — pure Rust using [iced](https://github.com/iced-rs/iced).
 
-> Built with vibecoding, using other XMPP clients as reference (Halloy, Dino, Gajim).
 
 ---
 
@@ -210,3 +209,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 MIT
+
+> Built with vibecoding, using other XMPP clients as reference (Halloy, Dino, Gajim).
