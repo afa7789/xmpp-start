@@ -904,6 +904,16 @@ impl App {
                                 });
                             }
                         }
+                        omemo_trust::Action::UntrustDevice { jid, device_id } => {
+                            if let Some(ref tx) = self.xmpp_tx {
+                                let tx = tx.clone();
+                                tokio::spawn(async move {
+                                    let _ = tx
+                                        .send(XmppCommand::OmemoUntrustDevice { jid, device_id })
+                                        .await;
+                                });
+                            }
+                        }
                         omemo_trust::Action::Close => {
                             self.omemo_trust_modal = None;
                         }

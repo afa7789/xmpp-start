@@ -896,6 +896,18 @@ async fn run_session(
                             }
                         }
                     }
+                    Some(XmppCommand::OmemoUntrustDevice { jid, device_id }) => {
+                        if let Some(ref mgr) = omemo_mgr {
+                            if let Err(e) = mgr.store
+                                .set_trust(&config.jid, &jid, device_id, TrustState::Untrusted)
+                                .await
+                            {
+                                tracing::error!("omemo: set_trust(untrusted) failed for {jid}/{device_id}: {e}");
+                            } else {
+                                tracing::info!("omemo: device {device_id} of {jid} marked untrusted");
+                            }
+                        }
+                    }
                 }
             }
         }

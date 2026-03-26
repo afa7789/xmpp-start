@@ -32,7 +32,6 @@ pub struct DeviceEntry {
     /// Optional human-readable label (e.g. "Desktop", "Phone").
     pub label: Option<String>,
     /// Whether the device is currently active on the server device list.
-    #[allow(dead_code)]
     pub active: bool,
 }
 
@@ -55,6 +54,8 @@ pub struct OwnDeviceData {
 pub struct OmemoTrustScreen {
     pub contact_jid: String,
     pub devices: Vec<DeviceEntry>,
+    /// When false, only active devices are shown.
+    pub show_inactive: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -65,6 +66,7 @@ pub struct OmemoTrustScreen {
 pub enum Message {
     TrustDevice(u32),
     UntrustDevice(u32),
+    ToggleShowInactive,
     Close,
 }
 
@@ -75,6 +77,7 @@ pub enum Message {
 pub enum Action {
     None,
     TrustDevice { jid: String, device_id: u32 },
+    UntrustDevice { jid: String, device_id: u32 },
     Close,
 }
 
@@ -87,6 +90,7 @@ impl OmemoTrustScreen {
         Self {
             contact_jid: contact_jid.into(),
             devices,
+            show_inactive: false,
         }
     }
 
@@ -106,6 +110,13 @@ impl OmemoTrustScreen {
                 if let Some(dev) = self.devices.iter_mut().find(|d| d.device_id == id) {
                     dev.trust = TrustState::Untrusted;
                 }
+                Action::UntrustDevice {
+                    jid: self.contact_jid.clone(),
+                    device_id: id,
+                }
+            }
+            Message::ToggleShowInactive => {
+                self.show_inactive = !self.show_inactive;
                 Action::None
             }
             Message::Close => Action::Close,
@@ -113,10 +124,20 @@ impl OmemoTrustScreen {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        let title = text(format!("Encryption Keys — {}", self.contact_jid)).size(18);
+        let title = text(format!("Fingerprint Management — {}", self.contact_jid)).size(18);
+
+        // Count inactive devices for the toggle label.
+        let inactive_count = self.devices.iter().filter(|d| !d.active).count();
+
+        // Filter devices based on the show_inactive toggle.
+        let visible_devices: Vec<&DeviceEntry> = self
+            .devices
+            .iter()
+            .filter(|d| d.active || self.show_inactive)
+            .collect();
 
         let device_rows: Vec<Element<Message>> =
-            self.devices.iter().map(|dev| device_row(dev)).collect();
+            visible_devices.iter().map(|dev| device_row(dev)).collect();
 
         let list = device_rows
             .into_iter()
@@ -124,14 +145,28 @@ impl OmemoTrustScreen {
 
         let list_scroll = scrollable(list).height(Length::Fill);
 
+        // "Show Inactive Devices" toggle row.
+        let toggle_label = if self.show_inactive {
+            format!("Hide Inactive Devices ({inactive_count})")
+        } else {
+            format!("Show Inactive Devices ({inactive_count})")
+        };
+        let toggle_btn = button(text(toggle_label).size(12))
+            .on_press(Message::ToggleShowInactive)
+            .padding([4, 12]);
+
         let close_btn = button("Close").on_press(Message::Close).padding([8, 24]);
+
+        let bottom_row = row![toggle_btn, Space::with_width(Length::Fill), close_btn]
+            .spacing(8)
+            .align_y(Alignment::Center);
 
         let content = column![
             title,
             Space::with_height(Length::Fixed(12.0)),
             list_scroll,
             Space::with_height(Length::Fixed(12.0)),
-            close_btn,
+            bottom_row,
         ]
         .spacing(8)
         .padding(20);
@@ -202,16 +237,28 @@ impl OwnDeviceInfo {
 fn device_row(dev: &DeviceEntry) -> Element<'_, Message> {
     let label_text = dev.label.as_deref().unwrap_or("Unknown device");
 
-    let device_id_text = text(format!("ID {}", dev.device_id)).size(11);
     let label = text(label_text).size(13);
+    let device_id_text = text(format!("Device ID: {}", dev.device_id)).size(11);
+    let fp_text = text(format!("Fingerprint: {}", format_fingerprint(&dev.identity_key))).size(11);
 
-    let fp_text = text(format_fingerprint(&dev.identity_key)).size(11);
+    // Active/inactive indicator.
+    let activity_badge: Element<Message> = if dev.active {
+        text("Active")
+            .size(10)
+            .color(Color::from_rgb(0.20, 0.75, 0.35))
+            .into()
+    } else {
+        text("Inactive")
+            .size(10)
+            .color(Color::from_rgb(0.55, 0.55, 0.55))
+            .into()
+    };
 
-    let badge = trust_badge(&dev.trust);
+    let trust = trust_badge(&dev.trust);
 
     // Trust toggle button depends on current state.
     let toggle_btn: Element<Message> = match dev.trust {
-        TrustState::Trusted | TrustState::Tofu => button(text("Untrust").size(12))
+        TrustState::Trusted | TrustState::Tofu => button(text("Distrust").size(12))
             .on_press(Message::UntrustDevice(dev.device_id))
             .padding([4, 10])
             .into(),
@@ -221,13 +268,16 @@ fn device_row(dev: &DeviceEntry) -> Element<'_, Message> {
             .into(),
     };
 
+    let status_row = row![trust, Space::with_width(Length::Fixed(8.0)), activity_badge]
+        .align_y(Alignment::Center);
+
     let left = column![label, device_id_text, fp_text].spacing(2);
 
-    let right = column![badge, toggle_btn]
+    let right = column![status_row, toggle_btn]
         .spacing(4)
         .align_x(Alignment::End);
 
-    row![left.width(Length::Fill), right,]
+    row![left.width(Length::Fill), right]
         .spacing(12)
         .align_y(Alignment::Center)
         .into()

@@ -484,6 +484,9 @@ pub enum XmppCommand {
     /// Mark `device_id` for `jid` as trusted by the user.
     OmemoTrustDevice { jid: String, device_id: u32 },
 
+    /// Mark `device_id` for `jid` as untrusted by the user.
+    OmemoUntrustDevice { jid: String, device_id: u32 },
+
     // L1: Sticker packs (XEP-0449)
     /// Send a sticker to `to` from the given pack.
     SendSticker {
