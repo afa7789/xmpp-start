@@ -15,12 +15,6 @@ use crate::config::{self, Settings, Theme};
 // Section card helper — wraps grouped settings in a themed card container
 // ---------------------------------------------------------------------------
 
-/// Build a card container for a settings section with title and optional description.
-#[allow(dead_code)]
-fn settings_section<'a>(title: &str, content: Element<'a, Message>) -> Element<'a, Message> {
-    settings_section_with_desc(title, None, content)
-}
-
 /// Build a card container with title, optional description, and content.
 fn settings_section_with_desc<'a>(
     title: &str,
@@ -189,7 +183,6 @@ pub struct SettingsScreen {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub enum Message {
     ThemeToggled,
     NotificationsToggled(bool),
