@@ -70,9 +70,10 @@ rfd = "0.14"
 # Clipboard image paste (I1)
 arboard = "3"
 
-# M4: Audio recording (voice messages)
+# M4: Audio recording + playback (voice messages)
 cpal = "0.15"
 hound = "3"
+rodio = "0.19"
 
 # OMEMO E2E encryption (XEP-0384) — Signal/Olm protocol, pure Rust
 vodozemac = "0.8"

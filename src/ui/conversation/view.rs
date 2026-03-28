@@ -206,7 +206,7 @@ impl ConversationView {
             // E2: retract button (own messages only)
             let retract_msg_id = m.id.clone();
             let retract_btn = tooltip(
-                button(text("✕").size(10))
+                button(text("✕").size(10).shaping(Shaping::Advanced))
                     .on_press(Message::RetractMessage(retract_msg_id))
                     .padding([2, 4]),
                 "Retract message",
@@ -553,7 +553,7 @@ impl ConversationView {
 
         // E1: edit-mode strip above composer
         let edit_strip: Option<Element<Message>> = self.edit_mode.as_ref().map(|(_id, _orig)| {
-            let cancel_btn = button(text("✕").size(10))
+            let cancel_btn = button(text("✕").size(10).shaping(Shaping::Advanced))
                 .on_press(Message::CancelEdit)
                 .padding([2, 4]);
             let strip = row![
@@ -717,7 +717,7 @@ impl ConversationView {
             for (i, att) in self.pending_attachments.iter().enumerate() {
                 let size_kb = att.size / 1024;
                 let label = format!("{} ({}KB)", att.name, size_kb);
-                let remove_btn = button(text("✕").size(10))
+                let remove_btn = button(text("✕").size(10).shaping(Shaping::Advanced))
                     .on_press(Message::RemoveAttachment(i))
                     .padding([2, 4]);
                 let progress_bar = container(
@@ -755,7 +755,7 @@ impl ConversationView {
         };
 
         let close_btn = tooltip(
-            button(text("✕").size(14))
+            button(text("✕").size(14).shaping(Shaping::Advanced))
                 .on_press(Message::Close)
                 .padding([4, 10]),
             "Close conversation",
@@ -833,17 +833,17 @@ impl ConversationView {
             ]
             .spacing(4)
             .align_y(Alignment::Center);
-            // OMEMO Phase 2: show per-conversation lock button only when OMEMO is globally enabled
-            if vctx.omemo_enabled {
+            // OMEMO: always show per-conversation encryption toggle (like Gajim "Choose Encryption")
+            {
                 let lock_icon = if self.is_encryption_enabled {
                     "🔒"
                 } else {
                     "🔓"
                 };
                 let lock_tip = if self.is_encryption_enabled {
-                    "Encryption enabled — click to disable"
+                    "OMEMO encryption enabled — click to disable"
                 } else {
-                    "Encryption disabled — click to enable"
+                    "Click to enable OMEMO encryption"
                 };
                 let lock_btn = tooltip(
                     button(text(lock_icon).size(14).shaping(Shaping::Advanced))

@@ -269,10 +269,7 @@ pub fn trust_color(state: &TrustState) -> Color {
 /// - Unencrypted: no icon (empty space)
 /// - Encrypted + untrusted: closed padlock (U+1F512)
 /// - Encrypted + trusted: closed padlock + shield (U+1F512 U+1F6E1)
-pub fn encryption_badge<'a, M: 'a + Clone>(
-    is_encrypted: bool,
-    is_trusted: bool,
-) -> Element<'a, M> {
+pub fn encryption_badge<'a, M: 'a + Clone>(is_encrypted: bool, is_trusted: bool) -> Element<'a, M> {
     use iced::widget::text::Shaping;
 
     if !is_encrypted {

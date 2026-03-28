@@ -10,6 +10,8 @@ pub struct Conversation {
     pub last_activity: Option<i64>,
     /// K3: 1 = notifications muted for this contact, 0 = notifications enabled.
     pub muted: i64,
+    /// 1 = OMEMO encryption enabled for this conversation, 0 = plaintext.
+    pub encrypted: i64,
 }
 
 fn row_to_conversation(row: &sqlx::sqlite::SqliteRow) -> Conversation {
@@ -19,6 +21,7 @@ fn row_to_conversation(row: &sqlx::sqlite::SqliteRow) -> Conversation {
         archived: row.get("archived"),
         last_activity: row.get("last_activity"),
         muted: row.try_get("muted").unwrap_or(0),
+        encrypted: row.try_get("encrypted").unwrap_or(0),
     }
 }
 
@@ -54,7 +57,8 @@ pub async fn get_all_for_account(
 ) -> Result<Vec<Conversation>> {
     let rows = sqlx::query(
         "SELECT jid, last_read_id, archived, last_activity, \
-                COALESCE(muted, 0) AS muted \
+                COALESCE(muted, 0) AS muted, \
+                COALESCE(encrypted, 0) AS encrypted \
          FROM conversations \
          WHERE account_jid = ? \
          ORDER BY last_activity DESC NULLS LAST",
@@ -83,6 +87,7 @@ pub async fn mark_read(pool: &SqlitePool, jid: &str, message_id: &str) -> Result
 }
 
 /// Archive or un-archive a conversation.
+// TODO: wire into soft conversation close
 #[allow(dead_code)]
 pub async fn set_archived(pool: &SqlitePool, jid: &str, archived: bool) -> Result<()> {
     sqlx::query("UPDATE conversations SET archived = ? WHERE jid = ?")
@@ -104,6 +109,7 @@ pub async fn update_last_activity(pool: &SqlitePool, jid: &str, ts: i64) -> Resu
 }
 
 /// K3: Set or clear the muted flag for a conversation.
+// TODO: wire into per-room notification mute
 #[allow(dead_code)]
 pub async fn set_muted(pool: &SqlitePool, jid: &str, muted: bool) -> Result<()> {
     sqlx::query("UPDATE conversations SET muted = ? WHERE jid = ?")
@@ -115,12 +121,23 @@ pub async fn set_muted(pool: &SqlitePool, jid: &str, muted: bool) -> Result<()> 
 }
 
 /// K3: Return the muted JIDs as a set (for fast lookup in the notification path).
+// TODO: wire into per-room notification mute
 #[allow(dead_code)]
 pub async fn get_muted_jids(pool: &SqlitePool) -> Result<std::collections::HashSet<String>> {
     let rows = sqlx::query("SELECT jid FROM conversations WHERE muted = 1")
         .fetch_all(pool)
         .await?;
     Ok(rows.iter().map(|r| r.get::<String, _>("jid")).collect())
+}
+
+/// Set or clear the OMEMO encryption flag for a conversation.
+pub async fn set_encrypted(pool: &SqlitePool, jid: &str, encrypted: bool) -> Result<()> {
+    sqlx::query("UPDATE conversations SET encrypted = ? WHERE jid = ?")
+        .bind(encrypted as i64)
+        .bind(jid)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 /// M6: Delete all conversations from the database (used by "Clear chat history" in settings).

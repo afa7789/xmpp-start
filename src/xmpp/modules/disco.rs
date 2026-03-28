@@ -170,6 +170,7 @@ impl DiscoManager {
     /// the response.
     ///
     /// Returns `(iq_id, element)`.
+    // TODO: wire into feature-gating (check server supports MAM/push/upload)
     #[allow(dead_code)]
     pub fn build_info_request(&mut self, to_jid: &str) -> (String, Element) {
         let id = Uuid::new_v4().to_string();
@@ -304,6 +305,7 @@ impl DiscoManager {
     /// Return `true` if the cached disco#info for `jid` lists `feature`.
     ///
     /// Returns `false` when the JID is unknown or uncached.
+    // TODO: wire into feature-gating
     #[allow(dead_code)]
     pub fn supports(&self, jid: &str, feature: &str) -> bool {
         self.cache
@@ -312,6 +314,7 @@ impl DiscoManager {
     }
 
     /// Return a reference to the cached `DiscoInfo` for `jid`, if any.
+    // TODO: wire into feature-gating
     #[allow(dead_code)]
     pub fn get_cached(&self, jid: &str) -> Option<&DiscoInfo> {
         self.cache.get(jid)

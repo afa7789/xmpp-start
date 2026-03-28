@@ -42,6 +42,7 @@ use super::{engine::run_engine, AccountId, XmppCommand, XmppEvent};
 // Per-engine handle
 // ---------------------------------------------------------------------------
 
+// TODO: wire into multi-account support (J8)
 #[allow(dead_code)]
 struct EngineHandle {
     /// Command sender into this engine's loop.
@@ -172,6 +173,7 @@ impl MultiEngineManager {
     ///
     /// Sends a `Disconnect` command to the engine, then removes the handle.
     /// The engine task will exit naturally once the channel is dropped.
+    // TODO: wire into multi-account support (J8)
     #[allow(dead_code)]
     pub fn stop_account(&mut self, id: &AccountId) {
         if let Some(handle) = self.engines.remove(id) {
@@ -188,6 +190,7 @@ impl MultiEngineManager {
     /// Send a command to the currently active account's engine.
     ///
     /// Returns `false` when there is no engine for the active account.
+    // TODO: wire into multi-account support (J8)
     #[allow(dead_code)]
     pub fn send_to_active(&self, cmd: XmppCommand) -> bool {
         self.send_to(&self.active_account, cmd)
@@ -196,6 +199,7 @@ impl MultiEngineManager {
     /// Send a command to a specific account's engine.
     ///
     /// Returns `false` when there is no engine for `id`.
+    // TODO: wire into multi-account support (J8)
     #[allow(dead_code)]
     pub fn send_to(&self, id: &AccountId, cmd: XmppCommand) -> bool {
         if let Some(handle) = self.engines.get(id) {
@@ -213,12 +217,14 @@ impl MultiEngineManager {
     }
 
     /// Returns the currently active account ID.
+    // TODO: wire into multi-account support (J8)
     #[allow(dead_code)]
     pub fn active_account(&self) -> &AccountId {
         &self.active_account
     }
 
     /// Returns `true` when an engine is running for `id`.
+    // TODO: wire into multi-account support (J8)
     #[allow(dead_code)]
     pub fn is_running(&self, id: &AccountId) -> bool {
         self.engines.contains_key(id)

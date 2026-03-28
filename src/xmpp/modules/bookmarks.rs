@@ -79,6 +79,7 @@ impl BookmarkManager {
     ///   </query>
     /// </iq>
     /// ```
+    // TODO: wire into persist-after-add bookmark flow
     #[allow(dead_code)]
     pub fn build_save_iq(&self, id: &str) -> Element {
         let mut storage_builder = Element::builder("storage", NS_BOOKMARKS);

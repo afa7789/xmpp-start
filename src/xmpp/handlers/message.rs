@@ -9,6 +9,7 @@ use tokio_xmpp::parsers::message::{Body, Message as XmppMessage, MessageType};
 
 use crate::xmpp::{
     modules::blocking::BlockingManager,
+    modules::ignore::IgnoreManager,
     modules::message_mutations::MutationManager,
     modules::{NS_MUC_USER, NS_X_CONFERENCE},
     IncomingMessage, XmppEvent,
@@ -20,6 +21,7 @@ pub(crate) async fn handle_message(
     el: Element,
     event_tx: &mpsc::Sender<XmppEvent>,
     blocking_mgr: &BlockingManager,
+    ignore_mgr: &IgnoreManager,
     outbox: &mut VecDeque<Element>,
     privacy_flags: u8,
 ) {
@@ -223,6 +225,14 @@ pub(crate) async fn handle_message(
         return;
     }
 
+    // DC-10: skip messages from ignored users in MUC rooms
+    if let Some(room_jid) = from.split('/').next() {
+        if from.contains('/') && ignore_mgr.is_ignored(room_jid, bare_from) {
+            tracing::debug!("ignore: dropped message from {bare_from} in {room_jid}");
+            return;
+        }
+    }
+
     let id = msg.id.unwrap_or_default();
 
     // K4: auto-reply with <received> if sender requested a delivery receipt
@@ -248,6 +258,7 @@ pub(crate) async fn handle_message(
             body,
             is_historical: false,
             is_encrypted: false,
+            is_trusted: false,
         }))
         .await;
 }

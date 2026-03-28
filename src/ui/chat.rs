@@ -38,6 +38,13 @@ pub enum Action {
     ToggleMute(String),
     /// A conversation was selected — App needs to fire history load + mark-read.
     ContactSelected(String),
+    /// User toggled encryption on a conversation but OMEMO is not yet enabled globally.
+    /// Carries the JID so the encrypted state can also be persisted.
+    EnableOmemo(String),
+    /// User toggled encryption on a conversation — persist the new state to DB.
+    SetEncrypted(String, bool),
+    /// User closed/archived a conversation — persist to DB.
+    ArchiveConversation(String),
 }
 
 /// K3: An incoming room invitation pending user action.
@@ -180,12 +187,14 @@ impl ChatScreen {
 
     /// Pre-populate the conversation map from cached DB rows so the sidebar
     /// shows known conversations before any messages arrive from the server.
-    pub fn prefill_conversations(&mut self, jids: Vec<String>) {
+    pub fn prefill_conversations(&mut self, convos: Vec<(String, bool)>) {
         let own_jid = self.own_jid.clone();
-        for jid in jids {
-            self.conversations
+        for (jid, encrypted) in convos {
+            let convo = self
+                .conversations
                 .entry(jid.clone())
                 .or_insert_with(|| ConversationView::new(jid, own_jid.clone()));
+            convo.is_encryption_enabled = encrypted;
         }
     }
 
@@ -258,7 +267,7 @@ impl ChatScreen {
             edited: false,
             retracted: false,
             is_encrypted: msg.is_encrypted,
-            is_trusted: false,
+            is_trusted: msg.is_trusted,
         });
 
         // B5: increment unread if not the currently active conversation
@@ -493,10 +502,11 @@ impl ChatScreen {
 
             Message::CloseConversation(jid) => {
                 self.conversations.remove(&jid);
+                self.sidebar.remove_contact(&jid);
                 if self.active_jid.as_deref() == Some(jid.as_str()) {
                     self.active_jid = None;
                 }
-                Action::None
+                Action::ArchiveConversation(jid)
             }
             Message::OpenSettings => Action::OpenSettings,
             Message::OpenAccountSwitcher => Action::OpenAccountSwitcher,
@@ -679,13 +689,14 @@ impl ChatScreen {
                     return Action::ToggleMute(jid);
                 }
 
-                // G1: intercept Close to remove the conversation
+                // G1: intercept Close to archive and remove the conversation
                 if let super::conversation::Message::Close = cmsg {
                     self.conversations.remove(&jid);
+                    self.sidebar.remove_contact(&jid);
                     if self.active_jid.as_deref() == Some(jid.as_str()) {
                         self.active_jid = None;
                     }
-                    return Action::None;
+                    return Action::ArchiveConversation(jid);
                 }
 
                 // C4: intercept BlockPeer to queue a block command for the engine
@@ -806,6 +817,23 @@ impl ChatScreen {
                 // OMEMO: intercept OpenOmemoTrust to bubble up to App
                 if let super::conversation::Message::OpenOmemoTrust(ref peer_jid) = cmsg {
                     return Action::OpenOmemoTrust(peer_jid.clone());
+                }
+
+                // OMEMO: when user toggles encryption, persist to DB and auto-enable OMEMO if needed.
+                if let super::conversation::Message::ToggleEncryption = cmsg {
+                    // Let the conversation toggle its local flag first
+                    if let Some(convo) = self.conversations.get_mut(&jid) {
+                        let _ = convo.update(super::conversation::Message::ToggleEncryption);
+                    }
+                    let new_state = self
+                        .conversations
+                        .get(&jid)
+                        .is_some_and(|c| c.is_encryption_enabled);
+                    if !self.omemo_enabled && new_state {
+                        // Need to enable OMEMO globally first, then persist
+                        return Action::EnableOmemo(jid);
+                    }
+                    return Action::SetEncrypted(jid, new_state);
                 }
 
                 // E4/I3: intercept OpenFilePicker to spawn picker task
@@ -1307,6 +1335,7 @@ mod tests {
             body: "Hello!".into(),
             is_historical: false,
             is_encrypted: false,
+            is_trusted: false,
         });
 
         assert!(s.conversations.contains_key("alice@example.com"));

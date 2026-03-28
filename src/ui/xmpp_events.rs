@@ -83,13 +83,14 @@ pub(crate) fn handle(app: &mut App, event: XmppEvent) -> Task<Message> {
             // Also pre-populate known conversations from DB cache.
             let pool2 = app.db.clone();
             let conv_prefill = Task::future(async move {
-                let jids: Vec<String> = crate::store::conversation_repo::get_all(&pool2)
+                let convos: Vec<(String, bool)> = crate::store::conversation_repo::get_all(&pool2)
                     .await
                     .unwrap_or_default()
                     .into_iter()
-                    .map(|c| c.jid)
+                    .filter(|c| c.archived == 0) // Skip archived conversations
+                    .map(|c| (c.jid, c.encrypted != 0))
                     .collect();
-                Message::ConversationsPrefill(jids)
+                Message::ConversationsPrefill(convos)
             });
             let toast = app.update(Message::ShowToast(
                 format!("Connected as {}", bound_jid),
@@ -583,7 +584,11 @@ pub(crate) fn handle(app: &mut App, event: XmppEvent) -> Task<Message> {
         XmppEvent::OmemoEnabled { device_id } => {
             app.omemo_enabled = true;
             app.omemo_device_id = Some(device_id);
-            // Push state into the settings screen if it is currently open.
+            // Push state into the settings modal if it is currently open.
+            if let Some(ref mut ss) = app.settings_modal {
+                ss.set_omemo_active(device_id);
+            }
+            // Also handle legacy full-screen settings path.
             if let Screen::Settings(ref mut ss, _) = app.screen {
                 ss.set_omemo_active(device_id);
             }
@@ -621,14 +626,14 @@ pub(crate) fn handle(app: &mut App, event: XmppEvent) -> Task<Message> {
         // MEMO / other agents: unhandled events from additional modules.
         XmppEvent::LocationReceived { .. }
         | XmppEvent::BobReceived(_)
-        | XmppEvent::OmemoMessageDecrypted { .. }
         | XmppEvent::OmemoKeyExchangeNeeded { .. }
         | XmppEvent::StickerPackReceived(_)
         | XmppEvent::IgnoreListReceived { .. }
         | XmppEvent::ConversationsReceived(_)
         | XmppEvent::RetractionReceived { .. }
         | XmppEvent::PasswordChanged { .. }
-        | XmppEvent::AccountDeleted { .. } => {}
+        | XmppEvent::AccountDeleted { .. }
+        | XmppEvent::UploadSlotError { .. } => {}
     }
     Task::none()
 }

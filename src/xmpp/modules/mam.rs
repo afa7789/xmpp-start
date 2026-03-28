@@ -389,10 +389,16 @@ impl MamManager {
         Some((query_id, result))
     }
 
-    /// Returns `true` when a query with the given `query_id` is still pending.
+    // TODO: wire into duplicate MAM query guard
     #[allow(dead_code)]
     pub fn is_pending(&self, query_id: &str) -> bool {
         self.pending_queries.contains_key(query_id)
+    }
+
+    // TODO: wire into MAM query guard
+    #[allow(dead_code)]
+    pub fn has_pending(&self) -> bool {
+        !self.pending_queries.is_empty()
     }
 }
 

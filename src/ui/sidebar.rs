@@ -131,6 +131,14 @@ impl SidebarScreen {
         }
     }
 
+    /// G1: remove a contact/conversation from the sidebar.
+    pub fn remove_contact(&mut self, jid: &str) {
+        self.contacts.retain(|c| c.jid != jid);
+        self.unread_counts.remove(jid);
+        self.last_messages.remove(jid);
+        self.presence.remove(jid);
+    }
+
     /// B5: increment unread count for a JID.
     pub fn increment_unread(&mut self, jid: &str) {
         *self.unread_counts.entry(jid.to_owned()).or_insert(0) += 1;

@@ -98,6 +98,7 @@ pub async fn find_by_conversation_for_account(
     Ok(rows.iter().map(row_to_message).collect())
 }
 
+// TODO: wire into OMEMO dedup flow
 #[allow(dead_code)]
 pub async fn find_by_origin_id(pool: &SqlitePool, origin_id: &str) -> Result<Option<Message>> {
     let row = sqlx::query(
@@ -117,6 +118,7 @@ pub async fn find_by_origin_id(pool: &SqlitePool, origin_id: &str) -> Result<Opt
 
 /// Return up to `limit` messages in a conversation whose timestamp is strictly
 /// before `before_ts`, ordered newest-first. Used for MAM backward pagination.
+// TODO: wire into local MAM pagination fallback
 #[allow(dead_code)]
 pub async fn find_before(
     pool: &SqlitePool,
@@ -145,6 +147,7 @@ pub async fn find_before(
 
 /// Count non-retracted messages that arrived after the message identified by
 /// `last_read_id`. Returns 0 when `last_read_id` does not exist in the table.
+// TODO: wire into DB-backed badge count for multi-account
 #[allow(dead_code)]
 pub async fn count_unread(
     pool: &SqlitePool,

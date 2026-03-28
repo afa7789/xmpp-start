@@ -24,10 +24,7 @@ pub fn link_style(_theme: &iced::Theme, status: button::Status) -> button::Style
             shadow: Default::default(),
         },
         button::Status::Hovered => button::Style {
-            background: Some(Background::Color(Color {
-                a: 0.1,
-                ..LINK_BTN
-            })),
+            background: Some(Background::Color(Color { a: 0.1, ..LINK_BTN })),
             text_color: LINK_BTN,
             border: Border {
                 radius: 4.0.into(),
@@ -49,10 +46,7 @@ pub fn link_style(_theme: &iced::Theme, status: button::Status) -> button::Style
         },
         button::Status::Disabled => button::Style {
             background: None,
-            text_color: Color {
-                a: 0.4,
-                ..LINK_BTN
-            },
+            text_color: Color { a: 0.4, ..LINK_BTN },
             border: Border::default(),
             shadow: Default::default(),
         },

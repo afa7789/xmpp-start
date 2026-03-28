@@ -120,6 +120,16 @@ pub(crate) async fn handle_iq(
             .await;
         return;
     }
+    // E4: detect upload slot error and emit error toast
+    if let Some(iq_id) = file_upload_mgr.on_slot_error(&el) {
+        let _ = event_tx
+            .send(XmppEvent::UploadSlotError {
+                iq_id: iq_id.clone(),
+            })
+            .await;
+        tracing::warn!("file_upload: slot request failed for iq_id={iq_id}");
+        return;
+    }
     // J6: detect XEP-0084 avatar data result (PubSub items node='urn:xmpp:avatar:data')
     if el.attr("type") == Some("result") {
         let is_avatar_data = el.children().any(|c| {
@@ -654,11 +664,12 @@ pub(crate) async fn omemo_encrypt_and_send(
 }
 
 /// Attempt to decrypt an incoming OMEMO `<message>` stanza.
+/// Returns `Ok(Some((body, is_trusted)))` on success.
 pub(crate) async fn omemo_try_decrypt(
     mgr: &mut OmemoManager,
     account_jid: &str,
     el: &Element,
-) -> anyhow::Result<Option<String>> {
+) -> anyhow::Result<Option<(String, bool)>> {
     use vodozemac::olm::OlmMessage;
 
     use crate::xmpp::modules::omemo::message::parse_encrypted_message;
@@ -764,7 +775,17 @@ pub(crate) async fn omemo_try_decrypt(
         Some(ref ciphertext) => {
             let body =
                 OmemoSessionManager::decrypt_payload(&aes_key, &encrypted.header.iv, ciphertext)?;
-            Ok(Some(body))
+
+            // Query trust state of the sender device.
+            let is_trusted = match mgr.store.load_devices(account_jid, &from_jid).await {
+                Ok(devices) => devices
+                    .iter()
+                    .find(|d| d.device_id == sender_device_id)
+                    .is_some_and(|d| d.trust.is_decryptable()),
+                Err(_) => false,
+            };
+
+            Ok(Some((body, is_trusted)))
         }
     }
 }

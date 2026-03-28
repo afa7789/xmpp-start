@@ -13,6 +13,7 @@ pub mod account_details;
 pub mod account_state;
 pub mod account_switcher;
 pub mod adhoc;
+pub mod audio_player;
 pub mod avatar;
 pub mod benchmark;
 pub mod blocklist;
@@ -57,8 +58,8 @@ use crate::xmpp::{
     XmppEvent,
 };
 use account_state::AccountStateManager;
-use toast::{Toast, ToastKind};
 use palette as pal;
+use toast::{Toast, ToastKind};
 
 // F2: command palette entries — built once and searched via command_palette::search().
 fn palette_commands() -> Vec<command_palette::Command> {
@@ -165,6 +166,9 @@ pub struct App {
     pub(crate) mam_default_mode: Option<String>,
     // AUTH-1: pending auto-connect config — consumed when XmppReady fires
     auto_connect_cfg: Option<crate::xmpp::ConnectConfig>,
+    // Multi-account auto-connect: (jid, password) pairs for additional accounts
+    #[allow(dead_code)]
+    multi_auto_connect: Vec<(String, String)>,
     // L5: spam report modal — Some when open
     spam_report_modal: Option<spam_report::SpamReportModal>,
     // MULTI: per-account UI state manager
@@ -182,6 +186,8 @@ pub struct App {
     pub(crate) omemo_device_id: Option<u32>,
     // MEMO: trust dialog — Some when the OMEMO trust overlay is open
     pub(crate) omemo_trust_modal: Option<omemo_trust::OmemoTrustScreen>,
+    // Settings modal overlay (Gajim-style) — Some when settings is open
+    pub(crate) settings_modal: Option<Box<settings::SettingsScreen>>,
     // MEMO: cached per-peer device lists received via PEP (jid -> device ids)
     pub(crate) omemo_peer_devices: HashMap<String, Vec<u32>>,
 }
@@ -242,7 +248,7 @@ pub enum Message {
     // DC-11: handle an xmpp: deep-link URI
     HandleXmppUri(String),
     // A3: seed conversations from DB cache at connect time
-    ConversationsPrefill(Vec<String>),
+    ConversationsPrefill(Vec<(String, bool)>),
     // MEMO: OMEMO trust dialog messages
     OmemoTrust(omemo_trust::Message),
     // Tab focus navigation between input fields
@@ -250,6 +256,7 @@ pub enum Message {
     FocusPrevious,
 }
 
+#[allow(dead_code)]
 pub(crate) enum Screen {
     Login(LoginScreen),
     Benchmark(BenchmarkScreen),
@@ -283,6 +290,19 @@ impl App {
             None
         };
 
+        // Multi-account: queue auto-connect for each enabled account.
+        // These will be connected via MultiEngineManager when XmppReady fires.
+        let mut multi_account_cfgs: Vec<(String, String)> = Vec::new();
+        for acct in &settings.accounts {
+            if acct.enabled {
+                if let Some(pw) = config::load_account_password(acct) {
+                    if !pw.is_empty() {
+                        multi_account_cfgs.push((acct.jid.clone(), pw));
+                    }
+                }
+            }
+        }
+
         // DC-21: create the multi-account event channel
         let (multi_event_tx, multi_event_rx) =
             tokio::sync::mpsc::channel::<(AccountId, XmppEvent)>(64);
@@ -311,6 +331,7 @@ impl App {
                 idle_state: IdleState::Active,
                 mam_default_mode: mam_mode,
                 auto_connect_cfg,
+                multi_auto_connect: multi_account_cfgs,
                 spam_report_modal: None,
                 account_state_mgr: AccountStateManager::new(),
                 multi_engine: MultiEngineManager::new(AccountId::new(String::new())),
@@ -320,6 +341,7 @@ impl App {
                 omemo_enabled: false,
                 omemo_device_id: None,
                 omemo_trust_modal: None,
+                settings_modal: None,
                 omemo_peer_devices: HashMap::new(),
             },
             Task::none(),
@@ -345,10 +367,7 @@ impl App {
             Screen::Chat(chat) => {
                 if let Some(active_jid) = chat.active_jid() {
                     // Show the chat partner (bare JID local part or full JID)
-                    let display = active_jid
-                        .split('/')
-                        .next()
-                        .unwrap_or(active_jid);
+                    let display = active_jid.split('/').next().unwrap_or(active_jid);
                     format!("ReXisCe \u{2014} {display}")
                 } else {
                     // Connected but no conversation selected — show own JID
@@ -551,13 +570,13 @@ impl App {
                 Task::none()
             }
 
-            Message::ConversationsPrefill(jids) => {
+            Message::ConversationsPrefill(convos) => {
                 if let Screen::Chat(ref mut chat) = self.screen {
-                    chat.prefill_conversations(jids.clone());
+                    chat.prefill_conversations(convos.clone());
                 }
                 // Auto-select the most recent conversation so the user sees
                 // their last chat history immediately after restart.
-                if let Some(first_jid) = jids.first() {
+                if let Some((first_jid, _)) = convos.first() {
                     return self.update(Message::Chat(chat::Message::Sidebar(
                         crate::ui::sidebar::Message::SelectContact(first_jid.clone()),
                     )));
@@ -709,7 +728,7 @@ impl App {
             }
 
             Message::Settings(smsg) => {
-                let action = if let Screen::Settings(ref mut ss, _) = self.screen {
+                let action = if let Some(ref mut ss) = self.settings_modal {
                     let action = ss.update(smsg);
                     self.settings = ss.settings().clone();
                     // M3: drain block/unblock commands produced by the settings panel
@@ -725,13 +744,25 @@ impl App {
                         }
                     }
                     action
+                } else if let Screen::Settings(ref mut ss, _) = self.screen {
+                    // Fallback for legacy full-screen path
+                    let action = ss.update(smsg);
+                    self.settings = ss.settings().clone();
+                    action
                 } else {
                     settings::Action::None
                 };
                 match action {
                     settings::Action::None => Task::none(),
                     settings::Action::Task(task) => task.map(Message::Settings),
-                    settings::Action::GoBack => self.update(Message::GoBack),
+                    settings::Action::GoBack => {
+                        if self.settings_modal.is_some() {
+                            self.settings_modal = None;
+                            Task::none()
+                        } else {
+                            self.update(Message::GoBack)
+                        }
+                    }
                     settings::Action::Logout => self.update(Message::Logout),
                     settings::Action::OpenAbout => self.update(Message::GoToAbout),
                     settings::Action::OpenVCardEditor => self.update(Message::GoToVCardEditor),
@@ -1005,6 +1036,36 @@ impl App {
                 let _ = config::save(&self.settings);
                 Task::none()
             }
+            chat::Action::ArchiveConversation(jid) => {
+                let pool = self.db.clone();
+                tokio::spawn(async move {
+                    let _ = crate::store::conversation_repo::set_archived(&pool, &jid, true).await;
+                });
+                Task::none()
+            }
+            chat::Action::EnableOmemo(ref jid) => {
+                if let Some(ref tx) = self.xmpp_tx {
+                    let tx = tx.clone();
+                    tokio::spawn(async move {
+                        let _ = tx.send(XmppCommand::OmemoEnable).await;
+                    });
+                }
+                // Also persist the encrypted flag for this conversation
+                let pool = self.db.clone();
+                let jid = jid.clone();
+                tokio::spawn(async move {
+                    let _ = crate::store::conversation_repo::set_encrypted(&pool, &jid, true).await;
+                });
+                Task::none()
+            }
+            chat::Action::SetEncrypted(jid, encrypted) => {
+                let pool = self.db.clone();
+                tokio::spawn(async move {
+                    let _ = crate::store::conversation_repo::set_encrypted(&pool, &jid, encrypted)
+                        .await;
+                });
+                Task::none()
+            }
             chat::Action::ContactSelected(jid) => {
                 let history_task = {
                     let jid = jid.clone();
@@ -1175,6 +1236,49 @@ impl App {
 
         // Build layers: screen + optional palette + optional console panel + button + optional toasts
         let mut layers: Vec<Element<Message>> = vec![screen_view];
+
+        // Settings modal overlay (Gajim-style)
+        if let Some(ref settings_screen) = self.settings_modal {
+            let backdrop = container(Space::new(Length::Fill, Length::Fill))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(|_theme: &iced::Theme| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(pal::BACKDROP_DIM)),
+                    ..Default::default()
+                });
+            let settings_view = settings_screen.view().map(Message::Settings);
+            let modal_box = container(settings_view)
+                .width(Length::Fixed(750.0))
+                .max_height(500.0)
+                .style(|theme: &iced::Theme| {
+                    let palette = theme.extended_palette();
+                    iced::widget::container::Style {
+                        background: Some(iced::Background::Color(palette.background.base.color)),
+                        border: iced::Border {
+                            color: palette.primary.base.color,
+                            width: 1.0,
+                            radius: 8.0.into(),
+                        },
+                        ..Default::default()
+                    }
+                });
+            let modal_overlay = container(
+                column![
+                    Space::new(Length::Fill, Length::Fixed(60.0)),
+                    row![
+                        Space::new(Length::Fill, Length::Shrink),
+                        modal_box,
+                        Space::new(Length::Fill, Length::Shrink),
+                    ]
+                    .width(Length::Fill),
+                ]
+                .width(Length::Fill),
+            )
+            .width(Length::Fill)
+            .height(Length::Fill);
+            layers.push(backdrop.into());
+            layers.push(modal_overlay.into());
+        }
 
         // MEMO: OMEMO trust modal overlay
         if let Some(ref trust_screen) = self.omemo_trust_modal {

@@ -63,6 +63,8 @@ pub struct IncomingMessage {
     pub is_historical: bool,
     /// True when this message was decrypted via OMEMO.
     pub is_encrypted: bool,
+    /// True when the sender device is trusted (TOFU or manually verified).
+    pub is_trusted: bool,
 }
 
 /// Events emitted by the XMPP engine to the UI layer.
@@ -112,6 +114,11 @@ pub enum XmppEvent {
         put_url: String,
         get_url: String,
         headers: Vec<(String, String)>,
+    },
+
+    // E4: Upload slot request failed
+    UploadSlotError {
+        iq_id: String,
     },
 
     // H1: Avatar received from vCard (XEP-0153)
@@ -249,12 +256,6 @@ pub enum XmppEvent {
     OmemoDeviceListReceived {
         jid: String,
         devices: Vec<u32>,
-    },
-
-    /// An incoming OMEMO-encrypted message was successfully decrypted.
-    OmemoMessageDecrypted {
-        from: String,
-        body: String,
     },
 
     /// A new unrecognized device appeared for `jid` and needs trust resolution.

@@ -18,10 +18,9 @@ use crate::xmpp::XmppCommand;
 // ---------------------------------------------------------------------------
 
 pub(crate) fn go_to_settings(app: &mut App) -> Task<Message> {
-    let prev = std::mem::replace(&mut app.screen, Screen::Login(LoginScreen::new()));
     let mut settings_screen = settings::SettingsScreen::new(app.settings.clone());
     // Populate Account Details section with the live connection state.
-    if let Screen::Chat(ref chat) = prev {
+    if let Screen::Chat(ref chat) = app.screen {
         settings_screen.set_account_info(account_details::AccountInfo {
             bound_jid: chat.own_jid().to_string(),
             connected: true,
@@ -33,7 +32,7 @@ pub(crate) fn go_to_settings(app: &mut App) -> Task<Message> {
     if let Some(device_id) = app.omemo_device_id {
         settings_screen.set_omemo_active(device_id);
     }
-    app.screen = Screen::Settings(Box::new(settings_screen), Box::new(prev));
+    app.settings_modal = Some(Box::new(settings_screen));
     Task::none()
 }
 

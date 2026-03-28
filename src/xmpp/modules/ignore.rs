@@ -43,7 +43,6 @@ impl IgnoreManager {
     }
 
     /// Returns `true` if `user_jid` is ignored in `room_jid`.
-    #[allow(dead_code)]
     pub fn is_ignored(&self, room_jid: &str, user_jid: &str) -> bool {
         self.lists
             .get(room_jid)

@@ -466,9 +466,14 @@ async fn run_session(
                             continue;
                         };
                         let upload_jid = format!("upload.{domain}");
-                        let (_, iq) = file_upload_mgr.request_slot(&filename, size, &mime, &upload_jid);
+                        // E4: concurrency guard — skip if any request is already pending
+                        if file_upload_mgr.has_pending() {
+                            tracing::warn!("file_upload: upload already in progress, skipping");
+                            continue;
+                        }
+                        let (iq_id, iq) = file_upload_mgr.request_slot(&filename, size, &mime, &upload_jid);
                         outbox.push_back(iq);
-                        tracing::info!("file_upload: requested slot for {filename}");
+                        tracing::info!("file_upload: requested slot for {filename} (iq_id={iq_id})");
                     }
                     Some(XmppCommand::FetchAvatar(jid)) => {
                         let (_, iq) = avatar_mgr.build_vcard_request(&jid);
@@ -1204,6 +1209,7 @@ async fn dispatch_stanza(
                         body: muc_msg.body,
                         is_historical: false,
                         is_encrypted: false,
+                        is_trusted: false,
                     }))
                     .await;
                 return;
@@ -1227,6 +1233,7 @@ async fn dispatch_stanza(
                                 body: mam_msg.body,
                                 is_historical: true,
                                 is_encrypted: false,
+                                is_trusted: false,
                             }))
                             .await;
                     }
@@ -1248,6 +1255,7 @@ async fn dispatch_stanza(
                             body,
                             is_historical: false,
                             is_encrypted: false,
+                            is_trusted: false,
                         }))
                         .await;
                 }
@@ -1255,7 +1263,15 @@ async fn dispatch_stanza(
             }
             // XEP-0280: carbon <received> — message received on another device
             if let Some(inner) = extract_carbon(&el, "received") {
-                handle_message(inner, event_tx, blocking_mgr, outbox, privacy_flags).await;
+                handle_message(
+                    inner,
+                    event_tx,
+                    blocking_mgr,
+                    ignore_mgr,
+                    outbox,
+                    privacy_flags,
+                )
+                .await;
                 return;
             }
             // J6: XEP-0084 PEP avatar metadata notification
@@ -1353,10 +1369,9 @@ async fn dispatch_stanza(
                 if has_omemo_encrypted(&el) {
                     if let Some(ref mut mgr) = omemo_mgr {
                         let from = el.attr("from").unwrap_or("").to_string();
-                        let msg_id =
-                            el.attr("id").unwrap_or("").to_string();
+                        let msg_id = el.attr("id").unwrap_or("").to_string();
                         match omemo_try_decrypt(mgr, account_jid, &el).await {
-                            Ok(Some(body)) => {
+                            Ok(Some((body, is_trusted))) => {
                                 // Route decrypted message through the normal
                                 // MessageReceived path so it appears in
                                 // notifications and sidebar preview.
@@ -1367,6 +1382,7 @@ async fn dispatch_stanza(
                                         body,
                                         is_historical: false,
                                         is_encrypted: true,
+                                        is_trusted,
                                     }))
                                     .await;
                                 // Check pre-key stock and replenish if below threshold.
@@ -1389,7 +1405,15 @@ async fn dispatch_stanza(
                     return;
                 }
             }
-            handle_message(el, event_tx, blocking_mgr, outbox, privacy_flags).await;
+            handle_message(
+                el,
+                event_tx,
+                blocking_mgr,
+                ignore_mgr,
+                outbox,
+                privacy_flags,
+            )
+            .await;
         }
         "presence" => {
             // D3: update MUC occupant lists from room presence stanzas
@@ -1787,6 +1811,7 @@ mod tests {
             body: "Hello!".into(),
             is_historical: false,
             is_encrypted: false,
+            is_trusted: false,
         });
         let _ = format!("{e:?}");
     }
