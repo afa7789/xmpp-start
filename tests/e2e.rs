@@ -11,8 +11,8 @@ use std::process::Command;
 use std::time::Duration;
 
 use futures::StreamExt;
+use rexisce::xmpp::connection::insecure_tls::InsecureTlsConfig;
 use tokio_xmpp::jid::Jid;
-use tokio_xmpp::starttls::ServerConfig;
 use tokio_xmpp::{AsyncClient, AsyncConfig, Event};
 
 /// Port exposed by docker-compose.test.yml.
@@ -101,9 +101,9 @@ impl Drop for Server {
 
 // ---- Helper ---------------------------------------------------------------
 
-fn make_client(user: &str, password: &str) -> AsyncClient<ServerConfig> {
+fn make_client(user: &str, password: &str) -> AsyncClient<InsecureTlsConfig> {
     let jid: Jid = format!("{user}@localhost/e2e").parse().unwrap();
-    let server = ServerConfig::Manual {
+    let server = InsecureTlsConfig {
         host: "127.0.0.1".to_string(),
         port: TEST_PORT,
     };
@@ -116,7 +116,7 @@ fn make_client(user: &str, password: &str) -> AsyncClient<ServerConfig> {
     client
 }
 
-async fn wait_online(client: &mut AsyncClient<ServerConfig>) -> String {
+async fn wait_online(client: &mut AsyncClient<InsecureTlsConfig>) -> String {
     let timeout = tokio::time::Duration::from_secs(10);
     tokio::time::timeout(timeout, async {
         while let Some(event) = client.next().await {
@@ -198,6 +198,13 @@ async fn e2e_alice_sends_message_to_bob() {
         .send_stanza(stanza)
         .await
         .expect("alice failed to send");
+
+    // Poll alice once to flush the stanza to the wire
+    let _ = tokio::time::timeout(
+        tokio::time::Duration::from_secs(2),
+        alice.next(),
+    )
+    .await;
 
     // Bob waits for the message stanza.
     let timeout = tokio::time::Duration::from_secs(10);

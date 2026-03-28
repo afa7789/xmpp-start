@@ -319,7 +319,7 @@ async fn run_session_plain(
         ("localhost".to_string(), 5222)
     };
 
-    let connector = super::connection::insecure_tls::PlainTcpConfig { host, port };
+    let connector = super::connection::insecure_tls::InsecureTlsConfig { host, port };
     let mut client = AsyncClient::new_with_config(AsyncConfig {
         jid: jid.clone(),
         password: config.password.clone(),

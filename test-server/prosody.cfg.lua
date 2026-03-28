@@ -42,7 +42,7 @@ modules_enabled = {
     -- Core RFC 6120/6121
     "roster";
     "saslauth";
-    -- "tls"; -- Disabled: client uses PlainTcpConfig for localhost
+    "tls";
     "dialback";
     "disco";
     "private";
