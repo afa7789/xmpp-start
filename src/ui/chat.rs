@@ -500,6 +500,7 @@ impl ChatScreen {
                     sidebar::Action::SetPresence(status) => {
                         self.pending_commands
                             .push(XmppCommand::SetPresence(status.clone()));
+                        self.sidebar.own_presence = status.clone();
                         Action::SetPresence(status)
                     }
                     sidebar::Action::OpenSettings => Action::OpenSettings,
@@ -536,6 +537,8 @@ impl ChatScreen {
                 // C2: queue SetPresence command for the engine (App drains pending_commands)
                 self.pending_commands
                     .push(XmppCommand::SetPresence(status.clone()));
+                // C2: update sidebar dot color immediately
+                self.sidebar.own_presence = status.clone();
                 Action::SetPresence(status)
             }
 

@@ -44,6 +44,8 @@ pub struct SidebarScreen {
     create_room_nick: String,
     // UX-2: account menu popover state
     show_account_menu: bool,
+    // C2: own presence status for the indicator dot
+    pub(crate) own_presence: PresenceStatus,
 }
 
 #[derive(Debug, Clone)]
@@ -128,6 +130,7 @@ impl SidebarScreen {
             create_room_service: String::new(),
             create_room_nick: String::new(),
             show_account_menu: false,
+            own_presence: PresenceStatus::Available,
         }
     }
 
@@ -324,7 +327,15 @@ impl SidebarScreen {
         // when an account is active. Displays a colored dot, truncated JID,
         // and (optionally) an unread badge; clicking opens the account switcher.
         let account_indicator: Option<Element<Message>> = active_account.map(|(id, unread)| {
-            let color = account_color(id);
+            let _account_color = account_color(id);
+            // C2: dot color reflects presence status
+            let color = match self.own_presence {
+                PresenceStatus::Available => iced::Color::from_rgb(0.2, 0.8, 0.2),    // green
+                PresenceStatus::Away => iced::Color::from_rgb(1.0, 0.75, 0.0),        // amber
+                PresenceStatus::ExtendedAway => iced::Color::from_rgb(1.0, 0.6, 0.0), // orange
+                PresenceStatus::DoNotDisturb => iced::Color::from_rgb(0.9, 0.2, 0.2), // red
+                PresenceStatus::Offline => iced::Color::from_rgb(0.5, 0.5, 0.5),      // gray
+            };
             let dot = container(text("").size(1)).width(10).height(10).style(
                 move |_theme: &iced::Theme| iced::widget::container::Style {
                     background: Some(iced::Background::Color(color)),
