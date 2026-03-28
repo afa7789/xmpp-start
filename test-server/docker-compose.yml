@@ -1,0 +1,64 @@
+# test-server/docker-compose.yml
+# Local XMPP test environment for ReXisCe GUI client.
+# Usage: cd test-server && make up
+
+services:
+  prosody:
+    build: .
+    container_name: rexisce-prosody
+    hostname: localhost
+    ports:
+      - "5222:5222"   # c2s (XMPP client connections)
+      - "5269:5269"   # s2s (server-to-server, optional)
+      - "5280:5280"   # HTTP (BOSH + HTTP Upload GET)
+      - "5281:5281"   # HTTPS (HTTP Upload PUT)
+    volumes:
+      - ./prosody.cfg.lua:/etc/prosody/prosody.cfg.lua:ro
+      - ./setup.sh:/setup.sh:ro
+      - prosody-data:/var/lib/prosody
+    environment:
+      DOMAIN: localhost
+      LOG_LEVEL: info
+    entrypoint: >
+      bash -c '
+        set -e
+
+        echo "==> Generating self-signed certificates..."
+        if [ ! -f /var/lib/prosody/localhost.crt ]; then
+          openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout /var/lib/prosody/localhost.key \
+            -out /var/lib/prosody/localhost.crt \
+            -days 3650 \
+            -subj "/CN=localhost" \
+            -addext "subjectAltName=DNS:localhost,DNS:conference.localhost,DNS:upload.localhost" 2>/dev/null
+          cp /var/lib/prosody/localhost.crt /var/lib/prosody/conference.localhost.crt
+          cp /var/lib/prosody/localhost.key /var/lib/prosody/conference.localhost.key
+          cp /var/lib/prosody/localhost.crt /var/lib/prosody/upload.localhost.crt
+          cp /var/lib/prosody/localhost.key /var/lib/prosody/upload.localhost.key
+          chown prosody:prosody /var/lib/prosody/*.crt /var/lib/prosody/*.key
+          chmod 600 /var/lib/prosody/*.key
+        fi
+
+        echo "==> Creating test accounts..."
+        prosodyctl register alice localhost alice123 2>/dev/null || true
+        prosodyctl register bob localhost bob123 2>/dev/null || true
+        prosodyctl register charlie localhost charlie123 2>/dev/null || true
+        prosodyctl register admin localhost admin123 2>/dev/null || true
+
+        echo "==> Fixing permissions..."
+        chown -R prosody:prosody /var/lib/prosody
+
+        echo "==> Starting Prosody in foreground as prosody user..."
+        exec runuser -u prosody -- prosody -F
+      '
+    healthcheck:
+      test: ["CMD-SHELL", "echo '' | nc -w 2 127.0.0.1 5222 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  prosody-data:
+    driver: local

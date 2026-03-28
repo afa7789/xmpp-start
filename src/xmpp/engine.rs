@@ -162,7 +162,20 @@ pub async fn run_engine(
         match cmd_rx.recv().await {
             Some(XmppCommand::Connect(config)) => {
                 tracing::info!("engine: connecting as {}", config.jid);
-                run_session(config, &event_tx, &mut cmd_rx, db.clone()).await;
+                // Detect localhost domain → use plain TCP (no TLS)
+                let domain = config
+                    .jid
+                    .split('@')
+                    .nth(1)
+                    .and_then(|d| d.split('/').next())
+                    .unwrap_or("");
+                let is_localhost = domain == "localhost" || domain == "127.0.0.1";
+                if is_localhost {
+                    tracing::info!("engine: localhost detected, using plain TCP (no TLS)");
+                    run_session_plain(config, &event_tx, &mut cmd_rx, db.clone()).await;
+                } else {
+                    run_session(config, &event_tx, &mut cmd_rx, db.clone()).await;
+                }
                 // returns to Idle
             }
             Some(XmppCommand::Register(config)) => {
@@ -271,12 +284,61 @@ async fn run_session(
     };
 
     let mut client = AsyncClient::new_with_config(AsyncConfig {
-        jid,
+        jid: jid.clone(),
         password: config.password.clone(),
         server,
     });
-    client.set_reconnect(false); // we manage reconnect ourselves
+    client.set_reconnect(false);
 
+    run_session_loop(config, jid, client, event_tx, cmd_rx, db).await;
+}
+
+/// Plain TCP session for localhost (no TLS).
+async fn run_session_plain(
+    config: ConnectConfig,
+    event_tx: &mpsc::Sender<XmppEvent>,
+    cmd_rx: &mut mpsc::Receiver<XmppCommand>,
+    db: Option<SqlitePool>,
+) {
+    let jid: Jid = match config.jid.parse() {
+        Ok(j) => j,
+        Err(e) => {
+            tracing::error!("engine: invalid JID: {e}");
+            let _ = event_tx
+                .send(XmppEvent::Disconnected {
+                    reason: format!("Invalid JID: {e}"),
+                })
+                .await;
+            return;
+        }
+    };
+
+    let (host, port) = if !config.server.trim().is_empty() {
+        parse_host_port(&config.server, 5222)
+    } else {
+        ("localhost".to_string(), 5222)
+    };
+
+    let connector = super::connection::insecure_tls::PlainTcpConfig { host, port };
+    let mut client = AsyncClient::new_with_config(AsyncConfig {
+        jid: jid.clone(),
+        password: config.password.clone(),
+        server: connector,
+    });
+    client.set_reconnect(false);
+
+    run_session_loop(config, jid, client, event_tx, cmd_rx, db).await;
+}
+
+/// Generic session loop — works with any ServerConnector.
+async fn run_session_loop<C: ServerConnector>(
+    config: ConnectConfig,
+    _jid: Jid,
+    mut client: AsyncClient<C>,
+    event_tx: &mpsc::Sender<XmppEvent>,
+    cmd_rx: &mut mpsc::Receiver<XmppCommand>,
+    db: Option<SqlitePool>,
+) {
     // Outbox for stanzas that need to be sent after a select! arm.
     let mut outbox: VecDeque<Element> = VecDeque::new();
     // Rate limiter: burst of 30 stanzas (handles connect flood), refilling at 10 stanzas/second.
