@@ -32,7 +32,9 @@ pub(crate) fn go_to_settings(app: &mut App) -> Task<Message> {
     if let Some(device_id) = app.omemo_device_id {
         settings_screen.set_omemo_active(device_id);
     }
-    app.settings_modal = Some(Box::new(settings_screen));
+    // Full-screen settings: swap the screen (keep previous for GoBack)
+    let prev = std::mem::replace(&mut app.screen, Screen::Login(super::login::LoginScreen::new()));
+    app.screen = Screen::Settings(Box::new(settings_screen), Box::new(prev));
     Task::none()
 }
 

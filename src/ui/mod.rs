@@ -1246,30 +1246,21 @@ impl App {
                     background: Some(iced::Background::Color(pal::BACKDROP_DIM)),
                     ..Default::default()
                 });
-            let settings_view = settings_screen.view().map(Message::Settings);
-            let modal_box = container(settings_view)
-                .width(750)
-                .height(500)
-                .style(|theme: &iced::Theme| {
-                    let palette = theme.extended_palette();
-                    iced::widget::container::Style {
-                        background: Some(iced::Background::Color(palette.background.base.color)),
-                        border: iced::Border {
-                            color: palette.primary.base.color,
-                            width: 1.0,
-                            radius: 8.0.into(),
-                        },
-                        ..Default::default()
-                    }
-                });
-            let modal_overlay = container(
-                container(modal_box)
-                    .center_x(Length::Fill)
-                    .center_y(Length::Fill)
-            )
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .padding(40);
+            // DEBUG: plain red box to test if stack overlay renders at all
+            let _settings_view = settings_screen.view().map(Message::Settings);
+            let debug_box = container(text("SETTINGS DEBUG BOX").size(24))
+                .width(400)
+                .height(300)
+                .style(|_theme: &iced::Theme| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(iced::Color::from_rgb(0.8, 0.1, 0.1))),
+                    ..Default::default()
+                })
+                .padding(20);
+            let modal_overlay = container(debug_box)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_x(Length::Fill)
+                .center_y(Length::Fill);
             layers.push(backdrop.into());
             layers.push(modal_overlay.into());
         }
