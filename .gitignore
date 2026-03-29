@@ -4,4 +4,6 @@ Cargo.lock
 *.log
 *.out
 .DS_Store
-dagrobin.db.venv
+.venv
+.rtk
+dagrobin.db
