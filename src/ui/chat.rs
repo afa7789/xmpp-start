@@ -277,8 +277,8 @@ impl ChatScreen {
             reply_preview: None,
             edited: false,
             retracted: false,
-            is_encrypted: false,
-            is_trusted: false,
+            is_encrypted: msg.is_encrypted,
+            is_trusted: msg.is_trusted,
         });
 
         // B5: increment unread if not the currently active conversation

@@ -54,7 +54,6 @@ pub struct RosterContact {
 
 /// A chat message received from the server.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct IncomingMessage {
     pub id: String,
     pub from: String,

@@ -120,6 +120,13 @@ pub(crate) async fn handle_iq(
             .await;
         return;
     }
+    // E4: detect upload slot error
+    if let Some(iq_id) = file_upload_mgr.on_slot_error(&el) {
+        let _ = event_tx
+            .send(XmppEvent::UploadSlotError { iq_id })
+            .await;
+        return;
+    }
     // J6: detect XEP-0084 avatar data result (PubSub items node='urn:xmpp:avatar:data')
     if el.attr("type") == Some("result") {
         let is_avatar_data = el.children().any(|c| {
