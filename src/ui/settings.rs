@@ -937,14 +937,9 @@ impl SettingsScreen {
         ];
         let tab_bar = tabs.iter().fold(row![].spacing(4), |r, tab| {
             let active = *tab == self.active_tab;
-            r.push(
-                segmented_btn(tab.label(), active)
-                    .on_press(Message::TabSelected(tab.clone())),
-            )
+            r.push(segmented_btn(tab.label(), active).on_press(Message::TabSelected(tab.clone())))
         });
-        let tab_bar_row = container(tab_bar)
-            .padding([6, 16])
-            .width(Length::Fill);
+        let tab_bar_row = container(tab_bar).padding([6, 16]).width(Length::Fill);
 
         // Build tab content: only the sections belonging to the active tab
         let mut tab_col: iced::widget::Column<Message> =

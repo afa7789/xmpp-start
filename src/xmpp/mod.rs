@@ -54,6 +54,7 @@ pub struct RosterContact {
 
 /// A chat message received from the server.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct IncomingMessage {
     pub id: String,
     pub from: String,
@@ -489,7 +490,11 @@ pub enum XmppCommand {
     OmemoEnable,
 
     /// Encrypt `body` for all trusted devices of `to` and send the result.
-    OmemoEncryptMessage { to: String, body: String, id: String },
+    OmemoEncryptMessage {
+        to: String,
+        body: String,
+        id: String,
+    },
 
     /// Mark `device_id` for `jid` as trusted by the user.
     OmemoTrustDevice { jid: String, device_id: u32 },

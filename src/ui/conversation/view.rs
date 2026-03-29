@@ -757,11 +757,8 @@ impl ConversationView {
                         (w as u16, max_dim as u16)
                     };
                     let handle = iced_image::Handle::from_bytes(thumb.data.clone());
-                    att_col = att_col.push(
-                        iced::widget::image(handle)
-                            .width(render_w)
-                            .height(render_h),
-                    );
+                    att_col =
+                        att_col.push(iced::widget::image(handle).width(render_w).height(render_h));
                 }
                 let att_row = row![
                     text(label).size(11).width(Length::Fill),

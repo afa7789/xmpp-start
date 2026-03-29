@@ -491,9 +491,15 @@ impl SidebarScreen {
                 let is_muted = self.muted_jids.contains(&c.jid);
                 let mute_indicator = if is_muted { " [M]" } else { "" };
                 let name_label = if has_draft {
-                    format!("{}{} {}{} [draft]", indicator, muc_prefix, display_name, mute_indicator)
+                    format!(
+                        "{}{} {}{} [draft]",
+                        indicator, muc_prefix, display_name, mute_indicator
+                    )
                 } else {
-                    format!("{}{} {}{}", indicator, muc_prefix, display_name, mute_indicator)
+                    format!(
+                        "{}{} {}{}",
+                        indicator, muc_prefix, display_name, mute_indicator
+                    )
                 };
 
                 // H5/H1: avatar image if available, otherwise colored initial (32x32)
@@ -695,9 +701,7 @@ impl SidebarScreen {
                     .padding([4, 8]);
                 menu_col = menu_col.push(switch_btn);
             }
-            let menu_col = menu_col
-            .spacing(2)
-            .padding(4);
+            let menu_col = menu_col.spacing(2).padding(4);
             let menu_panel =
                 container(menu_col)
                     .width(Length::Fill)

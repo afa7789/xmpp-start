@@ -549,7 +549,6 @@ mod tests {
         assert_eq!(s.theme, Theme::Light);
     }
 
-
     #[test]
     fn account_config_new_sets_password_key_equal_to_jid() {
         let account = AccountConfig::new("bob@xmpp.example.com");

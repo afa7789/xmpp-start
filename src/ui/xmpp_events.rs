@@ -61,8 +61,7 @@ pub(crate) fn handle(app: &mut App, event: XmppEvent) -> Task<Message> {
             // before the server fetch completes. Avatar is stored on disk,
             // not in settings JSON.
             if let Some(avatar_bytes) = crate::config::load_own_avatar() {
-                app.avatar_cache
-                    .insert(account_id.0.clone(), avatar_bytes);
+                app.avatar_cache.insert(account_id.0.clone(), avatar_bytes);
             }
             chat_screen.set_active_account(Some(account_id), unread);
             app.screen = Screen::Chat(Box::new(chat_screen));
@@ -240,7 +239,11 @@ pub(crate) fn handle(app: &mut App, event: XmppEvent) -> Task<Message> {
                 let notif_body: String = msg.body.chars().take(100).collect();
                 let is_encrypted = msg.is_encrypted;
                 tokio::spawn(async move {
-                    let _ = crate::notifications::notify_message(&notif_from, &notif_body, is_encrypted);
+                    let _ = crate::notifications::notify_message(
+                        &notif_from,
+                        &notif_body,
+                        is_encrypted,
+                    );
                 });
                 Task::none()
             } else {

@@ -659,7 +659,12 @@ pub(crate) async fn omemo_encrypt_and_send(
         payload: Some(enc_payload.ciphertext),
     };
 
-    Ok(build_encrypted_message(to, own_device_id, &encrypted_msg, id))
+    Ok(build_encrypted_message(
+        to,
+        own_device_id,
+        &encrypted_msg,
+        id,
+    ))
 }
 
 /// Attempt to decrypt an incoming OMEMO `<message>` stanza.

@@ -281,7 +281,9 @@ mod tests {
         el
     }
 
-    fn make_form_element(fields: Vec<tokio_xmpp::minidom::Element>) -> tokio_xmpp::minidom::Element {
+    fn make_form_element(
+        fields: Vec<tokio_xmpp::minidom::Element>,
+    ) -> tokio_xmpp::minidom::Element {
         let mut el = tokio_xmpp::minidom::Element::builder("x", "jabber:x:data")
             .attr("type", "form")
             .build();

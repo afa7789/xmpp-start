@@ -191,14 +191,18 @@ mod tests {
         conversation_repo::set_archived(&db.pool, "carol@example.com", true)
             .await
             .expect("set_archived failed");
-        let all2 = conversation_repo::get_all_for_account(&db.pool, "").await.unwrap();
+        let all2 = conversation_repo::get_all_for_account(&db.pool, "")
+            .await
+            .unwrap();
         let carol2 = all2.iter().find(|c| c.jid == "carol@example.com").unwrap();
         assert_eq!(carol2.archived, 1);
 
         conversation_repo::set_archived(&db.pool, "carol@example.com", false)
             .await
             .expect("unarchive failed");
-        let all3 = conversation_repo::get_all_for_account(&db.pool, "").await.unwrap();
+        let all3 = conversation_repo::get_all_for_account(&db.pool, "")
+            .await
+            .unwrap();
         let carol3 = all3.iter().find(|c| c.jid == "carol@example.com").unwrap();
         assert_eq!(carol3.archived, 0);
 
@@ -206,7 +210,9 @@ mod tests {
         conversation_repo::update_last_activity(&db.pool, "carol@example.com", 9_999_999)
             .await
             .expect("update_last_activity failed");
-        let all4 = conversation_repo::get_all_for_account(&db.pool, "").await.unwrap();
+        let all4 = conversation_repo::get_all_for_account(&db.pool, "")
+            .await
+            .unwrap();
         let carol4 = all4.iter().find(|c| c.jid == "carol@example.com").unwrap();
         assert_eq!(carol4.last_activity, Some(9_999_999));
     }
@@ -226,7 +232,9 @@ mod tests {
             .expect("upsert failed");
 
         // Default muted = 0.
-        let all = conversation_repo::get_all_for_account(&db.pool, "").await.unwrap();
+        let all = conversation_repo::get_all_for_account(&db.pool, "")
+            .await
+            .unwrap();
         let c = all.iter().find(|c| c.jid == "mute@example.com").unwrap();
         assert_eq!(c.muted, 0);
 
@@ -234,7 +242,9 @@ mod tests {
         conversation_repo::set_muted(&db.pool, "mute@example.com", true)
             .await
             .expect("set_muted(true) failed");
-        let all2 = conversation_repo::get_all_for_account(&db.pool, "").await.unwrap();
+        let all2 = conversation_repo::get_all_for_account(&db.pool, "")
+            .await
+            .unwrap();
         let c2 = all2.iter().find(|c| c.jid == "mute@example.com").unwrap();
         assert_eq!(c2.muted, 1);
 
@@ -242,7 +252,9 @@ mod tests {
         conversation_repo::set_muted(&db.pool, "mute@example.com", false)
             .await
             .expect("set_muted(false) failed");
-        let all3 = conversation_repo::get_all_for_account(&db.pool, "").await.unwrap();
+        let all3 = conversation_repo::get_all_for_account(&db.pool, "")
+            .await
+            .unwrap();
         let c3 = all3.iter().find(|c| c.jid == "mute@example.com").unwrap();
         assert_eq!(c3.muted, 0);
     }

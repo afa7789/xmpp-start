@@ -220,9 +220,6 @@ impl LoginScreen {
     pub fn jid(&self) -> &str {
         &self.jid
     }
-    pub fn password(&self) -> &str {
-        &self.password
-    }
     pub fn is_connecting(&self) -> bool {
         matches!(self.state, LoginState::Connecting)
     }

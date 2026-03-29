@@ -58,8 +58,8 @@ use crate::xmpp::{
     XmppEvent,
 };
 use account_state::AccountStateManager;
-use toast::{Toast, ToastKind};
 use palette as pal;
+use toast::{Toast, ToastKind};
 
 // F2: command palette entries — built once and searched via command_palette::search().
 fn palette_commands() -> Vec<command_palette::Command> {
@@ -349,10 +349,7 @@ impl App {
             Screen::Chat(chat) => {
                 if let Some(active_jid) = chat.active_jid() {
                     // Show the chat partner (bare JID local part or full JID)
-                    let display = active_jid
-                        .split('/')
-                        .next()
-                        .unwrap_or(active_jid);
+                    let display = active_jid.split('/').next().unwrap_or(active_jid);
                     format!("ReXisCe \u{2014} {display}")
                 } else {
                     // Connected but no conversation selected — show own JID
@@ -1041,8 +1038,7 @@ impl App {
                 // Persist archived=true to DB.
                 let pool = self.db.clone();
                 tokio::spawn(async move {
-                    let _ =
-                        crate::store::conversation_repo::set_archived(&pool, &jid, true).await;
+                    let _ = crate::store::conversation_repo::set_archived(&pool, &jid, true).await;
                 });
                 Task::none()
             }

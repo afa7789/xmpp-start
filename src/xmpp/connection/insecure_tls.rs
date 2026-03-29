@@ -74,7 +74,10 @@ impl ServerConnector for InsecureTlsConfig {
         tracing::info!("insecure_tls: TCP connected, starting XMPP stream");
 
         let xmpp_stream = XMPPStream::start(tcp_stream, jid.clone(), ns.to_owned()).await?;
-        tracing::info!("insecure_tls: XMPP stream started, can_starttls={}", xmpp_stream.stream_features.can_starttls());
+        tracing::info!(
+            "insecure_tls: XMPP stream started, can_starttls={}",
+            xmpp_stream.stream_features.can_starttls()
+        );
 
         if xmpp_stream.stream_features.can_starttls() {
             tracing::info!("insecure_tls: starting STARTTLS handshake");
@@ -109,9 +112,7 @@ async fn do_insecure_starttls(
             Some(Ok(Packet::Stanza(ref stanza))) if stanza.name() == "proceed" => break,
             Some(Ok(Packet::Text(_))) => {}
             Some(Ok(_)) => {
-                return Err(
-                    tokio_xmpp::Error::Protocol(tokio_xmpp::ProtocolError::NoTls).into(),
-                );
+                return Err(tokio_xmpp::Error::Protocol(tokio_xmpp::ProtocolError::NoTls).into());
             }
             Some(Err(e)) => return Err(InsecureError(e.into())),
             None => return Err(tokio_xmpp::Error::Disconnected.into()),
@@ -169,11 +170,7 @@ impl ServerConnector for PlainTcpConfig {
     type Stream = TcpStream;
     type Error = PlainError;
 
-    async fn connect(
-        &self,
-        jid: &Jid,
-        ns: &str,
-    ) -> Result<XMPPStream<Self::Stream>, PlainError> {
+    async fn connect(&self, jid: &Jid, ns: &str) -> Result<XMPPStream<Self::Stream>, PlainError> {
         let tcp_stream = TcpStream::connect((self.host.as_str(), self.port))
             .await
             .map_err(tokio_xmpp::Error::Io)?;

@@ -18,6 +18,9 @@ use tokio_xmpp::{AsyncClient, AsyncConfig, Event};
 /// Port exposed by docker-compose.test.yml.
 const TEST_PORT: u16 = 15222;
 
+/// Port for tests that use the live dev server (test-server/docker-compose.yml).
+const DEV_PORT: u16 = 5222;
+
 // ---- Server fixture -------------------------------------------------------
 
 /// Starts the Docker test server. Stops and removes it on drop.
@@ -102,10 +105,14 @@ impl Drop for Server {
 // ---- Helper ---------------------------------------------------------------
 
 fn make_client(user: &str, password: &str) -> AsyncClient<InsecureTlsConfig> {
+    make_client_on_port(user, password, TEST_PORT)
+}
+
+fn make_client_on_port(user: &str, password: &str, port: u16) -> AsyncClient<InsecureTlsConfig> {
     let jid: Jid = format!("{user}@localhost/e2e").parse().unwrap();
     let server = InsecureTlsConfig {
         host: "127.0.0.1".to_string(),
-        port: TEST_PORT,
+        port,
     };
     let mut client = AsyncClient::new_with_config(AsyncConfig {
         jid,
@@ -118,7 +125,7 @@ fn make_client(user: &str, password: &str) -> AsyncClient<InsecureTlsConfig> {
 
 async fn wait_online(client: &mut AsyncClient<InsecureTlsConfig>) -> String {
     let timeout = tokio::time::Duration::from_secs(10);
-    tokio::time::timeout(timeout, async {
+    let bound = tokio::time::timeout(timeout, async {
         while let Some(event) = client.next().await {
             match event {
                 Event::Online { bound_jid, .. } => return bound_jid.to_string(),
@@ -129,7 +136,18 @@ async fn wait_online(client: &mut AsyncClient<InsecureTlsConfig>) -> String {
         panic!("stream closed before Online event");
     })
     .await
-    .expect("timed out waiting for Online")
+    .expect("timed out waiting for Online");
+
+    // Send initial presence so the server considers us an "interested resource"
+    // and delivers stanzas to us (RFC 6121 §4.2).
+    let presence: tokio_xmpp::minidom::Element =
+        r#"<presence xmlns="jabber:client"/>"#.parse().unwrap();
+    client
+        .send_stanza(presence)
+        .await
+        .expect("failed to send initial presence");
+
+    bound
 }
 
 // ---- Tests ----------------------------------------------------------------
@@ -200,11 +218,7 @@ async fn e2e_alice_sends_message_to_bob() {
         .expect("alice failed to send");
 
     // Poll alice once to flush the stanza to the wire
-    let _ = tokio::time::timeout(
-        tokio::time::Duration::from_secs(2),
-        alice.next(),
-    )
-    .await;
+    let _ = tokio::time::timeout(tokio::time::Duration::from_secs(2), alice.next()).await;
 
     // Bob waits for the message stanza.
     let timeout = tokio::time::Duration::from_secs(10);
@@ -224,4 +238,241 @@ async fn e2e_alice_sends_message_to_bob() {
     .expect("timed out waiting for message at bob");
 
     assert_eq!(body.as_deref(), Some("hello from alice"));
+}
+
+// ---- Live dev server tests (port 5222) ------------------------------------
+// These require `cd test-server && make up` (persistent dev Prosody).
+
+/// Wait for a presence stanza from a specific JID (e.g. room/nick for MUC self-presence).
+async fn wait_for_presence(
+    client: &mut AsyncClient<InsecureTlsConfig>,
+    from_jid: &str,
+    timeout_secs: u64,
+) {
+    let timeout = tokio::time::Duration::from_secs(timeout_secs);
+    tokio::time::timeout(timeout, async {
+        while let Some(event) = client.next().await {
+            if let Event::Stanza(el) = event {
+                if el.name() == "presence" && el.attr("from") == Some(from_jid) {
+                    return;
+                }
+            }
+        }
+        panic!("stream closed without receiving presence from {from_jid}");
+    })
+    .await
+    .unwrap_or_else(|_| panic!("timed out waiting for presence from {from_jid}"));
+}
+
+/// Wait for a specific message body, skipping stale/unrelated stanzas.
+async fn wait_for_body(
+    client: &mut AsyncClient<InsecureTlsConfig>,
+    expected: &str,
+    timeout_secs: u64,
+) -> String {
+    let timeout = tokio::time::Duration::from_secs(timeout_secs);
+    tokio::time::timeout(timeout, async {
+        while let Some(event) = client.next().await {
+            if let Event::Stanza(el) = event {
+                if el.name() == "message" {
+                    if let Some(b) = el.get_child("body", "jabber:client") {
+                        let text = b.text();
+                        if text == expected {
+                            return text;
+                        }
+                    }
+                }
+            }
+        }
+        panic!("stream closed without receiving expected message");
+    })
+    .await
+    .expect("timed out waiting for message")
+}
+
+/// Alice adds Bob as a contact (roster push), sends a message, Bob receives it.
+#[tokio::test]
+#[ignore = "requires live dev server: cd test-server && make up"]
+async fn e2e_add_contact_send_message() {
+    let mut alice = make_client_on_port("alice", "alice123", DEV_PORT);
+    let mut bob = make_client_on_port("bob", "bob123", DEV_PORT);
+
+    let (_, _) = tokio::join!(wait_online(&mut alice), wait_online(&mut bob));
+
+    // Alice adds Bob to her roster.
+    let roster_add: tokio_xmpp::minidom::Element = r#"<iq type="set" xmlns="jabber:client">
+        <query xmlns="jabber:iq:roster">
+            <item jid="bob@localhost" name="Bob"/>
+        </query>
+    </iq>"#
+        .parse()
+        .unwrap();
+    alice
+        .send_stanza(roster_add)
+        .await
+        .expect("roster add failed");
+
+    // Alice subscribes to Bob's presence.
+    let subscribe: tokio_xmpp::minidom::Element =
+        r#"<presence to="bob@localhost" type="subscribe" xmlns="jabber:client"/>"#
+            .parse()
+            .unwrap();
+    alice
+        .send_stanza(subscribe)
+        .await
+        .expect("subscribe failed");
+
+    // Use unique body to avoid MAM replay confusion.
+    let unique_body = format!(
+        "contact-test-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+
+    // Alice sends a chat message to Bob.
+    let msg: tokio_xmpp::minidom::Element = format!(
+        r#"<message to="bob@localhost" type="chat" xmlns="jabber:client">
+            <body>{unique_body}</body>
+        </message>"#
+    )
+    .parse()
+    .unwrap();
+    alice.send_stanza(msg).await.expect("send failed");
+
+    // Poll both concurrently — alice flushes, bob waits for our unique message.
+    let expected = unique_body.clone();
+    let (_, body) = tokio::join!(
+        async { while let Some(_) = alice.next().await {} },
+        wait_for_body(&mut bob, &expected, 10)
+    );
+
+    assert_eq!(body, unique_body);
+}
+
+/// Alice joins a MUC room, sends a message, Bob (also in the room) receives it.
+#[tokio::test]
+#[ignore = "requires live dev server: cd test-server && make up"]
+async fn e2e_muc_join_send_message() {
+    let mut alice = make_client_on_port("alice", "alice123", DEV_PORT);
+    let mut bob = make_client_on_port("bob", "bob123", DEV_PORT);
+
+    let (_, _) = tokio::join!(wait_online(&mut alice), wait_online(&mut bob));
+
+    // Use a unique room name per test run.
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let room = format!("room{ts}@conference.localhost");
+    let unique_body = format!("muc-test-{ts}");
+
+    // Alice creates the room first. Use oneshot to signal bob when ready.
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+
+    let alice_join: tokio_xmpp::minidom::Element = format!(
+        r#"<presence to="{room}/alice" xmlns="jabber:client">
+            <x xmlns="http://jabber.org/protocol/muc"/>
+        </presence>"#
+    )
+    .parse()
+    .unwrap();
+    alice.send_stanza(alice_join).await.unwrap();
+
+    let alice_nick = format!("{room}/alice");
+    let expected = unique_body.clone();
+    let timeout = tokio::time::Duration::from_secs(15);
+
+    let (_, body) = tokio::join!(
+        // Alice: join → config → signal bob → send message.
+        async {
+            let mut state = 0u8;
+            let mut tx = Some(tx);
+            while let Some(event) = alice.next().await {
+                if let Event::Stanza(el) = &event {
+                    if state == 0
+                        && el.name() == "presence"
+                        && el.attr("from") == Some(alice_nick.as_str())
+                        && el.attr("type").is_none()
+                    {
+                        state = 1;
+                        let config: tokio_xmpp::minidom::Element = format!(
+                            r#"<iq to="{room}" type="set" xmlns="jabber:client">
+                                <query xmlns="http://jabber.org/protocol/muc#owner">
+                                    <x xmlns="jabber:x:data" type="submit"/>
+                                </query>
+                            </iq>"#
+                        )
+                        .parse()
+                        .unwrap();
+                        alice.send_stanza(config).await.unwrap();
+                        continue;
+                    }
+                    if state == 1 && el.name() == "iq" && el.attr("type") == Some("result") {
+                        eprintln!("[alice] room ready, signaling bob");
+                        state = 2;
+                        if let Some(s) = tx.take() {
+                            let _ = s.send(());
+                        }
+                        continue;
+                    }
+                    // After bob joins, alice sees bob's presence. Then send message.
+                    if state == 2
+                        && el.name() == "presence"
+                        && el.attr("from") == Some(&format!("{room}/bob")[..])
+                        && el.attr("type").is_none()
+                    {
+                        eprintln!("[alice] bob is in room, sending message");
+                        state = 3;
+                        let msg: tokio_xmpp::minidom::Element = format!(
+                            r#"<message to="{room}" type="groupchat" xmlns="jabber:client">
+                                <body>{unique_body}</body>
+                            </message>"#
+                        )
+                        .parse()
+                        .unwrap();
+                        alice.send_stanza(msg).await.unwrap();
+                        continue;
+                    }
+                }
+            }
+        },
+        // Bob: wait for alice signal → join → wait for message.
+        async {
+            tokio::time::timeout(timeout, async {
+                // Wait for alice to create and configure the room.
+                let _ = rx.await;
+                eprintln!("[bob] alice ready, sending join");
+
+                let bob_join: tokio_xmpp::minidom::Element = format!(
+                    r#"<presence to="{room}/bob" xmlns="jabber:client">
+                        <x xmlns="http://jabber.org/protocol/muc"/>
+                    </presence>"#
+                )
+                .parse()
+                .unwrap();
+                bob.send_stanza(bob_join).await.unwrap();
+
+                // Now poll for the message, skipping join presence and stale events.
+                while let Some(event) = bob.next().await {
+                    if let Event::Stanza(el) = event {
+                        if el.name() == "message" {
+                            if let Some(b) = el.get_child("body", "jabber:client") {
+                                let text = b.text();
+                                if text == expected {
+                                    return text;
+                                }
+                            }
+                        }
+                    }
+                }
+                panic!("stream closed");
+            })
+            .await
+            .expect("timed out waiting for MUC message at bob")
+        }
+    );
+
+    assert_eq!(body, unique_body);
 }

@@ -1090,7 +1090,8 @@ async fn handle_client_event(
                     before: None,
                 },
             };
-            ctx.outbox.push_back(ctx.mam_mgr.build_query_iq(catchup_query));
+            ctx.outbox
+                .push_back(ctx.mam_mgr.build_query_iq(catchup_query));
             tracing::info!("mam: triggered post-connect catchup (query_id={server_query_id})");
 
             // D4: fetch bookmarks from private XML storage (XEP-0048)
@@ -1192,11 +1193,7 @@ async fn dispatch_stanza(
     // FIX: returns true when this message id is new (not yet seen).
     // Empty ids bypass dedup (no stable key).  Evicts oldest entry when
     // the cache reaches 500 to bound memory.
-    fn is_new_msg_id(
-        id: &str,
-        seen: &mut HashSet<String>,
-        order: &mut VecDeque<String>,
-    ) -> bool {
+    fn is_new_msg_id(id: &str, seen: &mut HashSet<String>, order: &mut VecDeque<String>) -> bool {
         const LIMIT: usize = 500;
         if id.is_empty() {
             return true;
@@ -1289,7 +1286,10 @@ async fn dispatch_stanza(
             // D3: XEP-0045 groupchat message — route through MucManager
             if let Some(muc_msg) = ctx.muc_mgr.on_groupchat_message(&el) {
                 // DC-10: drop messages from ignored occupants (check nick, not room JID)
-                if ctx.ignore_mgr.is_ignored(&muc_msg.room_jid, &muc_msg.from_nick) {
+                if ctx
+                    .ignore_mgr
+                    .is_ignored(&muc_msg.room_jid, &muc_msg.from_nick)
+                {
                     tracing::debug!(
                         "ignore: dropped MUC message from nick {:?} in {}",
                         muc_msg.from_nick,
@@ -1348,11 +1348,9 @@ async fn dispatch_stanza(
                 let own_bare_jid = ctx.own_jid_str.split('/').next().unwrap_or(ctx.own_jid_str);
                 if !own_bare_jid.is_empty() {
                     let carbon_from = el.attr("from").unwrap_or("");
-                    let carbon_bare_from =
-                        carbon_from.split('/').next().unwrap_or(carbon_from);
+                    let carbon_bare_from = carbon_from.split('/').next().unwrap_or(carbon_from);
                     let is_carbon = el.children().any(|c| {
-                        (c.name() == "sent" || c.name() == "received")
-                            && c.ns() == NS_CARBONS
+                        (c.name() == "sent" || c.name() == "received") && c.ns() == NS_CARBONS
                     });
                     if is_carbon && carbon_bare_from != own_bare_jid {
                         tracing::debug!(
@@ -1420,8 +1418,9 @@ async fn dispatch_stanza(
                     let from_jid = el.attr("from").unwrap_or("").to_string();
                     if let Some(info) = ctx.avatar_mgr.on_avatar_metadata_event(&from_jid, &el) {
                         // Fetch the actual avatar data
-                        let fetch_iq =
-                            ctx.avatar_mgr.build_avatar_data_request(&info.jid, &info.sha1);
+                        let fetch_iq = ctx
+                            .avatar_mgr
+                            .build_avatar_data_request(&info.jid, &info.sha1);
                         ctx.outbox.push_back(fetch_iq);
                         tracing::debug!("avatar: fetching XEP-0084 data for {from_jid}");
                     }
@@ -1502,11 +1501,8 @@ async fn dispatch_stanza(
                                 // Route decrypted message through the normal
                                 // MessageReceived path so it appears in
                                 // notifications and sidebar preview.
-                                if is_new_msg_id(
-                                    &msg_id,
-                                    ctx.seen_msg_ids,
-                                    ctx.seen_msg_ids_order,
-                                ) {
+                                if is_new_msg_id(&msg_id, ctx.seen_msg_ids, ctx.seen_msg_ids_order)
+                                {
                                     let _ = event_tx
                                         .send(XmppEvent::MessageReceived(IncomingMessage {
                                             id: msg_id,
@@ -1522,8 +1518,7 @@ async fn dispatch_stanza(
                                 if new_device {
                                     let sender_device_id = {
                                         use crate::xmpp::modules::omemo::message::parse_encrypted_message;
-                                        parse_encrypted_message(&el)
-                                            .map_or(0, |e| e.header.sid)
+                                        parse_encrypted_message(&el).map_or(0, |e| e.header.sid)
                                     };
                                     let _ = event_tx
                                         .send(XmppEvent::OmemoNewDeviceDetected {
@@ -1533,16 +1528,14 @@ async fn dispatch_stanza(
                                         .await;
                                 }
                                 // Check pre-key stock and replenish if below threshold.
-                                omemo_check_prekey_rotation(mgr, ctx.account_jid, ctx.outbox)
-                                    .await;
+                                omemo_check_prekey_rotation(mgr, ctx.account_jid, ctx.outbox).await;
                             }
                             Ok(None) => {
                                 tracing::debug!(
                                     "omemo: key-transport message (no payload), ignored"
                                 );
                                 // A key-transport also consumes a pre-key -- check rotation.
-                                omemo_check_prekey_rotation(mgr, ctx.account_jid, ctx.outbox)
-                                    .await;
+                                omemo_check_prekey_rotation(mgr, ctx.account_jid, ctx.outbox).await;
                             }
                             Err(e) => {
                                 tracing::warn!("omemo: decrypt failed from {from}: {e}");
